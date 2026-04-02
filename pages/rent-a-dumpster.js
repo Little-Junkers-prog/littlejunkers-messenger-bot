@@ -180,6 +180,24 @@ const sizeMeta = {
   },
 };
 
+const comparisonMeta = {
+  "11 Yard": {
+    truckLoads: "4–5 pickup loads",
+    projectScale: "Small",
+    bestUse: "Garage cleanouts, roofing, dense debris",
+  },
+  "16 Yard": {
+    truckLoads: "6–7 pickup loads",
+    projectScale: "Medium",
+    bestUse: "Moving, decluttering, mixed cleanup",
+  },
+  "21 Yard": {
+    truckLoads: "8–10 pickup loads",
+    projectScale: "Large",
+    bestUse: "Renovation, demo, bulky cleanouts",
+  },
+};
+
 const basePricing = {
   "11 Yard": {
     "Early Bird": 225,
@@ -262,7 +280,6 @@ export default function Funnel() {
   const areaLabel = getAreaLabel(zip);
   const effectiveSize = overrideSize || size;
   const isReturningQuick = customerType === "Returning" && returningPath === "quick";
-  const showRecommendationContext = !isReturningQuick && !!size;
 
   const recommendation = useMemo(() => {
     return getRecommendation(customerType, project, otherText);
@@ -469,7 +486,11 @@ export default function Funnel() {
     <div style={styles.page}>
       <div style={styles.shell}>
         <div style={styles.heroBanner}>
-          <div style={styles.logoText}>Little Junkers</div>
+          <img
+            src="/little-junkers-logo.png"
+            alt="Little Junkers logo"
+            style={styles.logoImage}
+          />
           <h1 style={styles.heroTitle}>Dumpster Rental Recommendation Tool</h1>
           <p style={styles.heroSubtitle}>
             Tell us about your project and we’ll point you toward the right dumpster,
@@ -528,6 +549,8 @@ export default function Funnel() {
                   Check My Area
                 </button>
               </div>
+
+              <TrustFooter />
             </>
           )}
 
@@ -564,6 +587,8 @@ export default function Funnel() {
                   />
                 ))}
               </div>
+
+              <TrustFooter />
             </>
           )}
 
@@ -588,6 +613,8 @@ export default function Funnel() {
                   onClick={() => handleReturningPath("recommend")}
                 />
               </div>
+
+              <TrustFooter />
             </>
           )}
 
@@ -675,6 +702,8 @@ export default function Funnel() {
                   </button>
                 </div>
               )}
+
+              <TrustFooter />
             </>
           )}
 
@@ -725,6 +754,66 @@ export default function Funnel() {
                 </div>
               )}
 
+              {!isReturningQuick && effectiveSize && (
+                <div style={styles.comparisonBox}>
+                  <div style={styles.comparisonTitle}>Compare size options</div>
+                  <div style={styles.comparisonSubtitle}>
+                    Here’s how the recommended size compares to the other options before you continue.
+                  </div>
+
+                  <div style={styles.comparisonGrid}>
+                    {allSizes.map((sizeKey) => {
+                      const isRecommended = sizeKey === size;
+                      const isSelected = effectiveSize === sizeKey;
+
+                      return (
+                        <button
+                          key={sizeKey}
+                          onClick={() => handleSizeSelect(sizeKey)}
+                          style={{
+                            ...styles.comparisonCard,
+                            ...(isRecommended ? styles.comparisonCardRecommended : {}),
+                            ...(isSelected ? styles.comparisonCardSelected : {}),
+                          }}
+                        >
+                          <div style={styles.comparisonTopRow}>
+                            <div style={styles.comparisonSize}>{sizeKey}</div>
+                            {isRecommended ? (
+                              <span style={styles.comparisonTag}>Recommended</span>
+                            ) : null}
+                          </div>
+
+                          <div style={styles.comparisonMetric}>
+                            <span style={styles.comparisonMetricLabel}>Project Scale</span>
+                            <strong>{comparisonMeta[sizeKey].projectScale}</strong>
+                          </div>
+
+                          <div style={styles.comparisonMetric}>
+                            <span style={styles.comparisonMetricLabel}>Truck Load Equivalent</span>
+                            <strong>{comparisonMeta[sizeKey].truckLoads}</strong>
+                          </div>
+
+                          <div style={styles.comparisonMetric}>
+                            <span style={styles.comparisonMetricLabel}>Included Weight</span>
+                            <strong>{sizeMeta[sizeKey].label}</strong>
+                          </div>
+
+                          <div style={styles.comparisonUse}>
+                            <strong>Best for:</strong> {comparisonMeta[sizeKey].bestUse}
+                          </div>
+
+                          {isSelected ? (
+                            <div style={styles.selectedIndicator}>Selected</div>
+                          ) : (
+                            <div style={styles.selectPrompt}>Tap to choose this size</div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {customerType === "Contractor" && project === "Roofing" ? (
                 <div style={styles.warningStrip}>
                   <strong>Roofing note:</strong> Roofing debris gets heavy quickly, so we bias
@@ -732,44 +821,48 @@ export default function Funnel() {
                 </div>
               ) : null}
 
-              <div style={styles.optionGrid}>
-                {allSizes.map((sizeKey) => {
-                  const isRecommended = !isReturningQuick && sizeKey === size;
-                  const isSelected = effectiveSize === sizeKey;
+              {(isReturningQuick || !effectiveSize) && (
+                <div style={styles.optionGrid}>
+                  {allSizes.map((sizeKey) => {
+                    const isRecommended = !isReturningQuick && sizeKey === size;
+                    const isSelected = effectiveSize === sizeKey;
 
-                  return (
-                    <button
-                      key={sizeKey}
-                      onClick={() => handleSizeSelect(sizeKey)}
-                      style={{
-                        ...styles.sizeCard,
-                        ...(isSelected ? styles.optionCardSelected : {}),
-                        ...(isRecommended ? styles.recommendedCard : {}),
-                      }}
-                    >
-                      <div style={styles.optionTop}>
-                        <div>
-                          <div style={styles.optionTitle}>{sizeKey}</div>
-                          <div style={styles.optionSub}>{sizeMeta[sizeKey].short}</div>
+                    return (
+                      <button
+                        key={sizeKey}
+                        onClick={() => handleSizeSelect(sizeKey)}
+                        style={{
+                          ...styles.sizeCard,
+                          ...(isSelected ? styles.optionCardSelected : {}),
+                          ...(isRecommended ? styles.recommendedCard : {}),
+                        }}
+                      >
+                        <div style={styles.optionTop}>
+                          <div>
+                            <div style={styles.optionTitle}>{sizeKey}</div>
+                            <div style={styles.optionSub}>{sizeMeta[sizeKey].short}</div>
+                          </div>
+                          {isRecommended ? <span style={styles.tag}>Recommended</span> : null}
                         </div>
-                        {isRecommended ? <span style={styles.tag}>Recommended</span> : null}
-                      </div>
 
-                      <div style={styles.sizeMetaRow}>
-                        <span style={styles.tonnagePill}>{sizeMeta[sizeKey].label}</span>
-                      </div>
+                        <div style={styles.sizeMetaRow}>
+                          <span style={styles.tonnagePill}>{sizeMeta[sizeKey].label}</span>
+                        </div>
 
-                      <div style={styles.sizeBestFor}>
-                        <strong>Best for:</strong> {sizeMeta[sizeKey].bestFor}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+                        <div style={styles.sizeBestFor}>
+                          <strong>Best for:</strong> {sizeMeta[sizeKey].bestFor}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               <button onClick={handleContinueFromStep4} style={styles.primaryButton}>
                 Continue
               </button>
+
+              <TrustFooter />
             </>
           )}
 
@@ -825,6 +918,8 @@ export default function Funnel() {
                   );
                 })}
               </div>
+
+              <TrustFooter />
             </>
           )}
 
@@ -912,6 +1007,8 @@ export default function Funnel() {
                   Submit Request
                 </button>
               </div>
+
+              <TrustFooter />
             </>
           )}
         </main>
@@ -946,6 +1043,18 @@ function OptionCard({ title, sub, tag, selected, onClick }) {
         {tag ? <span style={styles.tag}>{tag}</span> : null}
       </div>
     </button>
+  );
+}
+
+function TrustFooter() {
+  return (
+    <div style={styles.trustFooter}>
+      <div style={styles.trustFooterTitle}>Local. Responsive. South Atlanta focused.</div>
+      <div style={styles.trustFooterText}>Peachtree City, GA</div>
+      <a href="tel:4708136270" style={styles.trustFooterLink}>
+        470-813-6270
+      </a>
+    </div>
   );
 }
 
@@ -1031,6 +1140,7 @@ function getRecommendation(customerType, project, otherText = "") {
         note:
           "It gives you flexibility without overshooting the project size too early.",
         };
+      }
     }
 
     return {
@@ -1226,13 +1336,13 @@ const styles = {
     textAlign: "center",
     boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
   },
-  logoText: {
-    fontSize: 16,
-    fontWeight: 800,
-    color: COLORS.charcoalDark,
-    marginBottom: 10,
-    letterSpacing: 0.4,
-    fontFamily: FONT_STACK,
+  logoImage: {
+    display: "block",
+    margin: "0 auto 16px auto",
+    width: "100%",
+    maxWidth: 240,
+    height: "auto",
+    objectFit: "contain",
   },
   heroTitle: {
     fontSize: 30,
@@ -1498,6 +1608,109 @@ const styles = {
     color: COLORS.charcoalDark,
     fontFamily: FONT_STACK,
   },
+  comparisonBox: {
+    background: COLORS.grayLight,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 12,
+    padding: 18,
+    marginBottom: 18,
+  },
+  comparisonTitle: {
+    fontSize: 18,
+    fontWeight: 900,
+    color: COLORS.charcoalDark,
+    fontFamily: FONT_STACK,
+    marginBottom: 6,
+  },
+  comparisonSubtitle: {
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: COLORS.gray,
+    fontFamily: FONT_STACK,
+    marginBottom: 14,
+  },
+  comparisonGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 12,
+  },
+  comparisonCard: {
+    textAlign: "left",
+    background: COLORS.white,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 12,
+    padding: 14,
+    cursor: "pointer",
+    fontFamily: FONT_STACK,
+  },
+  comparisonCardRecommended: {
+    border: `1px solid ${COLORS.charcoalDark}`,
+    boxShadow: "0 4px 10px rgba(0,0,0,0.04)",
+  },
+  comparisonCardSelected: {
+    boxShadow: "0 0 0 2px rgba(58,58,58,0.12)",
+  },
+  comparisonTopRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 8,
+    marginBottom: 12,
+  },
+  comparisonSize: {
+    fontSize: 20,
+    fontWeight: 900,
+    color: COLORS.charcoalDark,
+    fontFamily: FONT_STACK,
+    letterSpacing: "-0.4px",
+  },
+  comparisonTag: {
+    background: COLORS.pink,
+    color: COLORS.charcoalDark,
+    fontSize: 11,
+    fontWeight: 800,
+    padding: "5px 8px",
+    borderRadius: 999,
+    whiteSpace: "nowrap",
+    fontFamily: FONT_STACK,
+  },
+  comparisonMetric: {
+    display: "grid",
+    gap: 2,
+    marginBottom: 10,
+    color: COLORS.charcoalDark,
+    fontFamily: FONT_STACK,
+    fontSize: 13,
+    lineHeight: 1.4,
+  },
+  comparisonMetricLabel: {
+    color: COLORS.gray,
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    fontWeight: 700,
+  },
+  comparisonUse: {
+    fontSize: 13,
+    lineHeight: 1.5,
+    color: COLORS.gray,
+    fontFamily: FONT_STACK,
+    marginTop: 6,
+  },
+  selectedIndicator: {
+    marginTop: 12,
+    fontSize: 12,
+    fontWeight: 800,
+    color: COLORS.charcoalDark,
+    fontFamily: FONT_STACK,
+  },
+  selectPrompt: {
+    marginTop: 12,
+    fontSize: 12,
+    fontWeight: 700,
+    color: COLORS.gray,
+    fontFamily: FONT_STACK,
+  },
   warningStrip: {
     background: COLORS.warningBg,
     border: `1px solid ${COLORS.warningBorder}`,
@@ -1659,6 +1872,32 @@ const styles = {
     color: "#b3261e",
     fontSize: 14,
     lineHeight: 1.5,
+    fontFamily: FONT_STACK,
+  },
+  trustFooter: {
+    marginTop: 18,
+    paddingTop: 16,
+    borderTop: `1px solid ${COLORS.border}`,
+    textAlign: "center",
+  },
+  trustFooterTitle: {
+    fontSize: 13,
+    fontWeight: 800,
+    color: COLORS.charcoalDark,
+    marginBottom: 4,
+    fontFamily: FONT_STACK,
+  },
+  trustFooterText: {
+    fontSize: 14,
+    color: COLORS.gray,
+    marginBottom: 6,
+    fontFamily: FONT_STACK,
+  },
+  trustFooterLink: {
+    fontSize: 16,
+    fontWeight: 900,
+    color: COLORS.charcoalDark,
+    textDecoration: "none",
     fontFamily: FONT_STACK,
   },
 };
