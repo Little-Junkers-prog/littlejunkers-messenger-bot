@@ -164,18 +164,21 @@ const sizeMeta = {
     label: "Includes 1 ton",
     bestFor: "Small cleanouts, garage/basement jobs, weight-conscious loads",
     short: "Best for smaller jobs and heavier debris control",
+    height: "3.5'",
   },
   "16 Yard": {
     tons: 1.5,
     label: "Includes 1.5 tons",
     bestFor: "Moving, decluttering, mixed cleanup, all-around use",
     short: "Best all-around option for most mixed projects",
+    height: "4.5'",
   },
   "21 Yard": {
     tons: 2,
     label: "Includes 2 tons",
     bestFor: "Renovation, demo, bulky cleanouts, larger jobs",
     short: "Best for bigger projects with more volume",
+    height: "6'",
   },
 };
 
@@ -195,6 +198,12 @@ const comparisonMeta = {
     projectScale: "Large",
     bestUse: "Renovation, demo, bulky cleanouts",
   },
+};
+
+const DUMPSTER_IMAGES = {
+  "11 Yard": "/11-yard image.png",
+  "16 Yard": "/16-yard image.png",
+  "21 Yard": "/21-yard image.png",
 };
 
 const basePricing = {
@@ -289,7 +298,7 @@ export default function Funnel() {
     1: "Customer Type",
     2: "Path",
     3: "Project Type",
-    4: "Recommendation",
+    4: "Precision Match",
     5: "Rental Option",
     6: "Contact Info",
   }[step];
@@ -461,32 +470,21 @@ export default function Funnel() {
   return (
     <div style={styles.page}>
       <div style={styles.shell}>
-        <div style={styles.heroBanner}>
-          <img
-            src="/little-junkers-logo.png"
-            alt="Little Junkers logo"
-            style={styles.logoImage}
-          />
-          <h1 style={styles.heroTitle}>Dumpster Rental Recommendation Tool</h1>
-          <p style={styles.heroSubtitle}>
-            Tell us about your project and we’ll point you toward the right dumpster,
-            right rental option, and pricing for your area.
-          </p>
-        </div>
-
-        <div style={styles.progressWrap}>
-          <div style={styles.progressMeta}>
-            <span style={styles.progressStep}>
-              Step {currentVisualStep} of {visibleTotalSteps}
-            </span>
-            <span style={styles.progressLabel}>{stepLabel}</span>
-          </div>
-          <div style={styles.progressBar}>
-            <div style={{ ...styles.progressFill, width: `${progressPercent}%` }} />
-          </div>
-        </div>
+        <Header />
 
         <main style={styles.card}>
+          <div style={styles.cardProgressWrap}>
+            <div style={styles.progressMeta}>
+              <span style={styles.progressStep}>
+                Step {currentVisualStep} of {visibleTotalSteps}
+              </span>
+              <span style={styles.progressLabel}>{stepLabel}</span>
+            </div>
+            <div style={styles.progressBar}>
+              <div style={{ ...styles.progressFill, width: `${progressPercent}%` }} />
+            </div>
+          </div>
+
           {step > 0 && (
             <div style={styles.topRow}>
               <button onClick={goBack} style={styles.backButton}>
@@ -520,8 +518,6 @@ export default function Funnel() {
                   Check My Area
                 </button>
               </div>
-
-              <TrustFooter />
             </>
           )}
 
@@ -549,8 +545,6 @@ export default function Funnel() {
                   />
                 ))}
               </div>
-
-              <TrustFooter />
             </>
           )}
 
@@ -558,7 +552,7 @@ export default function Funnel() {
             <>
               <SectionTitle
                 title="Choose how you want to proceed"
-                text="Move fast if you already know your size, or let the tool recommend the best fit for this job."
+                text="Move fast if you already know your size, or let the tool match the best fit for this job."
               />
 
               <div style={styles.optionGrid}>
@@ -569,14 +563,12 @@ export default function Funnel() {
                   onClick={() => handleReturningPath("quick")}
                 />
                 <OptionCard
-                  title="Recommend for Me"
-                  sub="Guide me based on this project"
+                  title="Guide Me"
+                  sub="Use this project to size it correctly"
                   selected={returningPath === "recommend"}
                   onClick={() => handleReturningPath("recommend")}
                 />
               </div>
-
-              <TrustFooter />
             </>
           )}
 
@@ -592,7 +584,7 @@ export default function Funnel() {
                 }
                 text={
                   customerType === "Contractor"
-                    ? "We’ll filter out unsupported material and recommend the best container for the job."
+                    ? "We’ll filter out unsupported material and match the best container for the job."
                     : "Choose the option that’s closest to your current project so we can size it correctly."
                 }
               />
@@ -659,53 +651,61 @@ export default function Funnel() {
                   </button>
                 </div>
               )}
-
-              <TrustFooter />
             </>
           )}
 
           {step === 4 && (
             <>
               <SectionTitle
-                title={
-                  isReturningQuick
-                    ? "Choose your dumpster size"
-                    : "Your recommended dumpster"
-                }
+                title={isReturningQuick ? "Choose your dumpster size" : "Precision Match"}
                 text={
                   isReturningQuick
                     ? "Select the size you want and we’ll show the rental options and pricing next."
-                    : "Based on the project details you entered, here’s the container we’d put in front of you first."
+                    : "Based on the project details you entered, this is the strongest fit to start with."
                 }
               />
 
               {!isReturningQuick && effectiveSize && (
-                <div style={styles.recoBox}>
-                  <div style={styles.diagnosticLabel}>Expert Diagnostic Result</div>
-                  <div style={styles.recoSize}>{effectiveSize}</div>
-                  <div style={styles.recoMetaRow}>
-                    <span style={styles.tonnagePill}>
-                      {sizeMeta[effectiveSize]?.label || ""}
-                    </span>
-                    <span style={styles.recoProjectTag}>Project Fit</span>
-                  </div>
+                <div style={styles.matchShell}>
+                  <div style={styles.matchPaneLeft}>
+                    <div style={styles.matchLabel}>Calculated Project Match</div>
+                    <div style={styles.recoSize}>{effectiveSize}</div>
 
-                  <div style={styles.recoBody}>
-                    <div style={styles.recoSubTitle}>What this size is built for</div>
+                    <div style={styles.recoMetaRow}>
+                      <span style={styles.tonnagePill}>
+                        {sizeMeta[effectiveSize]?.label || ""}
+                      </span>
+                    </div>
+
+                    <div style={styles.recoSubTitle}>What this size holds</div>
                     <ul style={styles.capacityList}>
                       {recommendation.holds.map((item) => (
                         <li key={item}>{item}</li>
                       ))}
                     </ul>
 
-                    <p style={styles.recoText}>{recommendation.reason}</p>
+                    <div style={styles.logicBox}>
+                      <div style={styles.logicTitle}>Why this works</div>
+                      <p style={styles.recoText}>{recommendation.reason}</p>
+                      <div style={styles.recoCallout}>{recommendation.note}</div>
+                    </div>
+                  </div>
 
-                    <div style={styles.recoCallout}>
-                      <strong>Why this recommendation works:</strong> {recommendation.note}
+                  <div style={styles.matchPaneRight}>
+                    <div style={styles.imageFrame}>
+                      <img
+                        src={DUMPSTER_IMAGES[effectiveSize]}
+                        alt={`${effectiveSize} dumpster`}
+                        style={styles.dumpsterImage}
+                      />
                     </div>
 
-                    <div style={styles.socialProof}>
-                      ✓ Recommended for your project scale based on typical debris volume.
+                    <div style={styles.dimensionCard}>
+                      <div style={styles.dimensionTitle}>Container Footprint</div>
+                      <div style={styles.dimensionLine}>12' L x 7.5' W</div>
+                      <div style={styles.dimensionLine}>
+                        Height: {sizeMeta[effectiveSize]?.height || "-"}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -715,28 +715,27 @@ export default function Funnel() {
                 <div style={styles.comparisonBox}>
                   <div style={styles.comparisonTitle}>Compare size options</div>
                   <div style={styles.comparisonSubtitle}>
-                    Here’s how the recommended size compares to the other options before you continue.
+                    Review the other size options before you continue.
                   </div>
 
                   <div style={styles.comparisonGrid}>
                     {allSizes.map((sizeKey) => {
-                      const isRecommended = sizeKey === size;
+                      const isMatch = sizeKey === size;
                       const isSelected = effectiveSize === sizeKey;
 
                       return (
-                        <button
+                        <div
                           key={sizeKey}
-                          onClick={() => handleSizeSelect(sizeKey)}
                           style={{
                             ...styles.comparisonCard,
-                            ...(isRecommended ? styles.comparisonCardRecommended : {}),
+                            ...(isMatch ? styles.comparisonCardMatch : {}),
                             ...(isSelected ? styles.comparisonCardSelected : {}),
                           }}
                         >
                           <div style={styles.comparisonTopRow}>
                             <div style={styles.comparisonSize}>{sizeKey}</div>
-                            {isRecommended ? (
-                              <span style={styles.comparisonTag}>Recommended</span>
+                            {isMatch ? (
+                              <span style={styles.comparisonTag}>Your Match</span>
                             ) : null}
                           </div>
 
@@ -762,9 +761,14 @@ export default function Funnel() {
                           {isSelected ? (
                             <div style={styles.selectedIndicator}>Selected</div>
                           ) : (
-                            <div style={styles.selectPrompt}>Tap to choose this size</div>
+                            <button
+                              onClick={() => handleSizeSelect(sizeKey)}
+                              style={styles.selectButton}
+                            >
+                              Select
+                            </button>
                           )}
-                        </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -781,7 +785,7 @@ export default function Funnel() {
               {(isReturningQuick || !effectiveSize) && (
                 <div style={styles.optionGrid}>
                   {allSizes.map((sizeKey) => {
-                    const isRecommended = !isReturningQuick && sizeKey === size;
+                    const isMatch = !isReturningQuick && sizeKey === size;
                     const isSelected = effectiveSize === sizeKey;
 
                     return (
@@ -791,7 +795,7 @@ export default function Funnel() {
                         style={{
                           ...styles.sizeCard,
                           ...(isSelected ? styles.optionCardSelected : {}),
-                          ...(isRecommended ? styles.recommendedCard : {}),
+                          ...(isMatch ? styles.recommendedCard : {}),
                         }}
                       >
                         <div style={styles.optionTop}>
@@ -799,7 +803,7 @@ export default function Funnel() {
                             <div style={styles.optionTitle}>{sizeKey}</div>
                             <div style={styles.optionSub}>{sizeMeta[sizeKey].short}</div>
                           </div>
-                          {isRecommended ? <span style={styles.tag}>Recommended</span> : null}
+                          {isMatch ? <span style={styles.tag}>Best Fit</span> : null}
                         </div>
 
                         <div style={styles.sizeMetaRow}>
@@ -818,8 +822,6 @@ export default function Funnel() {
               <button onClick={handleContinueFromStep4} style={styles.primaryButton}>
                 Continue
               </button>
-
-              <TrustFooter />
             </>
           )}
 
@@ -875,8 +877,6 @@ export default function Funnel() {
                   );
                 })}
               </div>
-
-              <TrustFooter />
             </>
           )}
 
@@ -964,12 +964,44 @@ export default function Funnel() {
                   Submit Request
                 </button>
               </div>
-
-              <TrustFooter />
             </>
           )}
+
+          <CardFooter />
         </main>
       </div>
+    </div>
+  );
+}
+
+function Header() {
+  return (
+    <header style={styles.header}>
+      <div style={styles.headerLeft}>
+        <img
+          src="/little-junkers-logo.png"
+          alt="Little Junkers logo"
+          style={styles.headerLogo}
+        />
+      </div>
+
+      <div style={styles.headerRight}>
+        <div style={styles.headerMetaPrimary}>Peachtree City, GA</div>
+        <a href="tel:4708136270" style={styles.headerMetaLink}>
+          470-813-6270
+        </a>
+      </div>
+    </header>
+  );
+}
+
+function CardFooter() {
+  return (
+    <div style={styles.cardFooter}>
+      <div style={styles.cardFooterTitle}>Little Junkers • Peachtree City, GA</div>
+      <a href="tel:4708136270" style={styles.cardFooterLink}>
+        470-813-6270
+      </a>
     </div>
   );
 }
@@ -1000,18 +1032,6 @@ function OptionCard({ title, sub, tag, selected, onClick }) {
         {tag ? <span style={styles.tag}>{tag}</span> : null}
       </div>
     </button>
-  );
-}
-
-function TrustFooter() {
-  return (
-    <div style={styles.trustFooter}>
-      <div style={styles.trustFooterTitle}>Local. Responsive. South Atlanta focused.</div>
-      <div style={styles.trustFooterText}>Peachtree City, GA</div>
-      <a href="tel:4708136270" style={styles.trustFooterLink}>
-        470-813-6270
-      </a>
-    </div>
   );
 }
 
@@ -1275,47 +1295,65 @@ const styles = {
   page: {
     minHeight: "100vh",
     background: COLORS.white,
-    padding: "36px 16px",
+    padding: "24px 16px 36px",
     color: COLORS.charcoalDark,
     fontFamily: FONT_STACK,
   },
   shell: {
-    maxWidth: 760,
+    maxWidth: 1100,
     margin: "0 auto",
   },
-  heroBanner: {
-    background: COLORS.white,
-    borderBottom: `4px solid ${COLORS.pink}`,
-    borderRadius: 12,
-    padding: "24px 20px",
-    marginBottom: 24,
-    textAlign: "center",
-    boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 16,
+    paddingBottom: 16,
+    marginBottom: 20,
+    borderBottom: `1px solid ${COLORS.border}`,
+    flexWrap: "wrap",
   },
-  logoImage: {
-    display: "block",
-    margin: "0 auto 16px auto",
+  headerLeft: {
+    display: "flex",
+    alignItems: "center",
+    minWidth: 0,
+  },
+  headerLogo: {
     width: "100%",
-    maxWidth: 240,
+    maxWidth: 140,
     height: "auto",
     objectFit: "contain",
+    display: "block",
   },
-  heroTitle: {
-    fontSize: 30,
-    fontWeight: 900,
-    margin: "0 0 8px 0",
-    color: COLORS.charcoalDark,
-    fontFamily: FONT_STACK,
-    letterSpacing: "-0.5px",
+  headerRight: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-end",
+    gap: 4,
+    minWidth: 180,
+    marginLeft: "auto",
   },
-  heroSubtitle: {
-    fontSize: 15,
+  headerMetaPrimary: {
+    fontSize: 14,
     color: COLORS.gray,
-    margin: 0,
-    lineHeight: 1.6,
+    fontWeight: 700,
     fontFamily: FONT_STACK,
   },
-  progressWrap: {
+  headerMetaLink: {
+    fontSize: 18,
+    fontWeight: 900,
+    color: COLORS.charcoalDark,
+    textDecoration: "none",
+    fontFamily: FONT_STACK,
+  },
+  card: {
+    background: COLORS.white,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 12,
+    padding: 28,
+    boxShadow: "0 10px 28px rgba(0,0,0,0.05)",
+  },
+  cardProgressWrap: {
     marginBottom: 20,
   },
   progressMeta: {
@@ -1326,6 +1364,8 @@ const styles = {
     color: COLORS.gray,
     marginBottom: 8,
     fontFamily: FONT_STACK,
+    gap: 12,
+    flexWrap: "wrap",
   },
   progressStep: {
     fontWeight: 700,
@@ -1346,19 +1386,6 @@ const styles = {
     background: COLORS.pink,
     borderRadius: 999,
     transition: "width 250ms ease",
-  },
-  card: {
-    background: COLORS.white,
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: 12,
-    padding: 28,
-    boxShadow: "0 10px 28px rgba(0,0,0,0.05)",
-  },
-  formSection: {
-    background: COLORS.grayLight,
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: 12,
-    padding: 18,
   },
   topRow: {
     marginBottom: 12,
@@ -1387,6 +1414,12 @@ const styles = {
     fontSize: 16,
     lineHeight: 1.5,
     fontFamily: FONT_STACK,
+  },
+  formSection: {
+    background: COLORS.grayLight,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 12,
+    padding: 18,
   },
   optionGrid: {
     display: "grid",
@@ -1474,16 +1507,35 @@ const styles = {
     color: COLORS.gray,
     fontFamily: FONT_STACK,
   },
-  recoBox: {
-    borderRadius: 12,
-    border: `1px solid ${COLORS.border}`,
-    background: COLORS.white,
-    padding: 28,
+  matchShell: {
+    display: "flex",
+    gap: 18,
+    alignItems: "stretch",
     marginBottom: 18,
-    boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
-    borderLeft: `6px solid ${COLORS.pink}`,
+    flexWrap: "wrap",
   },
-  diagnosticLabel: {
+  matchPaneLeft: {
+    flex: "1 1 420px",
+    minWidth: 280,
+    background: COLORS.white,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 12,
+    padding: 22,
+    boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
+  },
+  matchPaneRight: {
+    flex: "1 1 320px",
+    minWidth: 260,
+    background: COLORS.grayLight,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 12,
+    padding: 18,
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "space-between",
+    gap: 16,
+  },
+  matchLabel: {
     display: "inline-block",
     background: COLORS.grayLight,
     color: COLORS.charcoalDark,
@@ -1512,21 +1564,6 @@ const styles = {
     flexWrap: "wrap",
     marginBottom: 18,
   },
-  recoProjectTag: {
-    display: "inline-block",
-    background: COLORS.grayLight,
-    color: COLORS.charcoalDark,
-    border: `1px solid ${COLORS.border}`,
-    fontSize: 12,
-    fontWeight: 800,
-    padding: "7px 10px",
-    borderRadius: 999,
-    fontFamily: FONT_STACK,
-  },
-  recoBody: {
-    color: COLORS.charcoalDark,
-    fontFamily: FONT_STACK,
-  },
   recoSubTitle: {
     fontWeight: 800,
     marginBottom: 8,
@@ -1540,28 +1577,68 @@ const styles = {
     color: COLORS.gray,
     fontFamily: FONT_STACK,
   },
+  logicBox: {
+    background: COLORS.grayLight,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 12,
+    padding: 14,
+  },
+  logicTitle: {
+    fontSize: 14,
+    fontWeight: 800,
+    color: COLORS.charcoalDark,
+    marginBottom: 8,
+    fontFamily: FONT_STACK,
+  },
   recoText: {
-    margin: "0 0 14px 0",
+    margin: "0 0 10px 0",
     fontSize: 16,
     lineHeight: 1.6,
     color: COLORS.charcoalDark,
     fontFamily: FONT_STACK,
   },
   recoCallout: {
-    background: COLORS.grayLight,
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: 12,
-    padding: 14,
     color: COLORS.gray,
     lineHeight: 1.5,
     fontSize: 14,
-    marginBottom: 12,
     fontFamily: FONT_STACK,
   },
-  socialProof: {
-    fontSize: 14,
-    fontWeight: 700,
+  imageFrame: {
+    background: COLORS.white,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 12,
+    padding: 14,
+    minHeight: 240,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dumpsterImage: {
+    width: "100%",
+    maxWidth: 360,
+    height: "auto",
+    display: "block",
+    objectFit: "contain",
+  },
+  dimensionCard: {
+    background: COLORS.white,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 12,
+    padding: 14,
+  },
+  dimensionTitle: {
+    fontSize: 13,
+    fontWeight: 800,
     color: COLORS.charcoalDark,
+    marginBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    fontFamily: FONT_STACK,
+  },
+  dimensionLine: {
+    fontSize: 15,
+    color: COLORS.gray,
+    lineHeight: 1.6,
     fontFamily: FONT_STACK,
   },
   comparisonBox: {
@@ -1587,7 +1664,7 @@ const styles = {
   },
   comparisonGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
     gap: 12,
   },
   comparisonCard: {
@@ -1596,10 +1673,9 @@ const styles = {
     border: `1px solid ${COLORS.border}`,
     borderRadius: 12,
     padding: 14,
-    cursor: "pointer",
     fontFamily: FONT_STACK,
   },
-  comparisonCardRecommended: {
+  comparisonCardMatch: {
     border: `1px solid ${COLORS.charcoalDark}`,
     boxShadow: "0 4px 10px rgba(0,0,0,0.04)",
   },
@@ -1654,17 +1730,23 @@ const styles = {
     marginTop: 6,
   },
   selectedIndicator: {
-    marginTop: 12,
+    marginTop: 14,
     fontSize: 12,
     fontWeight: 800,
     color: COLORS.charcoalDark,
     fontFamily: FONT_STACK,
   },
-  selectPrompt: {
-    marginTop: 12,
-    fontSize: 12,
-    fontWeight: 700,
-    color: COLORS.gray,
+  selectButton: {
+    marginTop: 14,
+    width: "100%",
+    padding: "10px 12px",
+    background: COLORS.white,
+    color: COLORS.charcoalDark,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 12,
+    fontSize: 13,
+    fontWeight: 800,
+    cursor: "pointer",
     fontFamily: FONT_STACK,
   },
   warningStrip: {
@@ -1712,11 +1794,10 @@ const styles = {
     background: COLORS.charcoalDark,
     color: COLORS.white,
     border: "none",
-    borderRadius: 8,
+    borderRadius: 12,
     fontSize: 16,
     fontWeight: 800,
-    textTransform: "uppercase",
-    letterSpacing: "0.5px",
+    letterSpacing: "0.3px",
     cursor: "pointer",
     fontFamily: FONT_STACK,
   },
@@ -1818,7 +1899,7 @@ const styles = {
     background: COLORS.charcoalDark,
     color: COLORS.white,
     border: "none",
-    borderRadius: 8,
+    borderRadius: 12,
     cursor: "pointer",
     fontWeight: 700,
     fontFamily: FONT_STACK,
@@ -1830,26 +1911,22 @@ const styles = {
     lineHeight: 1.5,
     fontFamily: FONT_STACK,
   },
-  trustFooter: {
-    marginTop: 18,
-    paddingTop: 16,
-    borderTop: `1px solid ${COLORS.border}`,
+  cardFooter: {
+    marginTop: 24,
+    padding: 16,
+    background: COLORS.grayLight,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 12,
     textAlign: "center",
   },
-  trustFooterTitle: {
+  cardFooterTitle: {
     fontSize: 13,
     fontWeight: 800,
     color: COLORS.charcoalDark,
-    marginBottom: 4,
-    fontFamily: FONT_STACK,
-  },
-  trustFooterText: {
-    fontSize: 14,
-    color: COLORS.gray,
     marginBottom: 6,
     fontFamily: FONT_STACK,
   },
-  trustFooterLink: {
+  cardFooterLink: {
     fontSize: 16,
     fontWeight: 900,
     color: COLORS.charcoalDark,
