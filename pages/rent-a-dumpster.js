@@ -6,12 +6,14 @@ const COLORS = {
   charcoalDark: "#3a3a3a",
   gray: "#737373",
   grayLight: "#f6f6f6",
-  border: "#e8e8e8",
+  border: "#e1e1e1",
   white: "#ffffff",
   successBg: "#fff4f8",
   warningBg: "#fff8eb",
   warningBorder: "#f2cf7a",
 };
+
+const FONT_STACK = "system-ui, sans-serif";
 
 const zones = {
   A: { fee: 0, label: "Local Area" },
@@ -20,7 +22,6 @@ const zones = {
 };
 
 const zipToZone = {
-  // Zone A
   "30213": "A",
   "30214": "A",
   "30215": "A",
@@ -31,7 +32,6 @@ const zipToZone = {
   "30276": "A",
   "30291": "A",
 
-  // Zone B
   "30106": "B",
   "30126": "B",
   "30134": "B",
@@ -57,7 +57,6 @@ const zipToZone = {
   "30349": "B",
   "30354": "B",
 
-  // Zone C
   "30002": "C",
   "30004": "C",
   "30005": "C",
@@ -274,7 +273,7 @@ export default function Funnel() {
     1: "Customer Type",
     2: "Path",
     3: "Project Type",
-    4: "Dumpster Size",
+    4: "Recommendation",
     5: "Rental Option",
     6: "Contact Info",
   }[step];
@@ -392,7 +391,7 @@ export default function Funnel() {
     }
   };
 
-  const handleContinueFromSize = () => {
+  const handleContinueFromStep4 = () => {
     if (!effectiveSize) {
       alert("Please choose a dumpster size.");
       return;
@@ -471,10 +470,10 @@ export default function Funnel() {
       <div style={styles.shell}>
         <div style={styles.heroBanner}>
           <div style={styles.logoText}>Little Junkers</div>
-          <h1 style={styles.heroTitle}>Dumpster Rentals for DIY Cleanup</h1>
+          <h1 style={styles.heroTitle}>Dumpster Rental Recommendation Tool</h1>
           <p style={styles.heroSubtitle}>
-            You load it. We haul it. Simple, fast, and built for homeowners,
-            repeat customers, and small contractors.
+            Tell us about your project and we’ll point you toward the right dumpster,
+            right rental option, and pricing for your area.
           </p>
         </div>
 
@@ -507,36 +506,38 @@ export default function Funnel() {
           {step === 0 && (
             <>
               <SectionTitle
-                title="Let’s make sure we service your area"
-                text="Enter your ZIP code first so we can show pricing with delivery included."
+                title="Check your service area"
+                text="Start with your ZIP code so we can verify coverage and show area-based pricing."
               />
 
-              <div style={styles.formGroup}>
-                <label style={styles.label}>ZIP Code</label>
-                <input
-                  placeholder="Enter 5-digit ZIP"
-                  value={zip}
-                  onChange={(e) => setZip(e.target.value)}
-                  style={styles.input}
-                  maxLength={5}
-                />
+              <div style={styles.formSection}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>ZIP Code</label>
+                  <input
+                    placeholder="Enter 5-digit ZIP"
+                    value={zip}
+                    onChange={(e) => setZip(e.target.value)}
+                    style={styles.input}
+                    maxLength={5}
+                  />
+                </div>
+
+                {zipError ? <div style={styles.errorText}>{zipError}</div> : null}
+
+                <button onClick={handleZipSubmit} style={styles.primaryButton}>
+                  Check My Area
+                </button>
               </div>
-
-              {zipError ? <div style={styles.errorText}>{zipError}</div> : null}
-
-              <button onClick={handleZipSubmit} style={styles.primaryButton}>
-                Check My Area
-              </button>
             </>
           )}
 
           {step === 1 && (
             <>
               <SectionTitle
-                title="Let’s get you the right dumpster"
+                title="Choose your project path"
                 text={`${areaLabel} is in our ${
                   zones[zoneKey]?.label?.toLowerCase() || ""
-                }. Your area pricing will include delivery.`}
+                }. Delivery pricing will be built into the options we show you next.`}
               />
 
               <div style={styles.optionGrid}>
@@ -569,8 +570,8 @@ export default function Funnel() {
           {step === 2 && customerType === "Returning" && (
             <>
               <SectionTitle
-                title="Welcome back"
-                text="Want to move fast, or would you like a fresh recommendation based on this project?"
+                title="Choose how you want to proceed"
+                text="Move fast if you already know your size, or let the tool recommend the best fit for this job."
               />
 
               <div style={styles.optionGrid}>
@@ -582,7 +583,7 @@ export default function Funnel() {
                 />
                 <OptionCard
                   title="Recommend for Me"
-                  sub="Help me choose based on this cleanup"
+                  sub="Guide me based on this project"
                   selected={returningPath === "recommend"}
                   onClick={() => handleReturningPath("recommend")}
                 />
@@ -602,8 +603,8 @@ export default function Funnel() {
                 }
                 text={
                   customerType === "Contractor"
-                    ? "We’ll filter out the stuff we don’t haul and point you toward the best fit."
-                    : "Pick the option that’s closest to your current project."
+                    ? "We’ll filter out unsupported material and recommend the best container for the job."
+                    : "Choose the option that’s closest to your current project so we can size it correctly."
                 }
               />
 
@@ -661,7 +662,7 @@ export default function Funnel() {
                 <div style={styles.noticeBox}>
                   <div style={styles.noticeTitle}>Concrete isn’t something we haul right now</div>
                   <p style={styles.noticeText}>
-                    We’d still love to help with general cleanup, renovation debris,
+                    We can still help with general cleanup, renovation debris,
                     roofing, and other non-concrete projects.
                   </p>
                   <button
@@ -682,27 +683,52 @@ export default function Funnel() {
               <SectionTitle
                 title={
                   isReturningQuick
-                    ? "Pick your dumpster size"
-                    : "Choose your dumpster size"
+                    ? "Choose your dumpster size"
+                    : "Your recommended dumpster"
                 }
                 text={
                   isReturningQuick
-                    ? "Here are your size options. Pricing comes next and will include delivery to your area."
-                    : `Based on your project, we recommend the ${size}. You can still choose a different size below.`
+                    ? "Select the size you want and we’ll show the rental options and pricing next."
+                    : "Based on the project details you entered, here’s the container we’d put in front of you first."
                 }
               />
 
-              {showRecommendationContext && recommendation.reason ? (
-                <div style={styles.recoCallout}>
-                  <strong>Why we recommended {size}:</strong> {recommendation.reason}
-                  {recommendation.note ? ` ${recommendation.note}` : ""}
+              {!isReturningQuick && effectiveSize && (
+                <div style={styles.recoBox}>
+                  <div style={styles.diagnosticLabel}>Expert Diagnostic Result</div>
+                  <div style={styles.recoSize}>{effectiveSize}</div>
+                  <div style={styles.recoMetaRow}>
+                    <span style={styles.tonnagePill}>
+                      {sizeMeta[effectiveSize]?.label || ""}
+                    </span>
+                    <span style={styles.recoProjectTag}>Project Fit</span>
+                  </div>
+
+                  <div style={styles.recoBody}>
+                    <div style={styles.recoSubTitle}>What this size is built for</div>
+                    <ul style={styles.capacityList}>
+                      {recommendation.holds.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+
+                    <p style={styles.recoText}>{recommendation.reason}</p>
+
+                    <div style={styles.recoCallout}>
+                      <strong>Why this recommendation works:</strong> {recommendation.note}
+                    </div>
+
+                    <div style={styles.socialProof}>
+                      ✓ Recommended for your project scale based on typical debris volume.
+                    </div>
+                  </div>
                 </div>
-              ) : null}
+              )}
 
               {customerType === "Contractor" && project === "Roofing" ? (
                 <div style={styles.warningStrip}>
-                  <strong>Roofing note:</strong> We’re biasing smaller here to reduce overweight risk.
-                  Roofing debris gets heavy fast.
+                  <strong>Roofing note:</strong> Roofing debris gets heavy quickly, so we bias
+                  smaller here to reduce overweight risk.
                 </div>
               ) : null}
 
@@ -741,7 +767,7 @@ export default function Funnel() {
                 })}
               </div>
 
-              <button onClick={handleContinueFromSize} style={styles.primaryButton}>
+              <button onClick={handleContinueFromStep4} style={styles.primaryButton}>
                 Continue
               </button>
             </>
@@ -750,7 +776,7 @@ export default function Funnel() {
           {step === 5 && (
             <>
               <SectionTitle
-                title="Pick how you want to run your project"
+                title="Choose your rental option"
                 text={`Pricing below includes delivery to the ${areaLabel}. ${sizeMeta[effectiveSize]?.label || ""}.`}
               />
 
@@ -805,12 +831,12 @@ export default function Funnel() {
           {step === 6 && (
             <>
               <SectionTitle
-                title="Let’s lock this in"
-                text="We’ll use this info to confirm your request and get everything lined up."
+                title="Submit your request"
+                text="We’ll use this information to confirm availability and finalize your rental."
               />
 
               <div style={styles.summaryBox}>
-                <div style={styles.summaryTitle}>Your Selection</div>
+                <div style={styles.summaryTitle}>Recommendation Summary</div>
                 <div style={styles.summaryRow}>
                   <span>ZIP</span>
                   <strong>{zip}</strong>
@@ -839,51 +865,53 @@ export default function Funnel() {
                 </div>
               </div>
 
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Name *</label>
-                <input
-                  placeholder="Your name"
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  style={styles.input}
-                />
+              <div style={styles.formSection}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Name *</label>
+                  <input
+                    placeholder="Your name"
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    style={styles.input}
+                  />
 
-                <label style={styles.label}>Email *</label>
-                <input
-                  placeholder="you@example.com"
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  style={styles.input}
-                />
+                  <label style={styles.label}>Email *</label>
+                  <input
+                    placeholder="you@example.com"
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    style={styles.input}
+                  />
 
-                <label style={styles.label}>Phone</label>
-                <input
-                  placeholder="For faster scheduling — optional"
-                  value={form.phone}
-                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                  style={styles.input}
-                />
+                  <label style={styles.label}>Phone</label>
+                  <input
+                    placeholder="For faster scheduling — optional"
+                    value={form.phone}
+                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                    style={styles.input}
+                  />
 
-                <label style={styles.label}>How did you hear about us?</label>
-                <select
-                  value={form.source}
-                  onChange={(e) => setForm({ ...form, source: e.target.value })}
-                  style={styles.input}
-                >
-                  <option value="">Select one</option>
-                  <option>Google</option>
-                  <option>Facebook</option>
-                  <option>Referral</option>
-                  <option>Repeat Customer</option>
-                  <option>Yard Sign</option>
-                  <option>Saw a Dumpster / Truck</option>
-                  <option>Other</option>
-                </select>
+                  <label style={styles.label}>How did you hear about us?</label>
+                  <select
+                    value={form.source}
+                    onChange={(e) => setForm({ ...form, source: e.target.value })}
+                    style={styles.input}
+                  >
+                    <option value="">Select one</option>
+                    <option>Google</option>
+                    <option>Facebook</option>
+                    <option>Referral</option>
+                    <option>Repeat Customer</option>
+                    <option>Yard Sign</option>
+                    <option>Saw a Dumpster / Truck</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+
+                <button onClick={handleSubmit} style={styles.primaryButton}>
+                  Submit Request
+                </button>
               </div>
-
-              <button onClick={handleSubmit} style={styles.primaryButton}>
-                Submit
-              </button>
             </>
           )}
         </main>
@@ -933,30 +961,45 @@ function getRecommendation(customerType, project, otherText = "") {
     if (project === "Roofing") {
       return {
         size: "11 Yard",
+        holds: [
+          "Approx. 30 squares of single-layer shingles",
+          "Approximately 4-5 pickup truck loads of debris",
+          "Heavy roofing material with safer weight control",
+        ],
         reason:
-          "Roofing debris gets heavy quickly, so we bias smaller to help reduce overweight risk and keep loads more controlled.",
+          "Roofing materials are deceptively heavy. We recommend the 11-Yard to keep the load within a safer lifting range and reduce overweight risk.",
         note:
-          "For bigger roofs, multiple pulls or additional container planning may make more sense.",
+          "For larger tear-offs, two smaller loads are often better than one overweight container with added overage costs.",
       };
     }
 
     if (project === "Renovation / demo") {
       return {
         size: "21 Yard",
+        holds: [
+          "Larger renovation and demo loads",
+          "Approximately 8-10 pickup truck loads",
+          "Bulky debris that builds fast on active jobsites",
+        ],
         reason:
-          "Contractor demo jobs usually generate more volume and bulk, so the 21-yard is the better starting point.",
+          "Contractor demo jobs usually generate more volume and bulk than expected, so the 21-Yard is the better operational starting point.",
         note:
-          "This gives more room up front and reduces the chance of running short on space.",
+          "This gives your crew more working room up front and reduces the chance of needing an early swap.",
       };
     }
 
     if (project === "General Cleanup") {
       return {
         size: "16 Yard",
+        holds: [
+          "General contractor cleanup and mixed debris",
+          "Approximately 6-7 pickup truck loads",
+          "Day-to-day jobsite volume without oversizing",
+        ],
         reason:
-          "For mixed contractor cleanup, the 16-yard is the strongest all-around starting point.",
+          "For mixed contractor cleanup, the 16-Yard is the strongest all-around fit because it balances usable capacity and fast turnaround.",
         note:
-          "It balances flexibility, turnaround, and usable capacity.",
+          "It handles a broad mix of material without jumping straight to the biggest box.",
       };
     }
 
@@ -964,68 +1007,103 @@ function getRecommendation(customerType, project, otherText = "") {
       if (containsHeavyKeywords(otherLower)) {
         return {
           size: "21 Yard",
+          holds: [
+            "Heavier or bulkier contractor debris",
+            "Approximately 8-10 pickup truck loads",
+            "Projects likely to expand once work begins",
+          ],
           reason:
-            "Based on what you described, this sounds like a heavier or bulkier contractor load.",
+            "Based on what you described, this sounds more like a bulk-heavy contractor load that benefits from extra volume.",
           note:
-            "The 21-yard gives you more working room for mixed or expanding debris.",
+            "The 21-Yard gives more room to work and reduces the risk of under-ordering.",
         };
       }
 
       return {
         size: "16 Yard",
+        holds: [
+          "Mixed contractor debris",
+          "Approximately 6-7 pickup truck loads",
+          "Flexible jobsite cleanup where scope is still moving",
+        ],
         reason:
-          "When contractor debris is mixed or unclear, the 16-yard is the safest all-around recommendation.",
+          "When contractor debris is mixed or unclear, the 16-Yard is the safest all-around recommendation.",
         note:
-          "It gives flexibility without overshooting too much.",
-      };
+          "It gives you flexibility without overshooting the project size too early.",
+        };
     }
 
     return {
       size: "16 Yard",
+      holds: [
+        "General contractor debris",
+        "Approximately 6-7 pickup truck loads",
+        "A practical everyday jobsite starting point",
+      ],
       reason:
-        "The 16-yard is the strongest contractor default for mixed cleanup and everyday jobsite use.",
+        "The 16-Yard is the strongest contractor default for mixed cleanup and repeat jobsite use.",
       note:
-        "It handles a wide range of debris without jumping straight to the biggest box.",
+        "It gives enough room for most common loads while staying efficient to turn.",
     };
   }
 
   if (project === "Cleaning the garage / basement") {
     return {
       size: "11 Yard",
+      holds: [
+        "Garage and basement cleanouts",
+        "Approximately 4-5 pickup truck loads",
+        "Smaller household junk and boxed material",
+      ],
       reason:
-        "Garage and basement cleanouts are often a strong fit for the 11-yard when the job is mostly household junk and smaller items.",
+        "Garage and basement cleanouts are often a strong fit for the 11-Yard when the job is mostly household junk and smaller items.",
       note:
-        "If you start adding furniture or multiple rooms, the 16-yard becomes the safer step up.",
+        "If the project grows into furniture, multiple rooms, or bulkier material, the 16-Yard becomes the safer step up.",
     };
   }
 
   if (project === "Moving / decluttering") {
     return {
       size: "16 Yard",
+      holds: [
+        "Moving and decluttering projects",
+        "Approximately 6-7 pickup truck loads",
+        "A broader mix of furniture, boxes, and overflow",
+      ],
       reason:
-        "Moving and decluttering projects tend to grow once you start pulling things out, so the 16-yard gives useful breathing room.",
+        "Moving and decluttering projects usually expand once you start pulling things out, so the 16-Yard gives more breathing room.",
       note:
-        "It’s the strongest all-around fit for mixed household volume.",
+        "It is the strongest all-around fit for mixed household volume without overcommitting to the largest size.",
     };
   }
 
   if (project === "Renovation / demo") {
     return {
       size: "21 Yard",
+      holds: [
+        "Renovation and demo debris",
+        "Approximately 8-10 pickup truck loads",
+        "Bulky material that builds fast during active work",
+      ],
       reason:
-        "Renovation and demo create more volume and bulk, so the 21-yard is the safer recommendation for keeping the project moving.",
+        "Renovation and demo projects create more volume and bulk, so the 21-Yard is the safer recommendation for keeping the project moving.",
       note:
-        "It reduces the chance of running out of space mid-job.",
+        "It reduces the chance of running out of space mid-project and needing another haul sooner than expected.",
     };
   }
 
   if (project === "Roofing") {
     return {
       size: "11 Yard",
+      holds: [
+        "Smaller roofing tear-offs",
+        "Approximately 4-5 pickup truck loads of shingles",
+        "Heavy debris with better weight control",
+      ],
       reason:
-        "Roofing debris gets heavy fast, so starting smaller is the safer move for weight control.",
+        "Roofing debris gets heavy fast, so starting smaller is the safer move for weight control and pickup safety.",
       note:
-        "We’d rather guide you toward a safer fit than push a bigger box that could overload.",
+        "We would rather steer you into a safer fit than a larger box that becomes overweight and costly.",
     };
   }
 
@@ -1033,8 +1111,13 @@ function getRecommendation(customerType, project, otherText = "") {
     if (containsHeavyKeywords(otherLower)) {
       return {
         size: "21 Yard",
+        holds: [
+          "Heavier or bulkier mixed debris",
+          "Approximately 8-10 pickup truck loads",
+          "Projects that sound more renovation-driven",
+        ],
         reason:
-          "What you described sounds heavier, bulkier, or more renovation-driven, so the 21-yard is the safer recommendation.",
+          "What you described sounds heavier, bulkier, or more demo-oriented, so the 21-Yard is the safer recommendation.",
         note:
           "That gives you more room if the project expands once you get started.",
       };
@@ -1043,26 +1126,41 @@ function getRecommendation(customerType, project, otherText = "") {
     if (containsLightKeywords(otherLower)) {
       return {
         size: "11 Yard",
+        holds: [
+          "Lighter household cleanup",
+          "Approximately 4-5 pickup truck loads",
+          "Smaller-volume junk where weight stays manageable",
+        ],
         reason:
-          "What you described sounds more like a lighter cleanout, which often fits well in the 11-yard.",
+          "What you described sounds more like a lighter cleanout, which often fits well in the 11-Yard.",
         note:
-          "If the scope grows, the 16-yard is the next safer step up.",
+          "If the scope grows once you start, the 16-Yard is the next safer step up.",
       };
     }
 
     return {
       size: "16 Yard",
+      holds: [
+        "Mixed cleanup jobs",
+        "Approximately 6-7 pickup truck loads",
+        "Projects where the final debris mix is still unclear",
+      ],
       reason:
-        "When a project is mixed or unclear, the 16-yard is usually the safest recommendation because it gives flexibility without overshooting too much.",
+        "When a project is mixed or unclear, the 16-Yard is usually the safest recommendation because it gives flexibility without overshooting too much.",
       note:
-        "It’s the most balanced starting point for uncertain jobs.",
+        "It is the most balanced starting point for uncertain jobs.",
     };
   }
 
   return {
     size: "16 Yard",
+    holds: [
+      "Mixed cleanup jobs",
+      "Approximately 6-7 pickup truck loads",
+      "A practical all-around fit for household projects",
+    ],
     reason:
-      "The 16-yard is a strong all-around default for mixed cleanup and household projects.",
+      "The 16-Yard is a strong all-around default for mixed cleanup and household projects.",
     note:
       "It gives more room than the smallest option without going oversized.",
   };
@@ -1110,20 +1208,23 @@ function containsLightKeywords(text) {
 const styles = {
   page: {
     minHeight: "100vh",
-    background: "linear-gradient(180deg, #fff8fb 0%, #ffffff 22%)",
+    background: COLORS.white,
     padding: "36px 16px",
     color: COLORS.charcoalDark,
+    fontFamily: FONT_STACK,
   },
   shell: {
     maxWidth: 760,
     margin: "0 auto",
   },
   heroBanner: {
-    background: COLORS.pink,
-    borderRadius: 20,
+    background: COLORS.white,
+    borderBottom: `4px solid ${COLORS.pink}`,
+    borderRadius: 12,
     padding: "24px 20px",
     marginBottom: 24,
     textAlign: "center",
+    boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
   },
   logoText: {
     fontSize: 16,
@@ -1131,18 +1232,22 @@ const styles = {
     color: COLORS.charcoalDark,
     marginBottom: 10,
     letterSpacing: 0.4,
+    fontFamily: FONT_STACK,
   },
   heroTitle: {
-    fontSize: 28,
-    fontWeight: 800,
-    margin: "0 0 6px 0",
+    fontSize: 30,
+    fontWeight: 900,
+    margin: "0 0 8px 0",
     color: COLORS.charcoalDark,
+    fontFamily: FONT_STACK,
+    letterSpacing: "-0.5px",
   },
   heroSubtitle: {
     fontSize: 15,
-    color: COLORS.charcoal,
+    color: COLORS.gray,
     margin: 0,
     lineHeight: 1.6,
+    fontFamily: FONT_STACK,
   },
   progressWrap: {
     marginBottom: 20,
@@ -1154,6 +1259,7 @@ const styles = {
     fontSize: 13,
     color: COLORS.gray,
     marginBottom: 8,
+    fontFamily: FONT_STACK,
   },
   progressStep: {
     fontWeight: 700,
@@ -1166,24 +1272,30 @@ const styles = {
     width: "100%",
     height: 10,
     borderRadius: 999,
-    background: "#f0f0f0",
+    background: COLORS.grayLight,
     overflow: "hidden",
   },
   progressFill: {
     height: "100%",
-    background: COLORS.charcoal,
+    background: COLORS.pink,
     borderRadius: 999,
-    transition: "width 180ms ease",
+    transition: "width 250ms ease",
   },
   card: {
     background: COLORS.white,
     border: `1px solid ${COLORS.border}`,
-    borderRadius: 24,
+    borderRadius: 12,
     padding: 28,
-    boxShadow: "0 10px 32px rgba(0,0,0,0.06)",
+    boxShadow: "0 10px 28px rgba(0,0,0,0.05)",
+  },
+  formSection: {
+    background: COLORS.grayLight,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 12,
+    padding: 18,
   },
   topRow: {
-    marginBottom: 10,
+    marginBottom: 12,
   },
   backButton: {
     background: "none",
@@ -1193,17 +1305,22 @@ const styles = {
     cursor: "pointer",
     padding: 0,
     fontWeight: 700,
+    fontFamily: FONT_STACK,
   },
   h2: {
     margin: "0 0 8px 0",
-    fontSize: 28,
+    fontSize: 30,
     color: COLORS.charcoalDark,
+    fontWeight: 900,
+    fontFamily: FONT_STACK,
+    letterSpacing: "-0.6px",
   },
   sectionText: {
     margin: 0,
     color: COLORS.gray,
     fontSize: 16,
     lineHeight: 1.5,
+    fontFamily: FONT_STACK,
   },
   optionGrid: {
     display: "grid",
@@ -1213,32 +1330,33 @@ const styles = {
     width: "100%",
     textAlign: "left",
     padding: "18px 18px",
-    borderRadius: 18,
+    borderRadius: 12,
     border: `1px solid ${COLORS.border}`,
     background: COLORS.grayLight,
     cursor: "pointer",
+    fontFamily: FONT_STACK,
   },
   sizeCard: {
     width: "100%",
     textAlign: "left",
     padding: "18px 18px",
-    borderRadius: 18,
+    borderRadius: 12,
     border: `1px solid ${COLORS.border}`,
     background: COLORS.grayLight,
     cursor: "pointer",
+    fontFamily: FONT_STACK,
   },
   optionCardSelected: {
-    background: COLORS.successBg,
-    border: `1px solid ${COLORS.pink}`,
-    boxShadow: "0 0 0 3px rgba(255,206,228,0.35)",
+    background: COLORS.white,
+    border: `1px solid ${COLORS.charcoalDark}`,
+    boxShadow: "0 0 0 2px rgba(58,58,58,0.08)",
   },
   recommendedCard: {
-    border: `2px solid ${COLORS.pink}`,
+    border: `1px solid ${COLORS.charcoalDark}`,
   },
   highlightCard: {
-    border: `2px solid ${COLORS.pink}`,
-    transform: "scale(1.01)",
-    boxShadow: "0 12px 30px rgba(0,0,0,0.08)",
+    border: `1px solid ${COLORS.charcoalDark}`,
+    boxShadow: "0 8px 18px rgba(0,0,0,0.06)",
   },
   optionTop: {
     display: "flex",
@@ -1248,23 +1366,26 @@ const styles = {
   },
   optionTitle: {
     fontSize: 18,
-    fontWeight: 700,
+    fontWeight: 800,
     color: COLORS.charcoalDark,
+    fontFamily: FONT_STACK,
   },
   optionSub: {
     marginTop: 6,
     color: COLORS.gray,
     fontSize: 14,
     lineHeight: 1.4,
+    fontFamily: FONT_STACK,
   },
   tag: {
     background: COLORS.pink,
     color: COLORS.charcoalDark,
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
     padding: "6px 10px",
     borderRadius: 999,
     whiteSpace: "nowrap",
+    fontFamily: FONT_STACK,
   },
   sizeMetaRow: {
     marginTop: 12,
@@ -1276,40 +1397,123 @@ const styles = {
     border: `1px solid ${COLORS.border}`,
     color: COLORS.charcoalDark,
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
     padding: "7px 10px",
     borderRadius: 999,
+    fontFamily: FONT_STACK,
   },
   sizeBestFor: {
     fontSize: 14,
     lineHeight: 1.5,
     color: COLORS.gray,
+    fontFamily: FONT_STACK,
+  },
+  recoBox: {
+    borderRadius: 12,
+    border: `1px solid ${COLORS.border}`,
+    background: COLORS.white,
+    padding: 28,
+    marginBottom: 18,
+    boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
+    borderLeft: `6px solid ${COLORS.pink}`,
+  },
+  diagnosticLabel: {
+    display: "inline-block",
+    background: COLORS.grayLight,
+    color: COLORS.charcoalDark,
+    padding: "6px 10px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 800,
+    marginBottom: 14,
+    fontFamily: FONT_STACK,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  recoSize: {
+    fontSize: 42,
+    fontWeight: 900,
+    fontFamily: FONT_STACK,
+    color: COLORS.charcoalDark,
+    marginBottom: 8,
+    letterSpacing: "-1px",
+    lineHeight: 1,
+  },
+  recoMetaRow: {
+    display: "flex",
+    gap: 10,
+    alignItems: "center",
+    flexWrap: "wrap",
+    marginBottom: 18,
+  },
+  recoProjectTag: {
+    display: "inline-block",
+    background: COLORS.grayLight,
+    color: COLORS.charcoalDark,
+    border: `1px solid ${COLORS.border}`,
+    fontSize: 12,
+    fontWeight: 800,
+    padding: "7px 10px",
+    borderRadius: 999,
+    fontFamily: FONT_STACK,
+  },
+  recoBody: {
+    color: COLORS.charcoalDark,
+    fontFamily: FONT_STACK,
+  },
+  recoSubTitle: {
+    fontWeight: 800,
+    marginBottom: 8,
+    fontFamily: FONT_STACK,
+  },
+  capacityList: {
+    marginTop: 0,
+    marginBottom: 16,
+    paddingLeft: 20,
+    lineHeight: 1.8,
+    color: COLORS.gray,
+    fontFamily: FONT_STACK,
+  },
+  recoText: {
+    margin: "0 0 14px 0",
+    fontSize: 16,
+    lineHeight: 1.6,
+    color: COLORS.charcoalDark,
+    fontFamily: FONT_STACK,
   },
   recoCallout: {
-    background: COLORS.successBg,
-    border: `1px solid ${COLORS.pink}`,
-    borderRadius: 14,
+    background: COLORS.grayLight,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 12,
     padding: 14,
-    color: COLORS.charcoalDark,
-    lineHeight: 1.6,
+    color: COLORS.gray,
+    lineHeight: 1.5,
     fontSize: 14,
-    marginBottom: 14,
+    marginBottom: 12,
+    fontFamily: FONT_STACK,
+  },
+  socialProof: {
+    fontSize: 14,
+    fontWeight: 700,
+    color: COLORS.charcoalDark,
+    fontFamily: FONT_STACK,
   },
   warningStrip: {
     background: COLORS.warningBg,
     border: `1px solid ${COLORS.warningBorder}`,
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 14,
     color: COLORS.charcoalDark,
     lineHeight: 1.6,
     fontSize: 14,
     marginBottom: 14,
+    fontFamily: FONT_STACK,
   },
   selectedSizeStrip: {
     marginBottom: 16,
     background: COLORS.grayLight,
     border: `1px solid ${COLORS.border}`,
-    borderRadius: 18,
+    borderRadius: 12,
     padding: 16,
     display: "flex",
     justifyContent: "space-between",
@@ -1322,25 +1526,30 @@ const styles = {
     color: COLORS.gray,
     textTransform: "uppercase",
     letterSpacing: 0.5,
+    fontFamily: FONT_STACK,
   },
   selectedSizeValue: {
     fontSize: 22,
-    fontWeight: 800,
+    fontWeight: 900,
     color: COLORS.charcoalDark,
     marginTop: 4,
+    fontFamily: FONT_STACK,
   },
   primaryButton: {
     display: "block",
     width: "100%",
     marginTop: 18,
-    padding: 16,
-    background: COLORS.charcoal,
+    padding: "18px",
+    background: COLORS.charcoalDark,
     color: COLORS.white,
     border: "none",
-    borderRadius: 16,
+    borderRadius: 8,
     fontSize: 16,
-    fontWeight: 700,
+    fontWeight: 800,
+    textTransform: "uppercase",
+    letterSpacing: "0.5px",
     cursor: "pointer",
+    fontFamily: FONT_STACK,
   },
   formGroup: {
     display: "grid",
@@ -1351,34 +1560,37 @@ const styles = {
     fontWeight: 700,
     color: COLORS.charcoalDark,
     marginTop: 8,
+    fontFamily: FONT_STACK,
   },
   input: {
     display: "block",
     width: "100%",
     padding: 14,
     border: `1px solid ${COLORS.border}`,
-    borderRadius: 14,
-    background: COLORS.grayLight,
+    borderRadius: 12,
+    background: COLORS.white,
     fontSize: 15,
     boxSizing: "border-box",
+    fontFamily: FONT_STACK,
   },
   textarea: {
     width: "100%",
     minHeight: 100,
     marginTop: 8,
     padding: 14,
-    borderRadius: 14,
+    borderRadius: 12,
     border: `1px solid ${COLORS.border}`,
-    background: COLORS.grayLight,
+    background: COLORS.white,
     fontSize: 15,
     boxSizing: "border-box",
     resize: "vertical",
+    fontFamily: FONT_STACK,
   },
   summaryBox: {
     marginBottom: 18,
     background: COLORS.grayLight,
     border: `1px solid ${COLORS.border}`,
-    borderRadius: 18,
+    borderRadius: 12,
     padding: 18,
   },
   summaryTitle: {
@@ -1386,6 +1598,7 @@ const styles = {
     fontSize: 16,
     marginBottom: 12,
     color: COLORS.charcoalDark,
+    fontFamily: FONT_STACK,
   },
   summaryRow: {
     display: "flex",
@@ -1395,50 +1608,57 @@ const styles = {
     borderBottom: "1px solid #ececec",
     color: COLORS.gray,
     fontSize: 14,
+    fontFamily: FONT_STACK,
   },
   priceText: {
     marginTop: 10,
     fontSize: 24,
-    fontWeight: 800,
+    fontWeight: 900,
     color: COLORS.charcoalDark,
+    fontFamily: FONT_STACK,
   },
   priceSupport: {
     marginTop: 6,
     fontSize: 13,
     color: COLORS.gray,
     lineHeight: 1.5,
+    fontFamily: FONT_STACK,
   },
   noticeBox: {
     marginTop: 16,
     background: COLORS.warningBg,
     border: `1px solid ${COLORS.warningBorder}`,
-    borderRadius: 16,
+    borderRadius: 12,
     padding: 16,
   },
   noticeTitle: {
     fontWeight: 800,
     color: COLORS.charcoalDark,
     marginBottom: 8,
+    fontFamily: FONT_STACK,
   },
   noticeText: {
     margin: 0,
     color: COLORS.charcoal,
     lineHeight: 1.6,
+    fontFamily: FONT_STACK,
   },
   noticeButton: {
     marginTop: 14,
     padding: "12px 16px",
-    background: COLORS.charcoal,
+    background: COLORS.charcoalDark,
     color: COLORS.white,
     border: "none",
-    borderRadius: 12,
+    borderRadius: 8,
     cursor: "pointer",
     fontWeight: 700,
+    fontFamily: FONT_STACK,
   },
   errorText: {
     marginTop: 10,
     color: "#b3261e",
     fontSize: 14,
     lineHeight: 1.5,
+    fontFamily: FONT_STACK,
   },
 };
