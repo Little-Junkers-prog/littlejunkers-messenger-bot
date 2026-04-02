@@ -203,7 +203,7 @@ const comparisonMeta = {
 const DUMPSTER_IMAGES = {
   "11 Yard": "/11yardimage.png",
   "16 Yard": "/16yardimage.png",
-  "21 Yard": "/21yardimage.png",
+  "21 Yard": "/21 -yard image.png",
 };
 
 const basePricing = {
