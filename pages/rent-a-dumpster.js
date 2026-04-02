@@ -8,7 +8,6 @@ const COLORS = {
   grayLight: "#f6f6f6",
   border: "#e1e1e1",
   white: "#ffffff",
-  successBg: "#fff4f8",
   warningBg: "#fff8eb",
   warningBorder: "#f2cf7a",
 };
@@ -311,11 +310,9 @@ export default function Funnel() {
   const progressPercent = (currentVisualStep / visibleTotalSteps) * 100;
 
   const calculatedPrices = useMemo(() => {
-    const sizeKey = effectiveSize;
-    if (!sizeKey || !basePricing[sizeKey]) return {};
-
+    if (!effectiveSize || !basePricing[effectiveSize]) return {};
     const pricing = {};
-    Object.entries(basePricing[sizeKey]).forEach(([key, amount]) => {
+    Object.entries(basePricing[effectiveSize]).forEach(([key, amount]) => {
       pricing[key] = amount + zoneFee;
     });
     return pricing;
@@ -444,42 +441,21 @@ export default function Funnel() {
   };
 
   const goBack = () => {
-    if (step === 6) {
-      setStep(5);
-      return;
-    }
-
-    if (step === 5) {
-      setStep(4);
-      return;
-    }
+    if (step === 6) return setStep(5);
+    if (step === 5) return setStep(4);
 
     if (step === 4) {
-      if (isReturningQuick) {
-        setStep(2);
-      } else {
-        setStep(3);
-      }
-      return;
+      if (isReturningQuick) return setStep(2);
+      return setStep(3);
     }
 
     if (step === 3) {
-      if (customerType === "Returning") {
-        setStep(2);
-      } else {
-        setStep(1);
-      }
-      return;
+      if (customerType === "Returning") return setStep(2);
+      return setStep(1);
     }
 
-    if (step === 2) {
-      setStep(1);
-      return;
-    }
-
-    if (step === 1) {
-      setStep(0);
-    }
+    if (step === 2) return setStep(1);
+    if (step === 1) return setStep(0);
   };
 
   return (
@@ -506,12 +482,7 @@ export default function Funnel() {
             <span style={styles.progressLabel}>{stepLabel}</span>
           </div>
           <div style={styles.progressBar}>
-            <div
-              style={{
-                ...styles.progressFill,
-                width: `${progressPercent}%`,
-              }}
-            />
+            <div style={{ ...styles.progressFill, width: `${progressPercent}%` }} />
           </div>
         </div>
 
@@ -565,18 +536,9 @@ export default function Funnel() {
 
               <div style={styles.optionGrid}>
                 {[
-                  {
-                    label: "New Customer",
-                    sub: "First time renting with us",
-                  },
-                  {
-                    label: "Returning",
-                    sub: "You’ve rented from us before",
-                  },
-                  {
-                    label: "Contractor",
-                    sub: "Business or repeat jobsite use",
-                  },
+                  { label: "New Customer", sub: "First time renting with us" },
+                  { label: "Returning", sub: "You’ve rented from us before" },
+                  { label: "Contractor", sub: "Business or repeat jobsite use" },
                 ].map((item) => (
                   <OptionCard
                     key={item.label}
@@ -676,10 +638,7 @@ export default function Funnel() {
                     placeholder="Describe your project..."
                     style={styles.textarea}
                   />
-                  <button
-                    style={styles.primaryButton}
-                    onClick={handleOtherContinue}
-                  >
+                  <button style={styles.primaryButton} onClick={handleOtherContinue}>
                     Continue
                   </button>
                 </div>
@@ -694,9 +653,7 @@ export default function Funnel() {
                   </p>
                   <button
                     style={styles.noticeButton}
-                    onClick={() => {
-                      setShowConcreteNotice(false);
-                    }}
+                    onClick={() => setShowConcreteNotice(false)}
                   >
                     Got it
                   </button>
@@ -814,12 +771,12 @@ export default function Funnel() {
                 </div>
               )}
 
-              {customerType === "Contractor" && project === "Roofing" ? (
+              {customerType === "Contractor" && project === "Roofing" && (
                 <div style={styles.warningStrip}>
                   <strong>Roofing note:</strong> Roofing debris gets heavy quickly, so we bias
                   smaller here to reduce overweight risk.
                 </div>
-              ) : null}
+              )}
 
               {(isReturningQuick || !effectiveSize) && (
                 <div style={styles.optionGrid}>
@@ -1139,8 +1096,7 @@ function getRecommendation(customerType, project, otherText = "") {
           "When contractor debris is mixed or unclear, the 16-Yard is the safest all-around recommendation.",
         note:
           "It gives you flexibility without overshooting the project size too early.",
-        };
-      }
+      };
     }
 
     return {
@@ -1631,7 +1587,7 @@ const styles = {
   },
   comparisonGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
     gap: 12,
   },
   comparisonCard: {
