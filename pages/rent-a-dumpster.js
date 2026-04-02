@@ -138,6 +138,49 @@ const zipToZone = {
   "30363": "C",
 };
 
+const zipToArea = {
+  "30269": "Peachtree City area",
+  "30265": "Newnan area",
+  "30263": "Newnan area",
+  "30214": "Fayetteville area",
+  "30215": "Fayetteville area",
+  "30213": "Fairburn area",
+  "30268": "Palmetto area",
+  "30276": "Senoia area",
+  "30291": "Union City area",
+  "30236": "Jonesboro area",
+  "30238": "Jonesboro area",
+  "30260": "Morrow area",
+  "30274": "Riverdale area",
+  "30296": "College Park area",
+  "30297": "Hapeville / Forest Park area",
+  "30349": "South Fulton / Atlanta area",
+  "30344": "East Point area",
+  "30337": "College Park area",
+  "30331": "Atlanta area",
+};
+
+const sizeMeta = {
+  "11 Yard": {
+    tons: 1,
+    label: "Includes 1 ton",
+    bestFor: "Small cleanouts, garage/basement jobs, weight-conscious loads",
+    short: "Best for smaller jobs and heavier debris control",
+  },
+  "16 Yard": {
+    tons: 1.5,
+    label: "Includes 1.5 tons",
+    bestFor: "Moving, decluttering, mixed cleanup, all-around use",
+    short: "Best all-around option for most mixed projects",
+  },
+  "21 Yard": {
+    tons: 2,
+    label: "Includes 2 tons",
+    bestFor: "Renovation, demo, bulky cleanouts, larger jobs",
+    short: "Best for bigger projects with more volume",
+  },
+};
+
 const basePricing = {
   "11 Yard": {
     "Early Bird": 225,
@@ -187,6 +230,8 @@ const rentalOptions = [
   },
 ];
 
+const allSizes = ["11 Yard", "16 Yard", "21 Yard"];
+
 export default function Funnel() {
   const [step, setStep] = useState(0);
 
@@ -205,7 +250,6 @@ export default function Funnel() {
 
   const [size, setSize] = useState("");
   const [overrideSize, setOverrideSize] = useState("");
-  const [showOtherSizes, setShowOtherSizes] = useState(false);
 
   const [duration, setDuration] = useState("");
 
@@ -216,7 +260,10 @@ export default function Funnel() {
     source: "",
   });
 
+  const areaLabel = getAreaLabel(zip);
   const effectiveSize = overrideSize || size;
+  const isReturningQuick = customerType === "Returning" && returningPath === "quick";
+  const showRecommendationContext = !isReturningQuick && !!size;
 
   const recommendation = useMemo(() => {
     return getRecommendation(customerType, project, otherText);
@@ -227,23 +274,22 @@ export default function Funnel() {
     1: "Customer Type",
     2: "Path",
     3: "Project Type",
-    4: "Recommendation",
+    4: "Dumpster Size",
     5: "Rental Option",
     6: "Contact Info",
   }[step];
 
-  const visibleTotalSteps = customerType === "Returning" && returningPath === "quick"
-    ? 5
-    : 6;
+  const visibleTotalSteps = isReturningQuick ? 6 : 7;
 
   const currentVisualStep = (() => {
     if (step === 0) return 1;
-    if (customerType === "Returning" && returningPath === "quick") {
-      const map = { 0: 1, 1: 2, 2: 3, 5: 4, 6: 5 };
-      return map[step] || 1;
-    }
-    const map = { 0: 1, 1: 2, 2: 3, 3: 3, 4: 4, 5: 5, 6: 6 };
-    return map[step] || 1;
+    if (step === 1) return 2;
+    if (step === 2) return 3;
+    if (step === 3) return 4;
+    if (step === 4) return isReturningQuick ? 4 : 5;
+    if (step === 5) return isReturningQuick ? 5 : 6;
+    if (step === 6) return isReturningQuick ? 6 : 7;
+    return 1;
   })();
 
   const progressPercent = (currentVisualStep / visibleTotalSteps) * 100;
@@ -282,15 +328,31 @@ export default function Funnel() {
 
   const handleCustomerType = (type) => {
     setCustomerType(type);
+    setReturningPath("");
     setProject("");
     setOtherText("");
     setSize("");
     setOverrideSize("");
     setDuration("");
-    setReturningPath("");
+    setShowConcreteNotice(false);
 
     if (type === "Returning") {
       setStep(2);
+    } else {
+      setStep(3);
+    }
+  };
+
+  const handleReturningPath = (path) => {
+    setReturningPath(path);
+    setProject("");
+    setOtherText("");
+    setSize("");
+    setOverrideSize("");
+    setDuration("");
+
+    if (path === "quick") {
+      setStep(4);
     } else {
       setStep(3);
     }
@@ -306,11 +368,37 @@ export default function Funnel() {
     const reco = getRecommendation(customerType, selectedProject, otherText);
     setSize(reco.size);
     setOverrideSize("");
-    setShowOtherSizes(false);
     setStep(4);
   };
 
-  const availableOtherSizes = getAlternativeSizes(size);
+  const handleOtherContinue = () => {
+    const reco = getRecommendation(customerType, "Other", otherText);
+    setSize(reco.size);
+    setOverrideSize("");
+    setStep(4);
+  };
+
+  const handleSizeSelect = (selectedSize) => {
+    if (isReturningQuick) {
+      setSize("");
+      setOverrideSize(selectedSize);
+      return;
+    }
+
+    if (selectedSize === size) {
+      setOverrideSize("");
+    } else {
+      setOverrideSize(selectedSize);
+    }
+  };
+
+  const handleContinueFromSize = () => {
+    if (!effectiveSize) {
+      alert("Please choose a dumpster size.");
+      return;
+    }
+    setStep(5);
+  };
 
   const handleSubmit = () => {
     if (!form.name.trim() || !form.email.trim()) {
@@ -320,6 +408,7 @@ export default function Funnel() {
 
     const payload = {
       zip,
+      areaLabel,
       zone: zoneKey,
       deliveryFee: zoneFee,
       customerType,
@@ -328,6 +417,7 @@ export default function Funnel() {
       otherText,
       recommendedSize: size,
       selectedSize: effectiveSize,
+      includedTons: sizeMeta[effectiveSize]?.tons || null,
       rentalOption: duration,
       pricingShown: calculatedPrices,
       contact: form,
@@ -342,18 +432,21 @@ export default function Funnel() {
       setStep(5);
       return;
     }
+
     if (step === 5) {
-      if (customerType === "Returning" && returningPath === "quick") {
+      setStep(4);
+      return;
+    }
+
+    if (step === 4) {
+      if (isReturningQuick) {
         setStep(2);
       } else {
-        setStep(4);
+        setStep(3);
       }
       return;
     }
-    if (step === 4) {
-      setStep(3);
-      return;
-    }
+
     if (step === 3) {
       if (customerType === "Returning") {
         setStep(2);
@@ -362,13 +455,14 @@ export default function Funnel() {
       }
       return;
     }
+
     if (step === 2) {
       setStep(1);
       return;
     }
+
     if (step === 1) {
       setStep(0);
-      return;
     }
   };
 
@@ -440,11 +534,9 @@ export default function Funnel() {
             <>
               <SectionTitle
                 title="Let’s get you the right dumpster"
-                text={`ZIP ${zip} is in our ${zones[zoneKey]?.label || ""}. ${
-                  zoneFee > 0
-                    ? `Delivery fee of $${zoneFee} will be included in pricing.`
-                    : "Delivery is included in pricing."
-                }`}
+                text={`${areaLabel} is in our ${
+                  zones[zoneKey]?.label?.toLowerCase() || ""
+                }. Your area pricing will include delivery.`}
               />
 
               <div style={styles.optionGrid}>
@@ -478,27 +570,21 @@ export default function Funnel() {
             <>
               <SectionTitle
                 title="Welcome back"
-                text="Want a quick path, or would you like a fresh recommendation?"
+                text="Want to move fast, or would you like a fresh recommendation based on this project?"
               />
 
               <div style={styles.optionGrid}>
                 <OptionCard
                   title="Quick Select"
-                  sub="I know what I need"
+                  sub="I know my size already"
                   selected={returningPath === "quick"}
-                  onClick={() => {
-                    setReturningPath("quick");
-                    setStep(5);
-                  }}
+                  onClick={() => handleReturningPath("quick")}
                 />
                 <OptionCard
                   title="Recommend for Me"
-                  sub="Guide me through the best fit"
+                  sub="Help me choose based on this cleanup"
                   selected={returningPath === "recommend"}
-                  onClick={() => {
-                    setReturningPath("recommend");
-                    setStep(3);
-                  }}
+                  onClick={() => handleReturningPath("recommend")}
                 />
               </div>
             </>
@@ -510,12 +596,14 @@ export default function Funnel() {
                 title={
                   customerType === "Contractor"
                     ? "What type of debris are you dealing with?"
+                    : customerType === "Returning"
+                    ? "What are you tossing this time?"
                     : "What kind of cleanup are you tackling?"
                 }
                 text={
                   customerType === "Contractor"
                     ? "We’ll filter out the stuff we don’t haul and point you toward the best fit."
-                    : "Pick the project type that’s closest to your job."
+                    : "Pick the option that’s closest to your current project."
                 }
               />
 
@@ -562,13 +650,7 @@ export default function Funnel() {
                   />
                   <button
                     style={styles.primaryButton}
-                    onClick={() => {
-                      const reco = getRecommendation(customerType, "Other", otherText);
-                      setSize(reco.size);
-                      setOverrideSize("");
-                      setShowOtherSizes(false);
-                      setStep(4);
-                    }}
+                    onClick={handleOtherContinue}
                   >
                     Continue
                   </button>
@@ -598,63 +680,68 @@ export default function Funnel() {
           {step === 4 && (
             <>
               <SectionTitle
-                title="This is your best fit"
-                text="We’re aiming to recommend the size most likely to keep your project moving without running out of space."
+                title={
+                  isReturningQuick
+                    ? "Pick your dumpster size"
+                    : "Choose your dumpster size"
+                }
+                text={
+                  isReturningQuick
+                    ? "Here are your size options. Pricing comes next and will include delivery to your area."
+                    : `Based on your project, we recommend the ${size}. You can still choose a different size below.`
+                }
               />
 
-              <div style={styles.recoBox}>
-                <div style={styles.recoBadge}>Recommended</div>
-                <div style={styles.recoSize}>{size}</div>
-                <div style={styles.recoBody}>
-                  <div style={styles.recoSubTitle}>Holds:</div>
-                  <ul style={styles.capacityList}>
-                    {recommendation.holds.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-
-                  <p style={styles.recoText}>{recommendation.reason}</p>
-
-                  <div style={styles.recoCallout}>
-                    <strong>Why this size:</strong> {recommendation.note}
-                  </div>
-
-                  <div style={styles.socialProof}>👍 Most customers choose this size</div>
+              {showRecommendationContext && recommendation.reason ? (
+                <div style={styles.recoCallout}>
+                  <strong>Why we recommended {size}:</strong> {recommendation.reason}
+                  {recommendation.note ? ` ${recommendation.note}` : ""}
                 </div>
+              ) : null}
+
+              {customerType === "Contractor" && project === "Roofing" ? (
+                <div style={styles.warningStrip}>
+                  <strong>Roofing note:</strong> We’re biasing smaller here to reduce overweight risk.
+                  Roofing debris gets heavy fast.
+                </div>
+              ) : null}
+
+              <div style={styles.optionGrid}>
+                {allSizes.map((sizeKey) => {
+                  const isRecommended = !isReturningQuick && sizeKey === size;
+                  const isSelected = effectiveSize === sizeKey;
+
+                  return (
+                    <button
+                      key={sizeKey}
+                      onClick={() => handleSizeSelect(sizeKey)}
+                      style={{
+                        ...styles.sizeCard,
+                        ...(isSelected ? styles.optionCardSelected : {}),
+                        ...(isRecommended ? styles.recommendedCard : {}),
+                      }}
+                    >
+                      <div style={styles.optionTop}>
+                        <div>
+                          <div style={styles.optionTitle}>{sizeKey}</div>
+                          <div style={styles.optionSub}>{sizeMeta[sizeKey].short}</div>
+                        </div>
+                        {isRecommended ? <span style={styles.tag}>Recommended</span> : null}
+                      </div>
+
+                      <div style={styles.sizeMetaRow}>
+                        <span style={styles.tonnagePill}>{sizeMeta[sizeKey].label}</span>
+                      </div>
+
+                      <div style={styles.sizeBestFor}>
+                        <strong>Best for:</strong> {sizeMeta[sizeKey].bestFor}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
 
-              {customerType !== "Contractor" && availableOtherSizes.length > 0 && (
-                <div style={{ marginBottom: 18 }}>
-                  {!showOtherSizes ? (
-                    <button
-                      style={styles.secondaryLink}
-                      onClick={() => setShowOtherSizes(true)}
-                    >
-                      See other size options
-                    </button>
-                  ) : (
-                    <div style={styles.altSizeWrap}>
-                      <div style={styles.altSizeTitle}>Going against the recommendation?</div>
-                      <div style={styles.altSizeText}>
-                        That’s okay — here are smaller options, but they may fill faster than expected.
-                      </div>
-                      <div style={styles.optionGrid}>
-                        {availableOtherSizes.map((alt) => (
-                          <OptionCard
-                            key={alt}
-                            title={alt}
-                            sub={alt === size ? "Recommended" : "Smaller option"}
-                            selected={effectiveSize === alt}
-                            onClick={() => setOverrideSize(alt === size ? "" : alt)}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <button onClick={() => setStep(5)} style={styles.primaryButton}>
+              <button onClick={handleContinueFromSize} style={styles.primaryButton}>
                 Continue
               </button>
             </>
@@ -664,8 +751,18 @@ export default function Funnel() {
             <>
               <SectionTitle
                 title="Pick how you want to run your project"
-                text="Pricing below already includes your delivery area."
+                text={`Pricing below includes delivery to the ${areaLabel}. ${sizeMeta[effectiveSize]?.label || ""}.`}
               />
+
+              <div style={styles.selectedSizeStrip}>
+                <div>
+                  <div style={styles.selectedSizeLabel}>Selected Dumpster</div>
+                  <div style={styles.selectedSizeValue}>{effectiveSize}</div>
+                </div>
+                <span style={styles.tonnagePill}>
+                  {sizeMeta[effectiveSize]?.label || ""}
+                </span>
+              </div>
 
               <div style={styles.optionGrid}>
                 {rentalOptions.map((option) => {
@@ -688,10 +785,12 @@ export default function Funnel() {
                           <div style={styles.optionTitle}>{option.label}</div>
                           <div style={styles.optionSub}>{option.sub}</div>
                           <div style={styles.priceText}>
-                            Starting at{" "}
                             {typeof displayPrice === "number"
                               ? `$${displayPrice}`
-                              : "Call for pricing"}
+                              : "Pricing unavailable"}
+                          </div>
+                          <div style={styles.priceSupport}>
+                            Includes delivery + {sizeMeta[effectiveSize]?.label?.toLowerCase()}
                           </div>
                         </div>
                         {option.tag ? <span style={styles.tag}>{option.tag}</span> : null}
@@ -717,6 +816,10 @@ export default function Funnel() {
                   <strong>{zip}</strong>
                 </div>
                 <div style={styles.summaryRow}>
+                  <span>Service Area</span>
+                  <strong>{areaLabel}</strong>
+                </div>
+                <div style={styles.summaryRow}>
                   <span>Delivery Area</span>
                   <strong>
                     {zones[zoneKey]?.label} {zoneFee > 0 ? `(+$${zoneFee})` : "(Included)"}
@@ -725,6 +828,10 @@ export default function Funnel() {
                 <div style={styles.summaryRow}>
                   <span>Dumpster</span>
                   <strong>{effectiveSize || "-"}</strong>
+                </div>
+                <div style={styles.summaryRow}>
+                  <span>Included Disposal Weight</span>
+                  <strong>{sizeMeta[effectiveSize]?.label || "-"}</strong>
                 </div>
                 <div style={styles.summaryRow}>
                   <span>Rental</span>
@@ -814,11 +921,9 @@ function OptionCard({ title, sub, tag, selected, onClick }) {
   );
 }
 
-function getAlternativeSizes(recommended) {
-  if (recommended === "21 Yard") return ["21 Yard", "16 Yard", "11 Yard"];
-  if (recommended === "16 Yard") return ["16 Yard", "11 Yard"];
-  if (recommended === "11 Yard") return ["11 Yard"];
-  return [];
+function getAreaLabel(zip) {
+  if (!zip) return "Your area";
+  return zipToArea[zip] || `ZIP ${zip} area`;
 }
 
 function getRecommendation(customerType, project, otherText = "") {
@@ -828,153 +933,178 @@ function getRecommendation(customerType, project, otherText = "") {
     if (project === "Roofing") {
       return {
         size: "11 Yard",
-        holds: [
-          "Smaller, controlled roofing loads",
-          "Heavy debris with better weight management",
-          "Projects where multiple pulls may make more sense",
-        ],
         reason:
-          "Roofing debris trends heavy, so we keep the recommendation tighter to protect against overloaded containers.",
+          "Roofing debris gets heavy quickly, so we bias smaller to help reduce overweight risk and keep loads more controlled.",
         note:
-          "If volume is higher, you may need more than one haul — but starting smaller is the safer move.",
+          "For bigger roofs, multiple pulls or additional container planning may make more sense.",
       };
     }
 
     if (project === "Renovation / demo") {
       return {
-        size: "16 Yard",
-        holds: [
-          "Renovation debris",
-          "Light-to-moderate demo work",
-          "Bigger cleanup loads without jumping too large",
-        ],
+        size: "21 Yard",
         reason:
-          "For most contractor demo jobs, the 16-yard is the best starting point before moving into more complex multi-container logic.",
+          "Contractor demo jobs usually generate more volume and bulk, so the 21-yard is the better starting point.",
         note:
-          "This gives room without tying up your biggest container unless the project really needs it.",
+          "This gives more room up front and reduces the chance of running short on space.",
+      };
+    }
+
+    if (project === "General Cleanup") {
+      return {
+        size: "16 Yard",
+        reason:
+          "For mixed contractor cleanup, the 16-yard is the strongest all-around starting point.",
+        note:
+          "It balances flexibility, turnaround, and usable capacity.",
+      };
+    }
+
+    if (project === "Other") {
+      if (containsHeavyKeywords(otherLower)) {
+        return {
+          size: "21 Yard",
+          reason:
+            "Based on what you described, this sounds like a heavier or bulkier contractor load.",
+          note:
+            "The 21-yard gives you more working room for mixed or expanding debris.",
+        };
+      }
+
+      return {
+        size: "16 Yard",
+        reason:
+          "When contractor debris is mixed or unclear, the 16-yard is the safest all-around recommendation.",
+        note:
+          "It gives flexibility without overshooting too much.",
       };
     }
 
     return {
       size: "16 Yard",
-      holds: [
-        "General contractor cleanup",
-        "Mixed debris loads",
-        "Flexible jobsite use",
-      ],
       reason:
-        "For contractor work, the 16-yard is the strongest default because it balances volume, versatility, and turnaround.",
+        "The 16-yard is the strongest contractor default for mixed cleanup and everyday jobsite use.",
       note:
-        "As the funnel evolves, this is the path that can become your contractor fast lane.",
+        "It handles a wide range of debris without jumping straight to the biggest box.",
     };
   }
 
   if (project === "Cleaning the garage / basement") {
     return {
-      size: "16 Yard",
-      holds: [
-        "2–3 rooms of furniture",
-        "Garage or basement cleanout",
-        "Bulkier household cleanup items",
-      ],
+      size: "11 Yard",
       reason:
-        "Garage and basement projects almost always grow once you get started, so the 16-yard gives helpful breathing room.",
+        "Garage and basement cleanouts are often a strong fit for the 11-yard when the job is mostly household junk and smaller items.",
       note:
-        "Choosing smaller often leads to running out of space faster than expected.",
+        "If you start adding furniture or multiple rooms, the 16-yard becomes the safer step up.",
     };
   }
 
   if (project === "Moving / decluttering") {
     return {
-      size: "11 Yard",
-      holds: [
-        "Lighter decluttering jobs",
-        "Smaller household cleanouts",
-        "Limited furniture and bagged junk",
-      ],
+      size: "16 Yard",
       reason:
-        "For lighter projects, the 11-yard can work well when the material is mostly household junk and not bulky demo debris.",
+        "Moving and decluttering projects tend to grow once you start pulling things out, so the 16-yard gives useful breathing room.",
       note:
-        "If you start adding furniture, attic cleanup, or extra rooms, the 16-yard becomes the safer choice.",
+        "It’s the strongest all-around fit for mixed household volume.",
     };
   }
 
   if (project === "Renovation / demo") {
     return {
-      size: "16 Yard",
-      holds: [
-        "Renovation debris",
-        "Demo materials from smaller jobs",
-        "More volume than a light cleanout",
-      ],
+      size: "21 Yard",
       reason:
-        "Renovation projects create more unpredictable debris, so the 16-yard is the safer recommendation for keeping the project moving.",
+        "Renovation and demo create more volume and bulk, so the 21-yard is the safer recommendation for keeping the project moving.",
       note:
-        "Most customers doing this kind of project are happier with a little extra room.",
+        "It reduces the chance of running out of space mid-job.",
     };
   }
 
   if (project === "Roofing") {
     return {
       size: "11 Yard",
-      holds: [
-        "Smaller, weight-conscious roofing loads",
-        "Heavy debris with better control",
-        "Jobs where multiple smaller pulls make sense",
-      ],
       reason:
-        "Roofing debris gets heavy quickly, so a smaller container is the better starting point for weight control.",
+        "Roofing debris gets heavy fast, so starting smaller is the safer move for weight control.",
       note:
-        "We’d rather guide you toward a safer fit than oversell a bigger box that becomes too heavy.",
+        "We’d rather guide you toward a safer fit than push a bigger box that could overload.",
     };
   }
 
   if (project === "Other") {
-    if (
-      otherLower.includes("attic") ||
-      otherLower.includes("furniture") ||
-      otherLower.includes("garage")
-    ) {
+    if (containsHeavyKeywords(otherLower)) {
       return {
-        size: "16 Yard",
-        holds: [
-          "Garage + attic overflow",
-          "Bulkier furniture loads",
-          "Mixed household cleanup",
-        ],
+        size: "21 Yard",
         reason:
-          "Based on what you described, the 16-yard sounds like the safer choice for mixed cleanup volume.",
+          "What you described sounds heavier, bulkier, or more renovation-driven, so the 21-yard is the safer recommendation.",
         note:
-          "This gives you more room if the job grows once you get started.",
+          "That gives you more room if the project expands once you get started.",
+      };
+    }
+
+    if (containsLightKeywords(otherLower)) {
+      return {
+        size: "11 Yard",
+        reason:
+          "What you described sounds more like a lighter cleanout, which often fits well in the 11-yard.",
+        note:
+          "If the scope grows, the 16-yard is the next safer step up.",
       };
     }
 
     return {
       size: "16 Yard",
-      holds: [
-        "Mixed cleanup jobs",
-        "Unclear or expanding projects",
-        "More flexibility without going oversized",
-      ],
       reason:
         "When a project is mixed or unclear, the 16-yard is usually the safest recommendation because it gives flexibility without overshooting too much.",
       note:
-        "This is where smarter recommendation logic can get even stronger later.",
+        "It’s the most balanced starting point for uncertain jobs.",
     };
   }
 
   return {
     size: "16 Yard",
-    holds: [
-      "Mixed cleanup jobs",
-      "Garage or basement projects",
-      "Light renovation debris",
-    ],
     reason:
-      "The 16-yard is a strong default because it handles most residential jobs better than the smallest option.",
+      "The 16-yard is a strong all-around default for mixed cleanup and household projects.",
     note:
-      "It’s the most common recommendation for a reason — it leaves room for the project to grow.",
+      "It gives more room than the smallest option without going oversized.",
   };
+}
+
+function containsHeavyKeywords(text) {
+  return [
+    "demo",
+    "renovation",
+    "remodel",
+    "cabinet",
+    "drywall",
+    "flooring",
+    "tile",
+    "brick",
+    "block",
+    "dirt",
+    "gravel",
+    "shingles",
+    "roof",
+    "deck",
+    "shed",
+    "heavy",
+    "weight bench",
+    "construction",
+  ].some((word) => text.includes(word));
+}
+
+function containsLightKeywords(text) {
+  return [
+    "garage",
+    "attic",
+    "closet",
+    "cardboard",
+    "boxes",
+    "declutter",
+    "moving",
+    "household",
+    "furniture",
+    "basement",
+    "junk",
+  ].some((word) => text.includes(word));
 }
 
 const styles = {
@@ -1088,10 +1218,22 @@ const styles = {
     background: COLORS.grayLight,
     cursor: "pointer",
   },
+  sizeCard: {
+    width: "100%",
+    textAlign: "left",
+    padding: "18px 18px",
+    borderRadius: 18,
+    border: `1px solid ${COLORS.border}`,
+    background: COLORS.grayLight,
+    cursor: "pointer",
+  },
   optionCardSelected: {
     background: COLORS.successBg,
     border: `1px solid ${COLORS.pink}`,
     boxShadow: "0 0 0 3px rgba(255,206,228,0.35)",
+  },
+  recommendedCard: {
+    border: `2px solid ${COLORS.pink}`,
   },
   highlightCard: {
     border: `2px solid ${COLORS.pink}`,
@@ -1124,88 +1266,68 @@ const styles = {
     borderRadius: 999,
     whiteSpace: "nowrap",
   },
-  recoBox: {
-    borderRadius: 22,
-    border: `1px solid ${COLORS.pink}`,
-    background: COLORS.successBg,
-    padding: 22,
-    marginBottom: 18,
-  },
-  recoBadge: {
-    display: "inline-block",
-    background: COLORS.charcoalDark,
-    color: COLORS.white,
-    padding: "6px 10px",
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: 700,
-    marginBottom: 14,
-  },
-  recoSize: {
-    fontSize: 34,
-    fontWeight: 800,
-    color: COLORS.charcoalDark,
+  sizeMetaRow: {
+    marginTop: 12,
     marginBottom: 12,
   },
-  recoBody: {
-    color: COLORS.charcoalDark,
-  },
-  recoSubTitle: {
-    fontWeight: 800,
-    marginBottom: 8,
-  },
-  capacityList: {
-    marginTop: 0,
-    marginBottom: 14,
-    paddingLeft: 20,
-    lineHeight: 1.8,
-    color: COLORS.gray,
-  },
-  recoText: {
-    margin: "0 0 14px 0",
-    fontSize: 16,
-    lineHeight: 1.6,
-    color: COLORS.charcoalDark,
-  },
-  recoCallout: {
+  tonnagePill: {
+    display: "inline-block",
     background: COLORS.white,
     border: `1px solid ${COLORS.border}`,
+    color: COLORS.charcoalDark,
+    fontSize: 12,
+    fontWeight: 700,
+    padding: "7px 10px",
+    borderRadius: 999,
+  },
+  sizeBestFor: {
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: COLORS.gray,
+  },
+  recoCallout: {
+    background: COLORS.successBg,
+    border: `1px solid ${COLORS.pink}`,
     borderRadius: 14,
     padding: 14,
-    color: COLORS.gray,
-    lineHeight: 1.5,
-    fontSize: 14,
-    marginBottom: 12,
-  },
-  socialProof: {
-    fontSize: 14,
-    fontWeight: 700,
     color: COLORS.charcoalDark,
+    lineHeight: 1.6,
+    fontSize: 14,
+    marginBottom: 14,
   },
-  altSizeWrap: {
+  warningStrip: {
+    background: COLORS.warningBg,
+    border: `1px solid ${COLORS.warningBorder}`,
+    borderRadius: 14,
+    padding: 14,
+    color: COLORS.charcoalDark,
+    lineHeight: 1.6,
+    fontSize: 14,
+    marginBottom: 14,
+  },
+  selectedSizeStrip: {
+    marginBottom: 16,
     background: COLORS.grayLight,
     border: `1px solid ${COLORS.border}`,
     borderRadius: 18,
     padding: 16,
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
   },
-  altSizeTitle: {
-    fontWeight: 800,
-    marginBottom: 6,
-  },
-  altSizeText: {
-    fontSize: 14,
-    color: COLORS.gray,
-    marginBottom: 14,
-    lineHeight: 1.5,
-  },
-  secondaryLink: {
-    background: "none",
-    border: "none",
-    color: COLORS.charcoalDark,
+  selectedSizeLabel: {
+    fontSize: 12,
     fontWeight: 700,
-    fontSize: 14,
-    cursor: "pointer",
-    padding: 0,
+    color: COLORS.gray,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  selectedSizeValue: {
+    fontSize: 22,
+    fontWeight: 800,
+    color: COLORS.charcoalDark,
+    marginTop: 4,
   },
   primaryButton: {
     display: "block",
@@ -1276,9 +1398,15 @@ const styles = {
   },
   priceText: {
     marginTop: 10,
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: 800,
     color: COLORS.charcoalDark,
+  },
+  priceSupport: {
+    marginTop: 6,
+    fontSize: 13,
+    color: COLORS.gray,
+    lineHeight: 1.5,
   },
   noticeBox: {
     marginTop: 16,
