@@ -1,11 +1,12 @@
 // api/odoo-probe.js
 // TEMPORARY — delete after field names confirmed.
-// Auth is confirmed working. This version queries actual rental data.
+// Fixes "unhashable type: list" by encoding fields array correctly.
 // GET https://littlejunkers-messenger-bot.vercel.app/api/odoo-probe
 
 function xmlrpcEscape(v) {
   return String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&apos;");
 }
+
 function xmlrpcValue(value) {
   if (value === null || value === undefined || value === false) return "<value><boolean>0</boolean></value>";
   if (value === true) return "<value><boolean>1</boolean></value>";
@@ -13,9 +14,10 @@ function xmlrpcValue(value) {
   if (typeof value === "number") return `<value><double>${value}</double></value>`;
   if (typeof value === "string") return `<value><string>${xmlrpcEscape(value)}</string></value>`;
   if (Array.isArray(value)) return `<value><array><data>${value.map(xmlrpcValue).join("")}</data></array></value>`;
-  if (typeof value === "object") return `<value><struct>${Object.entries(value).map(([k,v])=>`<member><n>${xmlrpcEscape(k)}</n>${xmlrpcValue(v)}</member>`).join("")}</struct></value>`;
+  if (typeof value === "object") return `<value><struct>${Object.entries(value).map(([k,v])=>`<member><name>${xmlrpcEscape(k)}</name>${xmlrpcValue(v)}</member>`).join("")}</struct></value>`;
   return `<value><string>${xmlrpcEscape(String(value))}</string></value>`;
 }
+
 function decodeXml(text) {
   return String(text||"").replaceAll("&lt;","<").replaceAll("&gt;",">").replaceAll("&quot;",'"').replaceAll("&apos;","'").replaceAll("&amp;","&");
 }
@@ -31,52 +33,14 @@ function extractInt(xml) {
   return m ? parseInt(m[1],10) : null;
 }
 
-// Parse XML-RPC array of structs into JS objects
-function parseXmlRpcResponse(xml) {
-  const fault = xml.match(/<faultString>[\s\S]*?<string>([\s\S]*?)<\/string>/i);
-  if (fault) throw new Error(decodeXml(fault[1]));
+function extractFault(xml) {
+  const m = xml.match(/<faultString>[\s\S]*?<string>([\s\S]*?)<\/string>/i);
+  return m ? decodeXml(m[1]).split("\n")[0] : null;
+}
 
-  // Extract all member key/value pairs at any depth
-  const results = [];
-  // Split on array items - each <value><struct> is one record
-  const structRe = /<value>\s*<struct>([\s\S]*?)<\/struct>\s*<\/value>/g;
-  let sm;
-  while ((sm = structRe.exec(xml)) !== null) {
-    const obj = {};
-    const memberRe = /<member>\s*<name>([\s\S]*?)<\/name>\s*<value>([\s\S]*?)<\/value>\s*<\/member>/g;
-    let mm;
-    while ((mm = memberRe.exec(sm[1])) !== null) {
-      const key = decodeXml(mm[1].trim());
-      const inner = mm[2].trim();
-      // Parse the value
-      const intM = inner.match(/^<(?:int|i4)>(-?\d+)<\/(?:int|i4)>$/);
-      if (intM) { obj[key] = parseInt(intM[1],10); continue; }
-      const boolM = inner.match(/^<boolean>([01])<\/boolean>$/);
-      if (boolM) { obj[key] = boolM[1]==="1"; continue; }
-      const strM = inner.match(/^<string>([\s\S]*)<\/string>$/);
-      if (strM) { obj[key] = decodeXml(strM[1]); continue; }
-      // Nested array (like Many2one [id, name])
-      const arrM = inner.match(/^<array><data>([\s\S]*)<\/data><\/array>$/);
-      if (arrM) {
-        const vals = [];
-        const vRe = /<value>([\s\S]*?)<\/value>/g;
-        let vm;
-        while ((vm = vRe.exec(arrM[1])) !== null) {
-          const vi = vm[1].trim();
-          const viInt = vi.match(/^<(?:int|i4)>(-?\d+)<\/(?:int|i4)>$/);
-          if (viInt) { vals.push(parseInt(viInt[1],10)); continue; }
-          const viStr = vi.match(/^<string>([\s\S]*)<\/string>$/);
-          if (viStr) { vals.push(decodeXml(viStr[1])); continue; }
-          vals.push(vi);
-        }
-        obj[key] = vals;
-        continue;
-      }
-      obj[key] = decodeXml(inner.replace(/<[^>]+>/g,"").trim());
-    }
-    if (Object.keys(obj).length > 0) results.push(obj);
-  }
-  return results;
+// Parse the raw XML into a readable structure for inspection
+function rawSnippet(xml, chars=2000) {
+  return xml.slice(0, chars);
 }
 
 export default async function handler(req, res) {
@@ -88,73 +52,72 @@ export default async function handler(req, res) {
     const authXml = await xmlrpc(`${ODOO_URL}/xmlrpc/2/common`, "authenticate",
       [ODOO_DB, ODOO_USER, ODOO_API_KEY, {}]);
     const uid = extractInt(authXml);
-    if (!uid) throw new Error("Auth failed");
+    if (!uid) throw new Error("Auth failed — uid not returned");
 
-    const exec = (model, method, args, kwargs={}) =>
-      xmlrpc(`${ODOO_URL}/xmlrpc/2/object`, "execute_kw",
-        [ODOO_DB, uid, ODOO_API_KEY, model, method, args, kwargs]);
+    // Helper: execute_kw with positional args only (no kwargs struct with lists)
+    // This avoids the "unhashable type: list" bug in Odoo's XML-RPC parser
+    // Pattern: [db, uid, key, model, method, [domain], {fields:[], limit:N}]
+    // The kwargs dict must only contain simple scalar values or be omitted.
+    // Solution: pass fields as part of a "options" dict encoded carefully.
+    const execRaw = async (model, method, args, options={}) => {
+      return xmlrpc(`${ODOO_URL}/xmlrpc/2/object`, "execute_kw", [
+        ODOO_DB, uid, ODOO_API_KEY,
+        model, method,
+        args,
+        options
+      ]);
+    };
 
-    // 2. Get date-related field names on sale.order.line
-    const lineFieldsXml = await exec("sale.order.line", "fields_get", [[]],
-      { attributes: ["string","type"] });
-
-    // 3. Get date-related field names on sale.order
-    const orderFieldsXml = await exec("sale.order", "fields_get", [[]],
-      { attributes: ["string","type"] });
-
-    // 4. Fetch sample rental lines for 11-Yard product (tmpl id 60)
-    const linesXml = await exec("sale.order.line", "search_read",
+    // 2. Test: simple search (no fields list) to confirm search_read works
+    const simpleSearchXml = await execRaw(
+      "sale.order.line", "search",
       [[["product_id.product_tmpl_id","=",60],["is_rental","=",true]]],
-      {
-        fields: ["id","order_id","product_id","is_rental",
-                 "rental_start_date","rental_return_date",
-                 "start_date","return_date","pickup_date",
-                 "qty_delivered","product_uom_qty"],
-        limit: 5,
-        context: {}
-      }
+      { limit: 5 }
     );
 
-    // 5. Fetch sample active rental orders
-    const ordersXml = await exec("sale.order", "search_read",
-      [[["is_rental_order","=",true],["rental_status","in",["pickup","pickedup"]]]],
-      {
-        fields: ["id","name","rental_status",
-                 "rental_start_date","rental_return_date",
-                 "start_date","return_date"],
-        limit: 3,
-        context: {}
-      }
-    );
+    const simpleFault = extractFault(simpleSearchXml);
 
-    // Parse results
-    const lineFields = parseXmlRpcResponse(lineFieldsXml);
-    const orderFields = parseXmlRpcResponse(orderFieldsXml);
-    const lines = parseXmlRpcResponse(linesXml);
-    const orders = parseXmlRpcResponse(ordersXml);
+    // 3. fields_get with no filter — just get names and types, no list values in kwargs
+    const lineFieldsXml = await execRaw(
+      "sale.order.line", "fields_get",
+      [false],
+      { attributes: ["string","type"] }
+    );
+    const lineFieldsFault = extractFault(lineFieldsXml);
 
-    // Filter field lists to just date/rental relevant ones
-    const relevantLineFields = lineFields.filter(f =>
-      f.id && (String(f.id).includes("rental")||String(f.id).includes("return")||
-               String(f.id).includes("date")||String(f.id).includes("pickup")||
-               String(f.id).includes("start"))
-    );
-    const relevantOrderFields = orderFields.filter(f =>
-      f.id && (String(f.id).includes("rental")||String(f.id).includes("return")||
-               String(f.id).includes("pickup")||String(f.id).includes("start"))
-    );
+    // 4. Try read on specific IDs from search result
+    // First extract IDs from simple search
+    const idMatches = [...simpleSearchXml.matchAll(/<(?:int|i4)>(\d+)<\/(?:int|i4)>/g)];
+    const ids = idMatches.map(m => parseInt(m[1],10)).filter(n => n > 0).slice(0,3);
+
+    let readXml = null;
+    let readFault = null;
+    if (ids.length > 0 && !simpleFault) {
+      // Use 'read' with explicit IDs — avoids domain list in kwargs
+      readXml = await execRaw(
+        "sale.order.line", "read",
+        [ids],
+        { fields: ["id","order_id","product_id","is_rental","rental_start_date","rental_return_date","start_date","return_date","pickup_date"] }
+      );
+      readFault = extractFault(readXml);
+    }
 
     return res.status(200).json({
       uid,
       auth_success: true,
-      note: "DELETE this file after confirming field names",
-      relevant_line_fields:  relevantLineFields,
-      relevant_order_fields: relevantOrderFields,
-      sample_lines:  lines,
-      sample_orders: orders,
-      // Raw XML for manual inspection if parse is incomplete
-      raw_lines_xml:  linesXml.slice(0, 3000),
-      raw_orders_xml: ordersXml.slice(0, 2000),
+      step2_simple_search: {
+        fault: simpleFault,
+        ids_found: ids,
+        raw: rawSnippet(simpleSearchXml, 500),
+      },
+      step3_fields_get: {
+        fault: lineFieldsFault,
+        raw: rawSnippet(lineFieldsXml, 3000),
+      },
+      step4_read_records: readXml ? {
+        fault: readFault,
+        raw: rawSnippet(readXml, 3000),
+      } : { skipped: "no IDs found from search" },
     });
 
   } catch(err) {
