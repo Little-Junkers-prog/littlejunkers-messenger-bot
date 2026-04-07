@@ -278,6 +278,7 @@ export default function Funnel() {
   const [overrideSize,       setOverrideSize]       = useState("");
   const [duration,           setDuration]           = useState("");
   const [selectedPrice,      setSelectedPrice]      = useState(null);
+  const [showComparison,     setShowComparison]     = useState(false);
   const [form,               setForm]               = useState({ name:"", email:"", phone:"", source:"" });
 
   const areaLabel      = getAreaLabel(zip);
@@ -328,12 +329,12 @@ export default function Funnel() {
     if (customerType === "Contractor" && sel === "Concrete") { setShowConcreteNotice(true); return; }
     setProject(sel);
     const reco = getRecommendation(customerType, sel, otherText);
-    setSize(reco.size); setOverrideSize(""); setStep(4);
+    setSize(reco.size); setOverrideSize(""); setShowComparison(false); setStep(4);
   };
 
   const handleOtherContinue = () => {
     const reco = getRecommendation(customerType, "Other", otherText);
-    setSize(reco.size); setOverrideSize(""); setStep(4);
+    setSize(reco.size); setOverrideSize(""); setShowComparison(false); setStep(4);
   };
 
   const handleSizeSelect = (sel) => {
@@ -608,47 +609,76 @@ export default function Funnel() {
                       </div>
                     )}
 
-                    {/* Comparison */}
+                    {/* Continue — always visible, above comparison */}
                     {!isReturningQuick && effectiveSize && (
-                      <div style={{ background:C.white, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:18, marginBottom:16 }}>
-                        <div style={{ fontSize:16, fontWeight:900, color:C.ink, fontFamily:F, marginBottom:3 }}>Compare your options</div>
-                        <div style={{ fontSize:13, color:C.inkMuted, fontFamily:F, marginBottom:14 }}>Review the other sizes before continuing.</div>
-                        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:10 }}>
-                          {allSizes.map(sizeKey => {
-                            const isMatch    = sizeKey === size;
-                            const isSelected = effectiveSize === sizeKey;
-                            return (
-                              <div key={sizeKey} style={{
-                                textAlign:"left", background: isSelected ? C.white : C.surfaceBg,
-                                border: isSelected ? `1.5px solid ${C.ink}` : `1px solid ${C.surfaceBorder}`,
-                                borderRadius:12, padding:14, fontFamily:F,
-                                boxShadow: isSelected ? "0 0 0 1px rgba(26,26,26,0.06)" : "none",
-                              }}>
-                                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, marginBottom:10 }}>
-                                  <div style={{ fontSize:17, fontWeight:900, color:C.ink, letterSpacing:"-0.4px", fontFamily:F }}>{sizeKey}</div>
-                                  {isMatch && <span style={{ background:C.pinkBg, color:C.pinkText, border:`1px solid ${C.pinkBorder}`, fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:99, fontFamily:F }}>Best Fit</span>}
-                                </div>
-                                <div style={{ marginBottom:6 }}>
-                                  <div style={{ fontSize:10, color:C.inkFaint, textTransform:"uppercase", letterSpacing:"0.4px", fontWeight:700, marginBottom:2 }}>Project Scale</div>
-                                  <div style={{ fontSize:13, fontWeight:700, color:C.ink }}>{comparisonMeta[sizeKey].projectScale}</div>
-                                </div>
-                                <div style={{ marginBottom:6 }}>
-                                  <div style={{ fontSize:10, color:C.inkFaint, textTransform:"uppercase", letterSpacing:"0.4px", fontWeight:700, marginBottom:2 }}>Truck Loads</div>
-                                  <div style={{ fontSize:13, fontWeight:700, color:C.ink }}>{comparisonMeta[sizeKey].truckLoads}</div>
-                                </div>
-                                <div style={{ marginBottom:8 }}>
-                                  <div style={{ fontSize:10, color:C.inkFaint, textTransform:"uppercase", letterSpacing:"0.4px", fontWeight:700, marginBottom:2 }}>Included Weight</div>
-                                  <div style={{ fontSize:13, fontWeight:700, color:C.ink }}>{sizeMeta[sizeKey].label}</div>
-                                </div>
-                                <div style={{ fontSize:12, color:C.inkMuted, lineHeight:1.4, marginBottom:10 }}>{comparisonMeta[sizeKey].bestUse}</div>
-                                {isSelected
-                                  ? <div style={{ fontSize:12, fontWeight:800, color:C.ink }}>Selected</div>
-                                  : <button onClick={() => handleSizeSelect(sizeKey)} style={{ width:"100%", padding:"9px", background:C.white, color:C.ink, border:`1px solid ${C.surfaceBorder}`, borderRadius:10, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:F }}>Select</button>
-                                }
-                              </div>
-                            );
-                          })}
-                        </div>
+                      <PrimaryButton onClick={handleContinueFromStep4} style={{ marginTop:0, marginBottom:14 }}>
+                        Continue with {effectiveSize}
+                      </PrimaryButton>
+                    )}
+
+                    {/* Collapsible comparison */}
+                    {!isReturningQuick && effectiveSize && (
+                      <div style={{ marginBottom:8 }}>
+                        <button
+                          onClick={() => setShowComparison(v => !v)}
+                          style={{
+                            width:"100%", background:"none", border:`1px solid ${C.surfaceBorder}`,
+                            borderRadius:10, padding:"10px 16px", cursor:"pointer", fontFamily:F,
+                            display:"flex", justifyContent:"space-between", alignItems:"center",
+                          }}
+                        >
+                          <span style={{ fontSize:13, fontWeight:700, color:C.inkMid }}>
+                            {showComparison ? "Hide size comparison" : "Compare other sizes"}
+                          </span>
+                          <span style={{ fontSize:14, color:C.inkMuted, lineHeight:1 }}>
+                            {showComparison ? "▲" : "▼"}
+                          </span>
+                        </button>
+
+                        {showComparison && (
+                          <div style={{ background:C.white, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:18, marginTop:10 }}>
+                            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:10 }}>
+                              {allSizes.map(sizeKey => {
+                                const isMatch    = sizeKey === size;
+                                const isSelected = effectiveSize === sizeKey;
+                                return (
+                                  <div key={sizeKey} style={{
+                                    textAlign:"left", background: isSelected ? C.white : C.surfaceBg,
+                                    border: isSelected ? `1.5px solid ${C.ink}` : `1px solid ${C.surfaceBorder}`,
+                                    borderRadius:12, padding:14, fontFamily:F,
+                                    boxShadow: isSelected ? "0 0 0 1px rgba(26,26,26,0.06)" : "none",
+                                  }}>
+                                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, marginBottom:10 }}>
+                                      <div style={{ fontSize:17, fontWeight:900, color:C.ink, letterSpacing:"-0.4px", fontFamily:F }}>{sizeKey}</div>
+                                      {isMatch && <span style={{ background:C.pinkBg, color:C.pinkText, border:`1px solid ${C.pinkBorder}`, fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:99, fontFamily:F }}>Best Fit</span>}
+                                    </div>
+                                    <div style={{ marginBottom:6 }}>
+                                      <div style={{ fontSize:10, color:C.inkFaint, textTransform:"uppercase", letterSpacing:"0.4px", fontWeight:700, marginBottom:2 }}>Project Scale</div>
+                                      <div style={{ fontSize:13, fontWeight:700, color:C.ink }}>{comparisonMeta[sizeKey].projectScale}</div>
+                                    </div>
+                                    <div style={{ marginBottom:6 }}>
+                                      <div style={{ fontSize:10, color:C.inkFaint, textTransform:"uppercase", letterSpacing:"0.4px", fontWeight:700, marginBottom:2 }}>Truck Loads</div>
+                                      <div style={{ fontSize:13, fontWeight:700, color:C.ink }}>{comparisonMeta[sizeKey].truckLoads}</div>
+                                    </div>
+                                    <div style={{ marginBottom:8 }}>
+                                      <div style={{ fontSize:10, color:C.inkFaint, textTransform:"uppercase", letterSpacing:"0.4px", fontWeight:700, marginBottom:2 }}>Included Weight</div>
+                                      <div style={{ fontSize:13, fontWeight:700, color:C.ink }}>{sizeMeta[sizeKey].label}</div>
+                                    </div>
+                                    <div style={{ fontSize:12, color:C.inkMuted, lineHeight:1.4, marginBottom:10 }}>{comparisonMeta[sizeKey].bestUse}</div>
+                                    {isSelected
+                                      ? <div style={{ fontSize:12, fontWeight:800, color:C.ink }}>Selected</div>
+                                      : <button onClick={() => handleSizeSelect(sizeKey)} style={{ width:"100%", padding:"9px", background:C.white, color:C.ink, border:`1px solid ${C.surfaceBorder}`, borderRadius:10, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:F }}>Select</button>
+                                    }
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {/* Secondary continue after comparing */}
+                            <PrimaryButton onClick={handleContinueFromStep4} style={{ marginTop:16 }}>
+                              Continue with {effectiveSize}
+                            </PrimaryButton>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -678,7 +708,10 @@ export default function Funnel() {
                       </div>
                     )}
 
-                    <PrimaryButton onClick={handleContinueFromStep4}>Continue</PrimaryButton>
+                    {/* Continue for quick-select / no-size path */}
+                    {(isReturningQuick || !effectiveSize) && (
+                      <PrimaryButton onClick={handleContinueFromStep4}>Continue</PrimaryButton>
+                    )}
                   </div>
                 )}
 
