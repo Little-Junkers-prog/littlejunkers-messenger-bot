@@ -151,7 +151,6 @@ function getRecommendation(customerType, project, otherText = "") {
 function ProgressChrome({ currentVisualStep, visibleTotalSteps, stepLabel, progressPercent, onBack, showBack }) {
   return (
     <div style={{ borderBottom: `1px solid ${C.surfaceBorder}`, marginBottom: 0 }}>
-      {/* Step meta row */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 24px 0", fontFamily:F }}>
         <span style={{ fontSize:11, fontWeight:700, color:C.inkFaint, letterSpacing:"0.3px" }}>
           Step {currentVisualStep} of {visibleTotalSteps}
@@ -160,13 +159,11 @@ function ProgressChrome({ currentVisualStep, visibleTotalSteps, stepLabel, progr
           {stepLabel}
         </span>
       </div>
-      {/* Bar */}
       <div style={{ padding:"8px 24px 12px" }}>
         <div style={{ height:3, background:C.surfaceBorder, borderRadius:99, overflow:"hidden" }}>
           <div style={{ height:"100%", width:`${progressPercent}%`, background:C.pinkBar, borderRadius:99, transition:"width 300ms ease" }} />
         </div>
       </div>
-      {/* Back */}
       {showBack && (
         <div style={{ padding:"0 24px 10px" }}>
           <button onClick={onBack} style={{ background:"none", border:"none", fontSize:13, color:C.inkMuted, cursor:"pointer", padding:0, fontWeight:700, fontFamily:F }}>
@@ -226,15 +223,16 @@ function OptionCard({ title, sub, tag, selected, onClick }) {
   );
 }
 
-function PrimaryButton({ onClick, children, style }) {
+function PrimaryButton({ onClick, children, style, disabled = false }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       style={{
         display:"block", width:"100%", padding:"15px",
-        background:C.ink, color:C.white, border:"none",
+        background: disabled ? C.inkFaint : C.ink, color:C.white, border:"none",
         borderRadius:12, fontSize:15, fontWeight:800,
-        cursor:"pointer", fontFamily:F, letterSpacing:"0.1px",
+        cursor: disabled ? "not-allowed" : "pointer", fontFamily:F, letterSpacing:"0.1px",
         marginTop:18,
         ...style,
       }}
@@ -278,6 +276,10 @@ export default function Funnel() {
   const [overrideSize,       setOverrideSize]       = useState("");
   const [duration,           setDuration]           = useState("");
   const [selectedPrice,      setSelectedPrice]      = useState(null);
+  const [availabilityData,   setAvailabilityData]   = useState(null);
+  const [availabilityLoading,setAvailabilityLoading]= useState(false);
+  const [availabilityError,  setAvailabilityError]  = useState("");
+  const [selectedWindow,     setSelectedWindow]     = useState(null);
   const [showComparison,     setShowComparison]     = useState(false);
   const [form,               setForm]               = useState({ name:"", email:"", phone:"", source:"" });
 
@@ -287,7 +289,7 @@ export default function Funnel() {
 
   const recommendation = useMemo(() => getRecommendation(customerType, project, otherText), [customerType, project, otherText]);
 
-  const stepLabel = { 0:"Service Area", 1:"Customer Type", 2:"Path", 3:"Project Type", 4:isReturningQuick?"Size Selection":"Best Fit", 5:"Rental Option", 6:"Contact Info" }[step];
+  const stepLabel = { 0:"Service Area", 1:"Customer Type", 2:"Path", 3:"Project Type", 4:isReturningQuick?"Size Selection":"Best Fit", 5:"Delivery Date", 6:"Contact Info" }[step];
   const visibleTotalSteps = isReturningQuick ? 6 : 7;
   const currentVisualStep = (() => {
     if (step===0) return 1; if (step===1) return 2; if (step===2) return 3;
@@ -304,7 +306,11 @@ export default function Funnel() {
     return p;
   }, [effectiveSize, zoneFee]);
 
-  // ── handlers (unchanged logic) ──
+  const isAvailabilityDegraded = Boolean(availabilityError || availabilityData?.degraded);
+  const availableOptions = availabilityData?.available || {};
+
+  // ── handlers ───────────────────────────────────────────────────────────────
+
   const handleZipSubmit = () => {
     const clean = zip.trim();
     if (!/^\d{5}$/.test(clean)) { setZipError("Please enter a valid 5-digit ZIP code."); return; }
@@ -315,13 +321,16 @@ export default function Funnel() {
 
   const handleCustomerType = (type) => {
     setCustomerType(type); setReturningPath(""); setProject(""); setOtherText("");
-    setSize(""); setOverrideSize(""); setDuration(""); setSelectedPrice(null); setShowConcreteNotice(false);
+    setSize(""); setOverrideSize(""); setDuration(""); setSelectedPrice(null);
+    setAvailabilityData(null); setAvailabilityLoading(false); setAvailabilityError(""); setSelectedWindow(null);
+    setShowConcreteNotice(false);
     setStep(type === "Returning" ? 2 : 3);
   };
 
   const handleReturningPath = (path) => {
     setReturningPath(path); setProject(""); setOtherText("");
     setSize(""); setOverrideSize(""); setDuration(""); setSelectedPrice(null);
+    setAvailabilityData(null); setAvailabilityLoading(false); setAvailabilityError(""); setSelectedWindow(null);
     setStep(path === "quick" ? 4 : 3);
   };
 
@@ -329,22 +338,85 @@ export default function Funnel() {
     if (customerType === "Contractor" && sel === "Concrete") { setShowConcreteNotice(true); return; }
     setProject(sel);
     const reco = getRecommendation(customerType, sel, otherText);
-    setSize(reco.size); setOverrideSize(""); setShowComparison(false); setStep(4);
+    setSize(reco.size); setOverrideSize(""); setShowComparison(false);
+    setDuration(""); setSelectedPrice(null);
+    setAvailabilityData(null); setAvailabilityLoading(false); setAvailabilityError(""); setSelectedWindow(null);
+    setStep(4);
   };
 
   const handleOtherContinue = () => {
     const reco = getRecommendation(customerType, "Other", otherText);
-    setSize(reco.size); setOverrideSize(""); setShowComparison(false); setStep(4);
+    setSize(reco.size); setOverrideSize(""); setShowComparison(false);
+    setDuration(""); setSelectedPrice(null);
+    setAvailabilityData(null); setAvailabilityLoading(false); setAvailabilityError(""); setSelectedWindow(null);
+    setStep(4);
   };
 
   const handleSizeSelect = (sel) => {
-    if (isReturningQuick) { setSize(""); setOverrideSize(sel); return; }
+    if (isReturningQuick) {
+      setSize("");
+      setOverrideSize(sel);
+      setDuration("");
+      setSelectedPrice(null);
+      setAvailabilityData(null); setAvailabilityLoading(false); setAvailabilityError(""); setSelectedWindow(null);
+      return;
+    }
     setOverrideSize(sel === size ? "" : sel);
+    setDuration("");
+    setSelectedPrice(null);
+    setAvailabilityData(null); setAvailabilityLoading(false); setAvailabilityError(""); setSelectedWindow(null);
   };
 
-  const handleContinueFromStep4 = () => {
+  const handleContinueFromStep4 = async () => {
     if (!effectiveSize) return alert("Please choose a dumpster size.");
+
+    setDuration("");
+    setSelectedPrice(null);
+    setSelectedWindow(null);
+    setAvailabilityData(null);
+    setAvailabilityError("");
+    setAvailabilityLoading(true);
     setStep(5);
+
+    try {
+      const res = await fetch("/api/availability", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ size: effectiveSize }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || json?.error) {
+        throw new Error(json?.error || "Unable to load availability.");
+      }
+
+      setAvailabilityData(json);
+    } catch (err) {
+      console.error("[rent-a-dumpster] availability fetch failed:", err);
+      setAvailabilityError("Live date availability is temporarily unavailable.");
+      setAvailabilityData({
+        size: effectiveSize,
+        available: {},
+        degraded: true,
+      });
+    } finally {
+      setAvailabilityLoading(false);
+    }
+  };
+
+  const handleWindowSelect = (option, windowObj) => {
+    setDuration(option.label);
+    setSelectedPrice(calculatedPrices[option.key] ?? null);
+    setSelectedWindow(windowObj);
+    setStep(6);
+  };
+
+  const handleFallbackOptionSelect = (option) => {
+    setDuration(option.label);
+    setSelectedPrice(calculatedPrices[option.key] ?? null);
+    setSelectedWindow(null);
+    setStep(6);
   };
 
   const handleSubmit = () => {
@@ -352,18 +424,24 @@ export default function Funnel() {
     const payload = {
       zip, areaLabel, zone:zoneKey, deliveryFee:zoneFee, customerType, returningPath,
       project, otherText, recommendedSize:size, selectedSize:effectiveSize,
-      includedTons:sizeMeta[effectiveSize]?.tons||null, rentalOption:duration,
-      rentalPrice:selectedPrice, pricingShown:calculatedPrices, contact:form,
+      includedTons:sizeMeta[effectiveSize]?.tons||null,
+      rentalOption:duration,
+      rentalPrice:selectedPrice,
+      selectedWindow,
+      pricingShown:calculatedPrices,
+      contact:form,
     };
     console.log(payload);
     alert("Lead captured (next step: Odoo)");
   };
 
   const goBack = () => {
-    if (step===6) return setStep(5); if (step===5) return setStep(4);
+    if (step===6) return setStep(5);
+    if (step===5) return setStep(4);
     if (step===4) return isReturningQuick?setStep(2):setStep(3);
     if (step===3) return customerType==="Returning"?setStep(2):setStep(1);
-    if (step===2) return setStep(1); if (step===1) return setStep(0);
+    if (step===2) return setStep(1);
+    if (step===1) return setStep(0);
   };
 
   // ── shared input / label styles ──
@@ -384,7 +462,6 @@ export default function Funnel() {
     <div style={{ minHeight:"100vh", background:C.pageBg, padding:"20px 16px 40px", fontFamily:F }}>
       <div style={{ maxWidth:800, margin:"0 auto" }}>
 
-        {/* ── HEADER ── */}
         <header style={{
           display:"flex", justifyContent:"space-between", alignItems:"center",
           padding:"12px 0 14px", marginBottom:16,
@@ -399,7 +476,6 @@ export default function Funnel() {
           </div>
         </header>
 
-        {/* ── MAIN CARD ── */}
         <main style={{
           background:C.cardBg,
           border:`1px solid ${C.cardBorder}`,
@@ -408,10 +484,8 @@ export default function Funnel() {
           boxShadow:"0 1px 3px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.05)",
         }}>
 
-          {/* ── STEP 0: HERO ENTRY ── */}
           {step === 0 && (
             <div>
-              {/* Dark hero band */}
               <div style={{
                 background:C.heroBg,
                 padding:"28px 24px 24px",
@@ -433,7 +507,6 @@ export default function Funnel() {
                 </h1>
               </div>
 
-              {/* Form body */}
               <div style={{ padding:"20px 24px 4px" }}>
                 <p style={{ margin:"0 0 18px", fontSize:14, color:C.inkMid, lineHeight:1.55, fontFamily:F }}>
                   Enter your ZIP and we'll verify coverage and show exact pricing for your location.
@@ -460,7 +533,6 @@ export default function Funnel() {
                 </div>
                 {zipError && <div style={{ marginTop:8, color:"#b3261e", fontSize:13, lineHeight:1.4, fontFamily:F }}>{zipError}</div>}
 
-                {/* Trust chips */}
                 <div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:14, marginBottom:20 }}>
                   {["Delivery included in pricing","Peachtree City & South Atlanta","¡Se habla español!"].map(t => (
                     <span key={t} style={{ fontSize:11, color:C.inkMuted, fontWeight:600, background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:99, padding:"4px 10px", fontFamily:F }}>
@@ -473,7 +545,6 @@ export default function Funnel() {
             </div>
           )}
 
-          {/* ── STEPS 1–6: Standard chrome + content ── */}
           {step > 0 && (
             <div>
               <ProgressChrome
@@ -487,7 +558,6 @@ export default function Funnel() {
 
               <CardBody>
 
-                {/* STEP 1 */}
                 {step === 1 && (
                   <div>
                     <StepHeading
@@ -507,7 +577,6 @@ export default function Funnel() {
                   </div>
                 )}
 
-                {/* STEP 2 */}
                 {step === 2 && customerType === "Returning" && (
                   <div>
                     <StepHeading
@@ -522,7 +591,6 @@ export default function Funnel() {
                   </div>
                 )}
 
-                {/* STEP 3 */}
                 {step === 3 && (
                   <div>
                     <StepHeading
@@ -562,7 +630,6 @@ export default function Funnel() {
                   </div>
                 )}
 
-                {/* STEP 4 */}
                 {step === 4 && (
                   <div>
                     <StepHeading
@@ -571,10 +638,8 @@ export default function Funnel() {
                       text={isReturningQuick ? "Select the size you want and we'll show rental options and pricing next." : "This is the strongest fit based on what you described."}
                     />
 
-                    {/* Recommendation split pane */}
                     {!isReturningQuick && effectiveSize && (
                       <div style={{ display:"flex", gap:14, alignItems:"stretch", marginBottom:18, flexWrap:"wrap" }}>
-                        {/* Left: logic */}
                         <div style={{ flex:"1 1 300px", background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:20 }}>
                           <div style={{ fontSize:36, fontWeight:900, color:C.ink, letterSpacing:"-1.5px", lineHeight:1, marginBottom:8, fontFamily:F }}>{effectiveSize}</div>
                           <div style={{ marginBottom:14 }}><TonnagePill label={sizeMeta[effectiveSize]?.label || ""} /></div>
@@ -588,7 +653,6 @@ export default function Funnel() {
                             <div style={{ fontSize:12, color:C.inkMuted, lineHeight:1.45, fontFamily:F }}>{recommendation.note}</div>
                           </div>
                         </div>
-                        {/* Right: visual */}
                         <div style={{ flex:"1 1 200px", display:"flex", flexDirection:"column", gap:12 }}>
                           <div style={{ background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:14, flex:1, display:"flex", alignItems:"center", justifyContent:"center", minHeight:160 }}>
                             <img src={DUMPSTER_IMAGES[effectiveSize]} alt={`${effectiveSize} dumpster`} style={{ width:"100%", maxWidth:260, height:"auto", objectFit:"contain", display:"block" }} />
@@ -602,21 +666,18 @@ export default function Funnel() {
                       </div>
                     )}
 
-                    {/* Roofing note */}
                     {customerType==="Contractor" && project==="Roofing" && (
                       <div style={{ background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:12, padding:"12px 14px", color:C.ink, lineHeight:1.5, fontSize:13, marginBottom:16, fontFamily:F }}>
                         <strong>Roofing note:</strong> Roofing debris gets heavy quickly, so we bias smaller here to reduce overweight risk.
                       </div>
                     )}
 
-                    {/* Continue — always visible, above comparison */}
                     {!isReturningQuick && effectiveSize && (
                       <PrimaryButton onClick={handleContinueFromStep4} style={{ marginTop:0, marginBottom:14 }}>
                         Continue with {effectiveSize}
                       </PrimaryButton>
                     )}
 
-                    {/* Collapsible comparison */}
                     {!isReturningQuick && effectiveSize && (
                       <div style={{ marginBottom:8 }}>
                         <button
@@ -673,7 +734,6 @@ export default function Funnel() {
                                 );
                               })}
                             </div>
-                            {/* Secondary continue after comparing */}
                             <PrimaryButton onClick={handleContinueFromStep4} style={{ marginTop:16 }}>
                               Continue with {effectiveSize}
                             </PrimaryButton>
@@ -682,7 +742,6 @@ export default function Funnel() {
                       </div>
                     )}
 
-                    {/* Quick select grid */}
                     {(isReturningQuick || !effectiveSize) && (
                       <div style={{ display:"grid", gap:10 }}>
                         {allSizes.map(sizeKey => {
@@ -708,22 +767,26 @@ export default function Funnel() {
                       </div>
                     )}
 
-                    {/* Continue for quick-select / no-size path */}
                     {(isReturningQuick || !effectiveSize) && (
                       <PrimaryButton onClick={handleContinueFromStep4}>Continue</PrimaryButton>
                     )}
                   </div>
                 )}
 
-                {/* STEP 5 */}
                 {step === 5 && (
                   <div>
                     <StepHeading
                       eyebrow="Choose your rental"
-                      title="Select your rental option"
-                      text={`Pricing below includes delivery to the ${areaLabel}. ${sizeMeta[effectiveSize]?.label || ""}.`}
+                      title={availabilityLoading ? "Checking live availability..." : "Select your rental option"}
+                      text={
+                        availabilityLoading
+                          ? `We're checking the next available delivery dates for your ${effectiveSize}.`
+                          : isAvailabilityDegraded
+                            ? `Live date availability is temporarily unavailable. You can still submit your request below, and we'll confirm the delivery date with you.`
+                            : `Choose a rental option and an available delivery date for your ${effectiveSize}.`
+                      }
                     />
-                    {/* Size strip */}
+
                     <div style={{ marginBottom:16, background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:12, padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", gap:12 }}>
                       <div>
                         <div style={{ fontSize:10, fontWeight:700, color:C.inkFaint, textTransform:"uppercase", letterSpacing:"0.5px", fontFamily:F }}>Selected Dumpster</div>
@@ -731,46 +794,146 @@ export default function Funnel() {
                       </div>
                       <TonnagePill label={sizeMeta[effectiveSize]?.label || ""} />
                     </div>
-                    <div style={{ display:"grid", gap:10 }}>
-                      {rentalOptions.map(option => {
-                        const displayPrice = calculatedPrices[option.key];
-                        return (
-                          <button
-                            key={option.key}
-                            onClick={() => { setDuration(option.label); setSelectedPrice(calculatedPrices[option.key] ?? null); setStep(6); }}
-                            style={{
-                              width:"100%", textAlign:"left", padding:"16px 18px",
-                              borderRadius:12, cursor:"pointer", fontFamily:F,
-                              border: option.highlight ? `1.5px solid ${C.ink}` : `1px solid ${C.surfaceBorder}`,
-                              background: option.highlight ? C.white : C.surfaceBg,
-                              boxShadow: option.highlight ? "0 2px 8px rgba(0,0,0,0.04)" : "none",
-                            }}
-                          >
-                            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10 }}>
-                              <div>
-                                <div style={{ fontSize:16, fontWeight:800, color:C.ink, fontFamily:F }}>{option.label}</div>
-                                <div style={{ marginTop:2, fontSize:13, color:C.inkMuted, fontFamily:F }}>{option.sub}</div>
-                                <div style={{ marginTop:8, fontSize:22, fontWeight:900, color:C.ink, fontFamily:F, letterSpacing:"-0.5px" }}>
-                                  {typeof displayPrice === "number" ? `$${displayPrice}` : "Pricing unavailable"}
+
+                    {availabilityLoading ? (
+                      <div style={{ background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:"18px 16px", fontFamily:F }}>
+                        <div style={{ fontSize:14, fontWeight:700, color:C.ink, marginBottom:6 }}>Checking dates...</div>
+                        <div style={{ fontSize:13, color:C.inkMuted, lineHeight:1.5 }}>
+                          Pulling live availability for the next delivery windows.
+                        </div>
+                      </div>
+                    ) : isAvailabilityDegraded ? (
+                      <div>
+                        <div style={{ marginBottom:12, background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:12, padding:"12px 14px", color:C.ink, lineHeight:1.5, fontSize:13, fontFamily:F }}>
+                          <strong>Subject to confirmation:</strong> live scheduling is temporarily unavailable, so we'll confirm the exact delivery date after you submit.
+                        </div>
+
+                        <div style={{ display:"grid", gap:10 }}>
+                          {rentalOptions.map(option => {
+                            const displayPrice = calculatedPrices[option.key];
+                            return (
+                              <button
+                                key={option.key}
+                                onClick={() => handleFallbackOptionSelect(option)}
+                                style={{
+                                  width:"100%", textAlign:"left", padding:"16px 18px",
+                                  borderRadius:12, cursor:"pointer", fontFamily:F,
+                                  border: option.highlight ? `1.5px solid ${C.ink}` : `1px solid ${C.surfaceBorder}`,
+                                  background: option.highlight ? C.white : C.surfaceBg,
+                                  boxShadow: option.highlight ? "0 2px 8px rgba(0,0,0,0.04)" : "none",
+                                }}
+                              >
+                                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10 }}>
+                                  <div>
+                                    <div style={{ fontSize:16, fontWeight:800, color:C.ink, fontFamily:F }}>{option.label}</div>
+                                    <div style={{ marginTop:2, fontSize:13, color:C.inkMuted, fontFamily:F }}>{option.sub}</div>
+                                    <div style={{ marginTop:8, fontSize:22, fontWeight:900, color:C.ink, fontFamily:F, letterSpacing:"-0.5px" }}>
+                                      {typeof displayPrice === "number" ? `$${displayPrice}` : "Pricing unavailable"}
+                                    </div>
+                                    <div style={{ marginTop:2, fontSize:12, color:C.inkMuted, fontFamily:F }}>
+                                      Includes delivery + {sizeMeta[effectiveSize]?.label?.toLowerCase()}
+                                    </div>
+                                  </div>
+                                  {option.tag && (
+                                    <span style={{ background:C.pinkBg, color:C.pinkText, border:`1px solid ${C.pinkBorder}`, fontSize:11, fontWeight:800, padding:"3px 9px", borderRadius:99, whiteSpace:"nowrap", fontFamily:F }}>
+                                      {option.tag}
+                                    </span>
+                                  )}
                                 </div>
-                                <div style={{ marginTop:2, fontSize:12, color:C.inkMuted, fontFamily:F }}>
-                                  Includes delivery + {sizeMeta[effectiveSize]?.label?.toLowerCase()}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display:"grid", gap:10 }}>
+                        {rentalOptions
+                          .filter(option => (availableOptions[option.key] || []).length > 0)
+                          .map(option => {
+                            const displayPrice = calculatedPrices[option.key];
+                            const windows = availableOptions[option.key] || [];
+                            const optionSelected = duration === option.label;
+
+                            return (
+                              <div
+                                key={option.key}
+                                style={{
+                                  padding:"16px 18px",
+                                  borderRadius:12,
+                                  fontFamily:F,
+                                  border: optionSelected ? `1.5px solid ${C.ink}` : `1px solid ${C.surfaceBorder}`,
+                                  background: optionSelected ? C.white : C.surfaceBg,
+                                  boxShadow: optionSelected ? "0 2px 8px rgba(0,0,0,0.04)" : "none",
+                                }}
+                              >
+                                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, marginBottom:12 }}>
+                                  <div>
+                                    <div style={{ fontSize:16, fontWeight:800, color:C.ink, fontFamily:F }}>{option.label}</div>
+                                    <div style={{ marginTop:2, fontSize:13, color:C.inkMuted, fontFamily:F }}>{option.sub}</div>
+                                    <div style={{ marginTop:8, fontSize:22, fontWeight:900, color:C.ink, fontFamily:F, letterSpacing:"-0.5px" }}>
+                                      {typeof displayPrice === "number" ? `$${displayPrice}` : "Pricing unavailable"}
+                                    </div>
+                                    <div style={{ marginTop:2, fontSize:12, color:C.inkMuted, fontFamily:F }}>
+                                      Includes delivery + {sizeMeta[effectiveSize]?.label?.toLowerCase()}
+                                    </div>
+                                  </div>
+                                  {option.tag && (
+                                    <span style={{ background:C.pinkBg, color:C.pinkText, border:`1px solid ${C.pinkBorder}`, fontSize:11, fontWeight:800, padding:"3px 9px", borderRadius:99, whiteSpace:"nowrap", fontFamily:F }}>
+                                      {option.tag}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div style={{ fontSize:10, fontWeight:700, color:C.inkFaint, textTransform:"uppercase", letterSpacing:"0.6px", marginBottom:8, fontFamily:F }}>
+                                  Available delivery dates
+                                </div>
+
+                                <div style={{ display:"grid", gap:8 }}>
+                                  {windows.map((windowObj) => {
+                                    const isSelected =
+                                      selectedWindow?.start === windowObj.start &&
+                                      selectedWindow?.end === windowObj.end &&
+                                      duration === option.label;
+
+                                    return (
+                                      <button
+                                        key={`${option.key}-${windowObj.start}-${windowObj.end}`}
+                                        onClick={() => handleWindowSelect(option, windowObj)}
+                                        style={{
+                                          width:"100%",
+                                          textAlign:"left",
+                                          padding:"11px 12px",
+                                          borderRadius:10,
+                                          cursor:"pointer",
+                                          fontFamily:F,
+                                          border: isSelected ? `1.5px solid ${C.ink}` : `1px solid ${C.surfaceBorder}`,
+                                          background: isSelected ? C.white : "#fffdfb",
+                                        }}
+                                      >
+                                        <div style={{ fontSize:13, fontWeight:800, color:C.ink }}>
+                                          {windowObj.startLabel}
+                                        </div>
+                                        <div style={{ marginTop:2, fontSize:12, color:C.inkMuted }}>
+                                          Through {windowObj.endLabel}
+                                        </div>
+                                      </button>
+                                    );
+                                  })}
                                 </div>
                               </div>
-                              {option.tag && (
-                                <span style={{ background:C.pinkBg, color:C.pinkText, border:`1px solid ${C.pinkBorder}`, fontSize:11, fontWeight:800, padding:"3px 9px", borderRadius:99, whiteSpace:"nowrap", fontFamily:F }}>
-                                  {option.tag}
-                                </span>
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
+                            );
+                          })}
+
+                        {!rentalOptions.some(option => (availableOptions[option.key] || []).length > 0) && (
+                          <div style={{ background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:12, padding:"12px 14px", color:C.ink, lineHeight:1.5, fontSize:13, fontFamily:F }}>
+                            We couldn't find an open delivery window for this size in the current look-ahead period. Try another size or contact us directly.
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {/* STEP 6 */}
                 {step === 6 && (
                   <div>
                     <StepHeading
@@ -779,7 +942,6 @@ export default function Funnel() {
                       text="We'll use this information to confirm availability and finalize your rental."
                     />
 
-                    {/* Summary table */}
                     <div style={{ marginBottom:18, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, overflow:"hidden" }}>
                       <div style={{ background:C.surfaceBg, padding:"9px 16px", fontSize:10, fontWeight:800, color:C.inkFaint, letterSpacing:"0.8px", textTransform:"uppercase", fontFamily:F, borderBottom:`1px solid ${C.surfaceBorder}` }}>
                         Rental Summary
@@ -790,13 +952,18 @@ export default function Funnel() {
                         { label:"Dumpster",        value: effectiveSize || "-" },
                         { label:"Weight included", value: sizeMeta[effectiveSize]?.label || "-" },
                         { label:"Rental",          value: duration || "-" },
+                        {
+                          label:"Delivery date",
+                          value: selectedWindow
+                            ? `${selectedWindow.startLabel} – ${selectedWindow.endLabel}`
+                            : (isAvailabilityDegraded ? "Subject to confirmation" : "-")
+                        },
                       ].map(row => (
                         <div key={row.label} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 16px", borderBottom:`1px solid ${C.surfaceBorder}`, fontFamily:F }}>
                           <span style={{ fontSize:13, color:C.inkMuted }}>{row.label}</span>
-                          <span style={{ fontSize:13, fontWeight:700, color:C.ink }}>{row.value}</span>
+                          <span style={{ fontSize:13, fontWeight:700, color:C.ink, textAlign:"right" }}>{row.value}</span>
                         </div>
                       ))}
-                      {/* Price row — highlighted */}
                       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 16px", background:C.surfaceBg, fontFamily:F }}>
                         <span style={{ fontSize:13, color:C.inkMuted }}>Total</span>
                         <span style={{ fontSize:20, fontWeight:900, color:C.ink, letterSpacing:"-0.4px" }}>
@@ -805,14 +972,13 @@ export default function Funnel() {
                       </div>
                     </div>
 
-                    {/* Contact form */}
                     <div style={{ background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:"18px 18px 6px" }}>
                       <label style={firstLabelStyle}>Name *</label>
-                      <input placeholder="Your name"           value={form.name}   onChange={e => setForm({...form, name:e.target.value})}   style={inputStyle} />
+                      <input placeholder="Your name" value={form.name} onChange={e => setForm({...form, name:e.target.value})} style={inputStyle} />
                       <label style={labelStyle}>Email *</label>
-                      <input placeholder="you@example.com"     value={form.email}  onChange={e => setForm({...form, email:e.target.value})}  style={inputStyle} />
+                      <input placeholder="you@example.com" value={form.email} onChange={e => setForm({...form, email:e.target.value})} style={inputStyle} />
                       <label style={labelStyle}>Phone</label>
-                      <input placeholder="For faster scheduling" value={form.phone} onChange={e => setForm({...form, phone:e.target.value})}  style={inputStyle} />
+                      <input placeholder="For faster scheduling" value={form.phone} onChange={e => setForm({...form, phone:e.target.value})} style={inputStyle} />
                       <label style={labelStyle}>How did you hear about us?</label>
                       <select value={form.source} onChange={e => setForm({...form, source:e.target.value})} style={{ ...inputStyle, marginBottom:18 }}>
                         <option value="">Select one</option>
