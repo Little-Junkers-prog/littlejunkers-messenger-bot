@@ -281,6 +281,7 @@ export default function Funnel() {
   const [availabilityError,  setAvailabilityError]  = useState("");
   const [selectedWindow,     setSelectedWindow]     = useState(null);
   const [showComparison,     setShowComparison]     = useState(false);
+  const [showMoreDates,      setShowMoreDates]      = useState({});
   const [form,               setForm]               = useState({ name:"", email:"", phone:"", source:"" });
 
   const areaLabel      = getAreaLabel(zip);
@@ -310,6 +311,8 @@ export default function Funnel() {
   const availableOptions = availabilityData?.available || {};
 
   // ── handlers ───────────────────────────────────────────────────────────────
+  const ECOM_FALLBACK = "https://www.littlejunkersllc.com/shop";
+
 
   const handleZipSubmit = () => {
     const clean = zip.trim();
@@ -323,6 +326,7 @@ export default function Funnel() {
     setCustomerType(type); setReturningPath(""); setProject(""); setOtherText("");
     setSize(""); setOverrideSize(""); setDuration(""); setSelectedPrice(null);
     setAvailabilityData(null); setAvailabilityLoading(false); setAvailabilityError(""); setSelectedWindow(null);
+    setShowMoreDates({});
     setShowConcreteNotice(false);
     setStep(type === "Returning" ? 2 : 3);
   };
@@ -331,6 +335,7 @@ export default function Funnel() {
     setReturningPath(path); setProject(""); setOtherText("");
     setSize(""); setOverrideSize(""); setDuration(""); setSelectedPrice(null);
     setAvailabilityData(null); setAvailabilityLoading(false); setAvailabilityError(""); setSelectedWindow(null);
+    setShowMoreDates({});
     setStep(path === "quick" ? 4 : 3);
   };
 
@@ -341,6 +346,7 @@ export default function Funnel() {
     setSize(reco.size); setOverrideSize(""); setShowComparison(false);
     setDuration(""); setSelectedPrice(null);
     setAvailabilityData(null); setAvailabilityLoading(false); setAvailabilityError(""); setSelectedWindow(null);
+    setShowMoreDates({});
     setStep(4);
   };
 
@@ -349,6 +355,7 @@ export default function Funnel() {
     setSize(reco.size); setOverrideSize(""); setShowComparison(false);
     setDuration(""); setSelectedPrice(null);
     setAvailabilityData(null); setAvailabilityLoading(false); setAvailabilityError(""); setSelectedWindow(null);
+    setShowMoreDates({});
     setStep(4);
   };
 
@@ -394,6 +401,11 @@ export default function Funnel() {
       setAvailabilityData(json);
     } catch (err) {
       console.error("[rent-a-dumpster] availability fetch failed:", err);
+      // If the API is completely unreachable (network error), send to ecom
+      if (err.message === "Failed to fetch" || err.message?.includes("NetworkError")) {
+        window.location.href = ECOM_FALLBACK;
+        return;
+      }
       setAvailabilityError("Live date availability is temporarily unavailable.");
       setAvailabilityData({
         size: effectiveSize,
@@ -889,7 +901,7 @@ export default function Funnel() {
                                 </div>
 
                                 <div style={{ display:"grid", gap:8 }}>
-                                  {windows.map((windowObj) => {
+                                  {(showMoreDates[option.key] ? windows : windows.slice(0, 2)).map((windowObj) => {
                                     const isSelected =
                                       selectedWindow?.start === windowObj.start &&
                                       selectedWindow?.end === windowObj.end &&
@@ -902,24 +914,43 @@ export default function Funnel() {
                                         style={{
                                           width:"100%",
                                           textAlign:"left",
-                                          padding:"11px 12px",
+                                          padding:"12px 14px",
                                           borderRadius:10,
                                           cursor:"pointer",
                                           fontFamily:F,
-                                          border: isSelected ? `1.5px solid ${C.ink}` : `1px solid ${C.surfaceBorder}`,
-                                          background: isSelected ? C.white : "#fffdfb",
+                                          transition:"border-color 150ms, background 150ms",
+                                          border: isSelected ? `1.5px solid ${C.pinkText}` : `1px solid ${C.surfaceBorder}`,
+                                          background: isSelected ? C.pinkBg : C.white,
                                         }}
                                       >
-                                        <div style={{ fontSize:13, fontWeight:800, color:C.ink }}>
-                                          {windowObj.startLabel}
-                                        </div>
-                                        <div style={{ marginTop:2, fontSize:12, color:C.inkMuted }}>
-                                          Through {windowObj.endLabel}
+                                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                                          <div>
+                                            <div style={{ fontSize:13, fontWeight:800, color: isSelected ? C.pinkText : C.ink }}>
+                                              {windowObj.startLabel}
+                                            </div>
+                                            <div style={{ marginTop:2, fontSize:12, color: isSelected ? C.pinkText : C.inkMuted, opacity: isSelected ? 0.85 : 1 }}>
+                                              Through {windowObj.endLabel}
+                                            </div>
+                                          </div>
+                                          {isSelected && (
+                                            <span style={{ fontSize:11, fontWeight:800, color:C.pinkText, background:C.white, border:`1px solid ${C.pinkBorder}`, borderRadius:99, padding:"3px 9px", fontFamily:F, whiteSpace:"nowrap" }}>
+                                              Selected
+                                            </span>
+                                          )}
                                         </div>
                                       </button>
                                     );
                                   })}
                                 </div>
+
+                                {windows.length > 2 && (
+                                  <button
+                                    onClick={() => setShowMoreDates(prev => ({ ...prev, [option.key]: !prev[option.key] }))}
+                                    style={{ marginTop:6, background:"none", border:"none", cursor:"pointer", fontSize:12, fontWeight:700, color:C.inkMuted, fontFamily:F, padding:"4px 0", textAlign:"left" }}
+                                  >
+                                    {showMoreDates[option.key] ? "▲ Show fewer dates" : `▼ Show more dates (${windows.length - 2} more)`}
+                                  </button>
+                                )}
                               </div>
                             );
                           })}
