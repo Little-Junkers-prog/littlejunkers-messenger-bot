@@ -84,7 +84,10 @@ function parseOdooDate(s) {
   return new Date(s.replace(" ", "T") + (s.length === 10 ? "T00:00:00Z" : "Z"));
 }
 function formatDisplay(d) {
-  return d.toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric", timeZone:"America/New_York" });
+  // Build from date string to avoid UTC midnight -> Eastern timezone shift
+  const [year, month, day] = toDateStr(d).split("-").map(Number);
+  const local = new Date(year, month - 1, day, 12, 0, 0);
+  return local.toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric" });
 }
 
 function buildBlockedSet(lines, units, today, windowEnd) {
