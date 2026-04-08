@@ -1,263 +1,234 @@
 // api/availability.js
-// Queries Odoo rental orders to return available delivery dates
-// for a given dumpster size over the next 14 days.
+// Queries Odoo for available delivery dates for a given dumpster size.
+// Auth: XML-RPC (confirmed working pattern)
+// Data: JSON-RPC /web/dataset/call_kw (avoids XML-RPC kwargs list bug)
 //
 // POST { size: "11 Yard" | "16 Yard" | "21 Yard" }
-// Returns { available: { [rentalOptionKey]: [{ start, end, label }] } }
+// Returns { size, available: { [optionKey]: [{ start, end, startLabel, endLabel }] } }
 
-// ─── Fleet configuration ──────────────────────────────────────────────────────
-// product.template IDs from Odoo Inventory — no variants on any product
+// ─── Fleet config ─────────────────────────────────────────────────────────────
+// product.template IDs confirmed from Odoo Inventory URLs
 const FLEET = {
-  "11 Yard": { productId: 60, units: 3, name: "The Little Junker 11-Yard Dumpster" },
-  "16 Yard": { productId: 4,  units: 2, name: "The Mighty Middler 16-Yard Dumpster" },
-  "21 Yard": { productId: 46, units: 2, name: "The Big Junker 21-Yard Dumpster"     },
+  "11 Yard": { templateId: 60, units: 3 },
+  "16 Yard": { templateId: 4,  units: 2 },
+  "21 Yard": { templateId: 46, units: 2 },
 };
 
-// ─── Rental option delivery day rules ────────────────────────────────────────
-// Each option maps to specific day-of-week windows.
-// 0 = Sunday, 1 = Monday, 2 = Tuesday, 3 = Wednesday, 4 = Thursday, 5 = Friday, 6 = Saturday
+// ─── Rental option delivery rules ─────────────────────────────────────────────
+// days: day-of-week for valid delivery (0=Sun, 1=Mon ... 6=Sat)
+// duration: how many days the rental lasts
 const RENTAL_OPTIONS = {
-  "Early Bird":      { days: [1, 2],    durationDays: 2  }, // Mon or Tue delivery, 2-day
-  "Weekend Warrior": { days: [5, 6, 1], durationDays: 3  }, // Fri delivery, return Mon
-  "Base Rental":     { days: [1,2,3,4,5,6], durationDays: 2  }, // Any day, 2-day
-  "Full Reset":      { days: [1,2,3,4,5,6], durationDays: 7  }, // Any day, 7-day
+  "Early Bird":      { days: [1, 2],       duration: 2 },  // Mon or Tue, 2-day
+  "Weekend Warrior": { days: [5],          duration: 3 },  // Fri delivery, return Mon
+  "Base Rental":     { days: [1,2,3,4,5], duration: 2 },  // Any weekday, 2-day
+  "Full Reset":      { days: [1,2,3,4,5], duration: 7 },  // Any weekday, 7-day
 };
 
-// ─── Odoo API helper ──────────────────────────────────────────────────────────
-async function odooCall(model, method, args, kwargs = {}) {
-  const url  = `${process.env.ODOO_URL}/web/dataset/call_kw`;
-  const body = {
+// ─── XML-RPC helpers (auth only) ──────────────────────────────────────────────
+function xe(v) {
+  return String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&apos;");
+}
+function xv(val) {
+  if (val === null || val === undefined || val === false) return "<value><boolean>0</boolean></value>";
+  if (val === true)  return "<value><boolean>1</boolean></value>";
+  if (typeof val === "number" && Number.isInteger(val)) return `<value><int>${val}</int></value>`;
+  if (typeof val === "string") return `<value><string>${xe(val)}</string></value>`;
+  if (Array.isArray(val)) return `<value><array><data>${val.map(xv).join("")}</data></array></value>`;
+  if (typeof val === "object") return `<value><struct>${Object.entries(val).map(([k,v])=>`<member><n>${xe(k)}</n>${xv(v)}</member>`).join("")}</struct></value>`;
+  return `<value><string>${xe(String(val))}</string></value>`;
+}
+async function xmlrpcAuth() {
+  const { ODOO_URL, ODOO_DB, ODOO_USER, ODOO_API_KEY } = process.env;
+  const body = `<?xml version="1.0"?><methodCall><methodName>authenticate</methodName><params><param>${xv(ODOO_DB)}</param><param>${xv(ODOO_USER)}</param><param>${xv(ODOO_API_KEY)}</param><param>${xv({})}</param></params></methodCall>`;
+  const r = await fetch(`${ODOO_URL}/xmlrpc/2/common`, {
+    method: "POST", headers: { "Content-Type": "text/xml" }, body,
+  });
+  const xml = await r.text();
+  const m = xml.match(/<(?:int|i4)>(-?\d+)<\/(?:int|i4)>/);
+  const uid = m ? parseInt(m[1], 10) : null;
+  if (!uid) throw new Error("Odoo authentication failed");
+  return uid;
+}
+
+// ─── JSON-RPC data helper ──────────────────────────────────────────────────────
+// Uses /web/dataset/call_kw which accepts JSON — no XML kwargs bug
+async function odooCall(uid, model, method, args, kwargs = {}) {
+  const { ODOO_URL, ODOO_DB, ODOO_API_KEY } = process.env;
+
+  // Build Basic auth from user:apikey
+  const credentials = Buffer.from(
+    `${process.env.ODOO_USER}:${ODOO_API_KEY}`
+  ).toString("base64");
+
+  const payload = {
     jsonrpc: "2.0",
-    method:  "call",
+    method: "call",
+    id: 1,
     params: {
       model,
       method,
       args,
-      kwargs: { context: {}, ...kwargs },
+      kwargs: { context: { uid }, ...kwargs },
     },
   };
 
-  const res = await fetch(url, {
-    method:  "POST",
+  const r = await fetch(`${ODOO_URL}/web/dataset/call_kw`, {
+    method: "POST",
     headers: {
-      "Content-Type":  "application/json",
-      "Authorization": `Bearer ${process.env.ODOO_API_KEY}`,
+      "Content-Type": "application/json",
+      "Authorization": `Basic ${credentials}`,
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
   });
 
-  if (!res.ok) throw new Error(`Odoo HTTP ${res.status}`);
-  const json = await res.json();
+  if (!r.ok) throw new Error(`Odoo JSON-RPC HTTP ${r.status}`);
+  const json = await r.json();
   if (json.error) throw new Error(json.error.data?.message || JSON.stringify(json.error));
   return json.result;
 }
 
-// ─── Date helpers ─────────────────────────────────────────────────────────────
-function toDateStr(date) {
-  // Returns "YYYY-MM-DD" in local time
-  return date.toISOString().split("T")[0];
+// ─── Date helpers ──────────────────────────────────────────────────────────────
+function toDateStr(d) {
+  // YYYY-MM-DD in local time
+  return d.toISOString().split("T")[0];
 }
-
-function addDays(date, n) {
-  const d = new Date(date);
-  d.setDate(d.getDate() + n);
-  return d;
+function addDays(d, n) {
+  const r = new Date(d);
+  r.setDate(r.getDate() + n);
+  return r;
 }
-
-function parseDateStr(str) {
-  // Odoo returns "YYYY-MM-DD HH:MM:SS" — parse as UTC midnight
-  if (!str) return null;
+function parseOdooDate(str) {
+  if (!str || str === false) return null;
+  // Odoo returns "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD"
   return new Date(str.replace(" ", "T") + (str.length === 10 ? "T00:00:00Z" : "Z"));
 }
-
-function formatDisplayDate(date) {
-  return date.toLocaleDateString("en-US", {
-    weekday: "long",
-    month:   "long",
-    day:     "numeric",
+function formatDisplay(d) {
+  return d.toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric",
     timeZone: "America/New_York",
   });
 }
 
-// ─── Core availability logic ──────────────────────────────────────────────────
-// Returns a Set of date strings ("YYYY-MM-DD") that are fully blocked
-// (all units of the requested size are on active rentals that day)
-function computeBlockedDates(activeOrders, fleetUnits, windowStart, windowEnd) {
+// ─── Core logic ────────────────────────────────────────────────────────────────
+function buildBlockedSet(orders, fleetUnits, windowStart, windowEnd) {
   const blocked = new Set();
-
-  // For each day in the window, count how many units are out
   const cursor = new Date(windowStart);
   while (cursor <= windowEnd) {
-    const dateStr = toDateStr(cursor);
-    const dayMs   = cursor.getTime();
-
-    let busyUnits = 0;
-    for (const order of activeOrders) {
-      const start = parseDateStr(order.rental_start_date);
-      const end   = parseDateStr(order.rental_return_date);
-      if (!start || !end) continue;
-
-      // A unit is busy on this day if the rental overlaps
-      // (start <= dayMs <= end)
-      if (start.getTime() <= dayMs && dayMs <= end.getTime()) {
-        busyUnits++;
-      }
+    const dayMs = cursor.getTime();
+    let busyCount = 0;
+    for (const o of orders) {
+      const s = parseOdooDate(o.rental_start_date || o.start_date);
+      const e = parseOdooDate(o.rental_return_date || o.return_date);
+      if (!s || !e) continue;
+      if (s.getTime() <= dayMs && dayMs <= e.getTime()) busyCount++;
     }
-
-    if (busyUnits >= fleetUnits) blocked.add(dateStr);
+    if (busyCount >= fleetUnits) blocked.add(toDateStr(cursor));
     cursor.setDate(cursor.getDate() + 1);
   }
-
   return blocked;
 }
 
-// Build available delivery date windows for a specific rental option
-function getAvailableWindows(optionKey, blocked, windowStart, windowEnd) {
-  const option  = RENTAL_OPTIONS[optionKey];
-  if (!option) return [];
-
+function buildWindows(optionKey, blocked, windowStart, windowEnd) {
+  const opt = RENTAL_OPTIONS[optionKey];
+  if (!opt) return [];
   const windows = [];
-  const cursor  = new Date(windowStart);
-  // Start from tomorrow at minimum
-  cursor.setDate(cursor.getDate() + 1);
+  const cursor = new Date(windowStart);
+  cursor.setDate(cursor.getDate() + 1); // start from tomorrow minimum
 
-  while (cursor <= windowEnd) {
-    const dow = cursor.getDay(); // 0-6
-
-    if (option.days.includes(dow)) {
-      // Check that all days of this rental window are available
-      let windowClear = true;
-      for (let i = 0; i < option.durationDays; i++) {
-        const checkDay = addDays(cursor, i);
-        if (blocked.has(toDateStr(checkDay))) {
-          windowClear = false;
-          break;
-        }
+  while (cursor <= windowEnd && windows.length < 4) {
+    if (opt.days.includes(cursor.getDay())) {
+      let clear = true;
+      for (let i = 0; i < opt.duration; i++) {
+        if (blocked.has(toDateStr(addDays(cursor, i)))) { clear = false; break; }
       }
-
-      if (windowClear) {
-        const endDate = addDays(cursor, option.durationDays);
+      if (clear) {
+        const endDate = addDays(cursor, opt.duration);
         windows.push({
-          start:       toDateStr(cursor),
-          end:         toDateStr(endDate),
-          startLabel:  formatDisplayDate(cursor),
-          endLabel:    formatDisplayDate(endDate),
-          // ISO strings for the funnel to pass back on submit
-          startIso:    cursor.toISOString(),
-          endIso:      endDate.toISOString(),
+          start:      toDateStr(cursor),
+          end:        toDateStr(endDate),
+          startLabel: formatDisplay(cursor),
+          endLabel:   formatDisplay(endDate),
+          startIso:   cursor.toISOString(),
+          endIso:     endDate.toISOString(),
         });
       }
     }
-
     cursor.setDate(cursor.getDate() + 1);
   }
-
   return windows;
 }
 
-// ─── Handler ──────────────────────────────────────────────────────────────────
+// ─── Handler ───────────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
-  // CORS for local dev
-  res.setHeader("Access-Control-Allow-Origin",  "*");
+  res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
-
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   const { size } = req.body || {};
-
   if (!size || !FLEET[size]) {
     return res.status(400).json({ error: "Invalid size. Must be '11 Yard', '16 Yard', or '21 Yard'." });
   }
 
   const fleet = FLEET[size];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const windowEnd = addDays(today, 21); // 21 days covers 7-day rental windows
 
   try {
-    // ── 1. Define the 14-day look-ahead window ──
-    const today      = new Date();
-    today.setHours(0, 0, 0, 0);
-    const windowEnd  = addDays(today, 21); // 21 days to give buffer for 7-day rentals
+    // 1. Authenticate via XML-RPC
+    const uid = await xmlrpcAuth();
 
-    // ── 2. Query Odoo for active rental orders containing this product ──
-    // We search sale.order.line where:
-    //   - product_id.product_tmpl_id = our template ID  (or search by name)
-    //   - The parent order's rental_status is 'pickup' (Reserved) or 'pickedup' (Picked Up)
-    //   - rental_return_date >= today (still active or future)
-    //
-    // Odoo 18: rental orders are sale.order records with is_rental_order = True
-    // Order lines are sale.order.line with is_rental = True
-
-    const domain = [
-      ["product_id.product_tmpl_id", "=", fleet.productId],
-      ["is_rental", "=", true],
-      ["order_id.rental_status", "in", ["pickup", "pickedup"]],
-      ["return_date", ">=", toDateStr(today)],
-    ];
-
-    const fields = [
-      "rental_start_date",
-      "return_date",
-      "order_id",
-      "product_id",
-    ];
-
-    const lines = await odooCall(
-      "sale.order.line",
-      "search_read",
-      [domain],
-      { fields, limit: 200 }
+    // 2. Query active rental order lines for this product via JSON-RPC
+    // Confirmed fields: start_date, return_date on sale.order.line
+    // Confirmed status values: rental_status on sale.order = 'pickup' | 'pickedup'
+    const lines = await odooCall(uid, "sale.order.line", "search_read",
+      [[
+        ["product_id.product_tmpl_id", "=", fleet.templateId],
+        ["is_rental", "=", true],
+        ["order_id.rental_status", "in", ["pickup", "pickedup"]],
+        ["return_date", ">=", toDateStr(today)],
+      ]],
+      {
+        fields: ["id", "order_id", "start_date", "return_date"],
+        limit: 200,
+      }
     );
 
-    // Normalize: map return_date → rental_return_date for consistency
-    const activeOrders = lines.map(l => ({
-      rental_start_date:  l.rental_start_date,
-      rental_return_date: l.return_date,
-      order_id:           l.order_id,
-    }));
+    // 3. Compute blocked dates
+    const blocked = buildBlockedSet(lines, fleet.units, today, windowEnd);
 
-    // ── 3. Compute blocked dates ──
-    const blocked = computeBlockedDates(activeOrders, fleet.units, today, windowEnd);
-
-    // ── 4. Build available windows for each rental option ──
+    // 4. Build available windows per rental option
     const available = {};
     for (const key of Object.keys(RENTAL_OPTIONS)) {
-      const windows = getAvailableWindows(key, blocked, today, windowEnd);
-      // Return max 4 windows per option (roughly 2 weeks of opportunities)
-      available[key] = windows.slice(0, 4);
+      available[key] = buildWindows(key, blocked, today, windowEnd);
     }
 
-    // ── 5. Include debug info in non-production ──
-    const debug = process.env.NODE_ENV !== "production" ? {
-      queriedProductId: fleet.productId,
-      fleetUnits:       fleet.units,
-      activeOrderCount: activeOrders.length,
-      blockedDates:     [...blocked].sort(),
-    } : undefined;
-
+    const isProduction = process.env.NODE_ENV === "production";
     return res.status(200).json({
       size,
       available,
-      ...(debug ? { debug } : {}),
+      ...(!isProduction && {
+        debug: {
+          activeRentals: lines.length,
+          blockedDates: [...blocked].sort(),
+          fleetUnits: fleet.units,
+        }
+      }),
     });
 
   } catch (err) {
-    console.error("[availability] Odoo query failed:", err.message);
+    console.error("[availability] error:", err.message);
 
-    // Graceful degradation — return all dates open rather than blocking the funnel
-    // The funnel will show dates but note "subject to confirmation"
-    const today     = new Date();
+    // Graceful degradation — show all dates open rather than blocking the funnel
+    // Funnel will show "subject to confirmation" copy when degraded: true
     const available = {};
+    const today2 = new Date();
+    today2.setHours(0, 0, 0, 0);
     for (const key of Object.keys(RENTAL_OPTIONS)) {
-      available[key] = getAvailableWindows(key, new Set(), today, addDays(today, 21)).slice(0, 4);
+      available[key] = buildWindows(key, new Set(), today2, addDays(today2, 21));
     }
-
-    return res.status(200).json({
-      size,
-      available,
-      degraded: true, // funnel uses this to show "subject to confirmation" copy
-    });
+    return res.status(200).json({ size, available, degraded: true });
   }
 }
