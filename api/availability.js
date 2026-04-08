@@ -151,15 +151,25 @@ export default async function handler(req, res) {
   try {
     const uid = await xmlrpcAuth();
 
-    const lines = await odooCall(uid, "sale.order.line", "search_read",
+    // Query sale.order headers directly — more reliable than order lines
+    // because extended rentals update rental_start_date/rental_return_date on the
+    // header but may not update start_date/return_date on the line.
+    // Also catches "booked" status (paid, not yet picked up).
+    const orders = await odooCall(uid, "sale.order", "search_read",
       [[
-        ["product_id.product_tmpl_id", "=", fleet.templateId],
-        ["is_rental", "=", true],
-        ["order_id.rental_status", "in", ["pickup", "pickedup"]],
-        ["return_date", ">=", toDateStr(today)],
+        ["order_line.product_id.product_tmpl_id", "=", fleet.templateId],
+        ["is_rental_order", "=", true],
+        ["rental_status", "in", ["reserved", "pickup", "pickedup", "booked"]],
+        ["rental_return_date", ">=", toDateStr(today)],
       ]],
-      { fields: ["id", "start_date", "return_date"], limit: 200 }
+      { fields: ["id", "name", "rental_start_date", "rental_return_date", "rental_status"], limit: 200 }
     );
+
+    // Normalize to the shape buildBlockedSet expects
+    const lines = orders.map(o => ({
+      start_date:  o.rental_start_date,
+      return_date: o.rental_return_date,
+    }));
 
     const blocked = buildBlockedSet(lines, fleet.units, today, windowEnd);
     const available = {};
@@ -171,9 +181,10 @@ export default async function handler(req, res) {
       size,
       available,
       debug: {
-        activeRentals: lines.length,
+        activeRentals: orders.length,
         blockedDates: [...blocked].sort(),
         fleetUnits: fleet.units,
+        orders: orders.map(o => ({ name: o.name, status: o.rental_status, start: o.rental_start_date, end: o.rental_return_date })),
       },
     });
 
