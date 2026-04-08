@@ -1,131 +1,116 @@
 // api/odoo-probe.js
-// TEMPORARY — final field discovery pass.
-// Reads rental order lines with NO field filter (returns all fields),
-// then reads the parent sale.order for date fields.
+// TEMPORARY — browser-friendly availability test.
 // GET https://littlejunkers-messenger-bot.vercel.app/api/odoo-probe
+// Tests the full availability query for all three sizes.
 
-function xmlrpcEscape(v) {
-  return String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&apos;");
+function xe(v) { return String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&apos;"); }
+function xv(val) {
+  if (val === null || val === undefined || val === false) return "<value><boolean>0</boolean></value>";
+  if (val === true) return "<value><boolean>1</boolean></value>";
+  if (typeof val === "number" && Number.isInteger(val)) return `<value><int>${val}</int></value>`;
+  if (typeof val === "string") return `<value><string>${xe(val)}</string></value>`;
+  if (Array.isArray(val)) return `<value><array><data>${val.map(xv).join("")}</data></array></value>`;
+  if (typeof val === "object") return `<value><struct>${Object.entries(val).map(([k,v])=>`<member><n>${xe(k)}</n>${xv(v)}</member>`).join("")}</struct></value>`;
+  return `<value><string>${xe(String(val))}</string></value>`;
 }
-function xmlrpcValue(value) {
-  if (value === null || value === undefined || value === false) return "<value><boolean>0</boolean></value>";
-  if (value === true) return "<value><boolean>1</boolean></value>";
-  if (typeof value === "number" && Number.isInteger(value)) return `<value><int>${value}</int></value>`;
-  if (typeof value === "number") return `<value><double>${value}</double></value>`;
-  if (typeof value === "string") return `<value><string>${xmlrpcEscape(value)}</string></value>`;
-  if (Array.isArray(value)) return `<value><array><data>${value.map(xmlrpcValue).join("")}</data></array></value>`;
-  if (typeof value === "object") return `<value><struct>${Object.entries(value).map(([k,v])=>`<member><n>${xmlrpcEscape(k)}</n>${xmlrpcValue(v)}</member>`).join("")}</struct></value>`;
-  return `<value><string>${xmlrpcEscape(String(value))}</string></value>`;
-}
-function decodeXml(t) {
-  return String(t||"").replaceAll("&lt;","<").replaceAll("&gt;",">").replaceAll("&quot;",'"').replaceAll("&apos;","'").replaceAll("&amp;","&");
-}
-async function xmlrpc(url, method, params) {
-  const body = `<?xml version="1.0"?><methodCall><methodName>${method}</methodName><params>${params.map(p=>`<param>${xmlrpcValue(p)}</param>`).join("")}</params></methodCall>`;
-  const r = await fetch(url, { method:"POST", headers:{"Content-Type":"text/xml"}, body });
-  return await r.text();
-}
-function extractInt(xml) {
+async function xmlrpcAuth() {
+  const { ODOO_URL, ODOO_DB, ODOO_USER, ODOO_API_KEY } = process.env;
+  const body = `<?xml version="1.0"?><methodCall><methodName>authenticate</methodName><params><param>${xv(ODOO_DB)}</param><param>${xv(ODOO_USER)}</param><param>${xv(ODOO_API_KEY)}</param><param>${xv({})}</param></params></methodCall>`;
+  const r = await fetch(`${ODOO_URL}/xmlrpc/2/common`, { method:"POST", headers:{"Content-Type":"text/xml"}, body });
+  const xml = await r.text();
   const m = xml.match(/<(?:int|i4)>(-?\d+)<\/(?:int|i4)>/);
-  return m ? parseInt(m[1],10) : null;
+  const uid = m ? parseInt(m[1],10) : null;
+  if (!uid) throw new Error("Auth failed");
+  return uid;
 }
-function extractFault(xml) {
-  const m = xml.match(/<faultString>[\s\S]*?<string>([\s\S]*?)<\/string>/i);
-  return m ? decodeXml(m[1]).split("\n").slice(0,3).join(" | ") : null;
+async function odooJsonRpc(uid, model, method, args, kwargs={}) {
+  const { ODOO_URL, ODOO_USER, ODOO_API_KEY } = process.env;
+  const creds = Buffer.from(`${ODOO_USER}:${ODOO_API_KEY}`).toString("base64");
+  const r = await fetch(`${ODOO_URL}/web/dataset/call_kw`, {
+    method: "POST",
+    headers: { "Content-Type":"application/json", "Authorization":`Basic ${creds}` },
+    body: JSON.stringify({ jsonrpc:"2.0", method:"call", id:1, params:{ model, method, args, kwargs:{ context:{ uid }, ...kwargs } } }),
+  });
+  const json = await r.json();
+  if (json.error) throw new Error(json.error.data?.message || JSON.stringify(json.error));
+  return json.result;
 }
-// Extract all field name keys from a fields_get XML response
-function extractFieldNames(xml) {
-  const names = [];
-  const re = /<name>([\w_]+)<\/name>/g;
-  let m;
-  while ((m = re.exec(xml)) !== null) {
-    if (!names.includes(m[1])) names.push(m[1]);
+
+const FLEET = {
+  "11 Yard": { templateId:60, units:3 },
+  "16 Yard": { templateId:4,  units:2 },
+  "21 Yard": { templateId:46, units:2 },
+};
+const RENTAL_OPTIONS = {
+  "Early Bird":      { days:[1,2],       duration:2 },
+  "Weekend Warrior": { days:[5],         duration:3 },
+  "Base Rental":     { days:[1,2,3,4,5], duration:2 },
+  "Full Reset":      { days:[1,2,3,4,5], duration:7 },
+};
+function toDateStr(d) { return d.toISOString().split("T")[0]; }
+function addDays(d,n) { const r=new Date(d); r.setDate(r.getDate()+n); return r; }
+function parseOdooDate(s) { if (!s||s===false) return null; return new Date(s.replace(" ","T")+(s.length===10?"T00:00:00Z":"Z")); }
+function formatDisplay(d) { return d.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",timeZone:"America/New_York"}); }
+
+function buildBlockedSet(orders, units, start, end) {
+  const blocked = new Set();
+  const cur = new Date(start);
+  while (cur <= end) {
+    const ms = cur.getTime();
+    let busy = 0;
+    for (const o of orders) {
+      const s = parseOdooDate(o.start_date); const e = parseOdooDate(o.return_date);
+      if (s && e && s.getTime()<=ms && ms<=e.getTime()) busy++;
+    }
+    if (busy >= units) blocked.add(toDateStr(cur));
+    cur.setDate(cur.getDate()+1);
   }
-  return names;
+  return blocked;
 }
-// Pull out just date/rental/pickup/return/start field names
-function filterRelevantFields(names) {
-  return names.filter(n =>
-    n.includes("rental") || n.includes("return") ||
-    n.includes("date") || n.includes("pickup") ||
-    n.includes("start") || n.includes("period")
-  );
+function buildWindows(optKey, blocked, start, end) {
+  const opt = RENTAL_OPTIONS[optKey]; if (!opt) return [];
+  const windows = []; const cur = new Date(start); cur.setDate(cur.getDate()+1);
+  while (cur <= end && windows.length < 4) {
+    if (opt.days.includes(cur.getDay())) {
+      let clear = true;
+      for (let i=0;i<opt.duration;i++) { if (blocked.has(toDateStr(addDays(cur,i)))) { clear=false; break; } }
+      if (clear) {
+        const ed = addDays(cur, opt.duration);
+        windows.push({ start:toDateStr(cur), end:toDateStr(ed), startLabel:formatDisplay(cur), endLabel:formatDisplay(ed) });
+      }
+    }
+    cur.setDate(cur.getDate()+1);
+  }
+  return windows;
 }
 
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  const { ODOO_URL, ODOO_DB, ODOO_USER, ODOO_API_KEY } = process.env;
+  res.setHeader("Access-Control-Allow-Origin","*");
+  const today = new Date(); today.setHours(0,0,0,0);
+  const windowEnd = addDays(today, 21);
 
   try {
-    // Auth
-    const authXml = await xmlrpc(`${ODOO_URL}/xmlrpc/2/common`, "authenticate",
-      [ODOO_DB, ODOO_USER, ODOO_API_KEY, {}]);
-    const uid = extractInt(authXml);
-    if (!uid) throw new Error("Auth failed");
+    const uid = await xmlrpcAuth();
+    const results = {};
 
-    const exec = (model, method, args, kwargs={}) =>
-      xmlrpc(`${ODOO_URL}/xmlrpc/2/object`, "execute_kw",
-        [ODOO_DB, uid, ODOO_API_KEY, model, method, args, kwargs]);
-
-    // 1. Get ALL field names on sale.order.line via fields_get
-    const lineFieldsXml = await exec("sale.order.line", "fields_get", [false], {});
-    const lineFieldFault = extractFault(lineFieldsXml);
-    const allLineFields = extractFieldNames(lineFieldsXml);
-    const relevantLineFields = filterRelevantFields(allLineFields);
-
-    // 2. Get ALL field names on sale.order via fields_get
-    const orderFieldsXml = await exec("sale.order", "fields_get", [false], {});
-    const orderFieldFault = extractFault(orderFieldsXml);
-    const allOrderFields = extractFieldNames(orderFieldsXml);
-    const relevantOrderFields = filterRelevantFields(allOrderFields);
-
-    // 3. Read line IDs 1433, 1423, 1421 with ONLY safe scalar fields first
-    const safeLineFields = ["id", "order_id", "product_id", "is_rental",
-      "product_uom_qty", "qty_delivered", "state"];
-    const safeReadXml = await exec("sale.order.line", "read",
-      [[1433, 1423, 1421]], { fields: safeLineFields });
-    const safeReadFault = extractFault(safeReadXml);
-
-    // 4. From the safe read, extract order IDs to then read the parent sale.order
-    // Pull order IDs from the XML — they appear as arrays [id, name]
-    const orderIdMatches = [...safeReadXml.matchAll(/<int>(\d+)<\/int>/g)];
-    const orderIds = [...new Set(orderIdMatches.map(m => parseInt(m[1],10))
-      .filter(n => n > 100 && n < 10000))].slice(0,3);
-
-    // 5. Read parent sale.order records with date fields from relevantOrderFields
-    // Use only the fields we know exist from fields_get
-    const dateFieldsToRead = relevantOrderFields
-      .filter(f => !f.includes("message") && !f.includes("activity"))
-      .slice(0, 20);
-
-    let orderReadXml = null;
-    let orderReadFault = null;
-    if (orderIds.length > 0 && dateFieldsToRead.length > 0) {
-      orderReadXml = await exec("sale.order", "read",
-        [orderIds], { fields: ["id", "name", "rental_status", ...dateFieldsToRead] });
-      orderReadFault = extractFault(orderReadXml);
+    for (const [size, fleet] of Object.entries(FLEET)) {
+      const lines = await odooJsonRpc(uid, "sale.order.line", "search_read",
+        [[["product_id.product_tmpl_id","=",fleet.templateId],["is_rental","=",true],["order_id.rental_status","in",["pickup","pickedup"]],["return_date",">=",toDateStr(today)]]],
+        { fields:["id","start_date","return_date"], limit:200 }
+      );
+      const blocked = buildBlockedSet(lines, fleet.units, today, windowEnd);
+      const available = {};
+      for (const key of Object.keys(RENTAL_OPTIONS)) {
+        available[key] = buildWindows(key, blocked, today, windowEnd);
+      }
+      results[size] = {
+        activeRentals: lines.length,
+        blockedDates: [...blocked].sort(),
+        available,
+      };
     }
 
-    return res.status(200).json({
-      uid,
-      // The key outputs we need:
-      relevant_line_fields:  relevantLineFields,
-      relevant_order_fields: relevantOrderFields,
-      safe_line_read: {
-        fault: safeReadFault,
-        order_ids_found: orderIds,
-        raw: safeReadXml.slice(0, 1500),
-      },
-      order_date_fields_read: orderReadXml ? {
-        fault: orderReadFault,
-        fields_requested: dateFieldsToRead,
-        raw: orderReadXml.slice(0, 3000),
-      } : { skipped: "no order IDs or date fields found" },
-      // For manual inspection
-      all_line_fields_count: allLineFields.length,
-      all_order_fields_count: allOrderFields.length,
-    });
-
+    return res.status(200).json({ uid, success:true, today:toDateStr(today), results });
   } catch(err) {
     return res.status(500).json({ error: err.message });
   }
