@@ -1,7 +1,7 @@
 // api/odoo-probe.js
 // TEMPORARY — browser-friendly availability test.
 // GET https://littlejunkers-messenger-bot.vercel.app/api/odoo-probe
-// Tests the full availability query for all three sizes
+// Tests the full availability query for all three sizes.
 
 function xe(v) { return String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&apos;"); }
 function xv(val) {
