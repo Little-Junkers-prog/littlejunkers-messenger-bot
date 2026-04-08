@@ -652,7 +652,15 @@ export default function Funnel() {
 
                     {!isReturningQuick && effectiveSize && (
                       <div style={{ display:"flex", gap:14, alignItems:"stretch", marginBottom:18, flexWrap:"wrap" }}>
-                        <div style={{ flex:"1 1 300px", background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:20 }}>
+                        <div
+                          onClick={handleContinueFromStep4}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={e => e.key === "Enter" && handleContinueFromStep4()}
+                          style={{ flex:"1 1 300px", background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:20, cursor:"pointer", transition:"border-color 150ms, box-shadow 150ms" }}
+                          onMouseEnter={e => { e.currentTarget.style.borderColor = C.ink; e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.06)"; }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor = C.surfaceBorder; e.currentTarget.style.boxShadow = "none"; }}
+                        >
                           <div style={{ fontSize:36, fontWeight:900, color:C.ink, letterSpacing:"-1.5px", lineHeight:1, marginBottom:8, fontFamily:F }}>{effectiveSize}</div>
                           <div style={{ marginBottom:14 }}><TonnagePill label={sizeMeta[effectiveSize]?.label || ""} /></div>
                           <div style={{ fontSize:10, fontWeight:700, color:C.inkFaint, letterSpacing:"0.6px", textTransform:"uppercase", marginBottom:6, fontFamily:F }}>What this size holds</div>
@@ -663,6 +671,9 @@ export default function Funnel() {
                             <div style={{ fontSize:10, fontWeight:800, color:C.inkFaint, letterSpacing:"0.7px", textTransform:"uppercase", marginBottom:6, fontFamily:F }}>Why this size</div>
                             <p style={{ margin:"0 0 6px", fontSize:13, lineHeight:1.55, color:C.ink, fontFamily:F }}>{recommendation.reason}</p>
                             <div style={{ fontSize:12, color:C.inkMuted, lineHeight:1.45, fontFamily:F }}>{recommendation.note}</div>
+                          </div>
+                          <div style={{ marginTop:14, fontSize:12, fontWeight:700, color:C.pinkText, fontFamily:F, textAlign:"center" }}>
+                            Tap to continue with {effectiveSize} →
                           </div>
                         </div>
                         <div style={{ flex:"1 1 200px", display:"flex", flexDirection:"column", gap:12 }}>
@@ -785,185 +796,172 @@ export default function Funnel() {
                   </div>
                 )}
 
-                {step === 5 && (
-                  <div>
-                    <StepHeading
-                      eyebrow="Choose your rental"
-                      title={availabilityLoading ? "Checking live availability..." : "Select your rental option"}
-                      text={
-                        availabilityLoading
-                          ? `We're checking the next available delivery dates for your ${effectiveSize}.`
-                          : isAvailabilityDegraded
-                            ? `Live date availability is temporarily unavailable. You can still submit your request below, and we'll confirm the delivery date with you.`
-                            : `Choose a rental option and an available delivery date for your ${effectiveSize}.`
-                      }
-                    />
+                {step === 5 && (() => {
+                  // Build a flat chronological list of all available date windows
+                  // Each entry carries its option key, price, and window data
+                  const PRIMARY_KEYS = ["Weekend Warrior", "Early Bird"];
+                  const EXTENDED_KEYS = ["Base Rental", "Full Reset"];
 
-                    <div style={{ marginBottom:16, background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:12, padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", gap:12 }}>
-                      <div>
-                        <div style={{ fontSize:10, fontWeight:700, color:C.inkFaint, textTransform:"uppercase", letterSpacing:"0.5px", fontFamily:F }}>Selected Dumpster</div>
-                        <div style={{ fontSize:20, fontWeight:900, color:C.ink, marginTop:2, fontFamily:F }}>{effectiveSize}</div>
-                      </div>
-                      <TonnagePill label={sizeMeta[effectiveSize]?.label || ""} />
-                    </div>
+                  const flatWindows = [];
+                  const allKeys = [...PRIMARY_KEYS, ...EXTENDED_KEYS];
+                  allKeys.forEach(key => {
+                    const windows = availableOptions[key] || [];
+                    windows.forEach(w => {
+                      flatWindows.push({ optionKey: key, window: w });
+                    });
+                  });
+                  // Sort chronologically
+                  flatWindows.sort((a, b) => a.window.start.localeCompare(b.window.start));
 
-                    {availabilityLoading ? (
-                      <div style={{ background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:"18px 16px", fontFamily:F }}>
-                        <div style={{ fontSize:14, fontWeight:700, color:C.ink, marginBottom:6 }}>Checking dates...</div>
-                        <div style={{ fontSize:13, color:C.inkMuted, lineHeight:1.5 }}>
-                          Pulling live availability for the next delivery windows.
-                        </div>
-                      </div>
-                    ) : isAvailabilityDegraded ? (
-                      <div>
-                        <div style={{ marginBottom:12, background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:12, padding:"12px 14px", color:C.ink, lineHeight:1.5, fontSize:13, fontFamily:F }}>
-                          <strong>Subject to confirmation:</strong> live scheduling is temporarily unavailable, so we'll confirm the exact delivery date after you submit.
-                        </div>
+                  // Remove duplicate start dates — keep earliest option for that date
+                  const seen = new Set();
+                  const dedupedWindows = flatWindows.filter(item => {
+                    if (seen.has(item.window.start)) return false;
+                    seen.add(item.window.start);
+                    return true;
+                  });
 
-                        <div style={{ display:"grid", gap:10 }}>
-                          {rentalOptions.map(option => {
-                            const displayPrice = calculatedPrices[option.key];
-                            return (
-                              <button
-                                key={option.key}
-                                onClick={() => handleFallbackOptionSelect(option)}
-                                style={{
-                                  width:"100%", textAlign:"left", padding:"16px 18px",
-                                  borderRadius:12, cursor:"pointer", fontFamily:F,
-                                  border: option.highlight ? `1.5px solid ${C.ink}` : `1px solid ${C.surfaceBorder}`,
-                                  background: option.highlight ? C.white : C.surfaceBg,
-                                  boxShadow: option.highlight ? "0 2px 8px rgba(0,0,0,0.04)" : "none",
-                                }}
-                              >
-                                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10 }}>
-                                  <div>
-                                    <div style={{ fontSize:16, fontWeight:800, color:C.ink, fontFamily:F }}>{option.label}</div>
-                                    <div style={{ marginTop:2, fontSize:13, color:C.inkMuted, fontFamily:F }}>{option.sub}</div>
-                                    <div style={{ marginTop:8, fontSize:22, fontWeight:900, color:C.ink, fontFamily:F, letterSpacing:"-0.5px" }}>
-                                      {typeof displayPrice === "number" ? `$${displayPrice}` : "Pricing unavailable"}
-                                    </div>
-                                    <div style={{ marginTop:2, fontSize:12, color:C.inkMuted, fontFamily:F }}>
-                                      Includes delivery + {sizeMeta[effectiveSize]?.label?.toLowerCase()}
-                                    </div>
-                                  </div>
-                                  {option.tag && (
-                                    <span style={{ background:C.pinkBg, color:C.pinkText, border:`1px solid ${C.pinkBorder}`, fontSize:11, fontWeight:800, padding:"3px 9px", borderRadius:99, whiteSpace:"nowrap", fontFamily:F }}>
-                                      {option.tag}
-                                    </span>
-                                  )}
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{ display:"grid", gap:10 }}>
-                        {rentalOptions
-                          .filter(option => (availableOptions[option.key] || []).length > 0)
-                          .map(option => {
-                            const displayPrice = calculatedPrices[option.key];
-                            const windows = availableOptions[option.key] || [];
-                            const optionSelected = duration === option.label;
+                  const primaryWindows  = dedupedWindows.filter(w => PRIMARY_KEYS.includes(w.optionKey));
+                  const extendedWindows = dedupedWindows.filter(w => EXTENDED_KEYS.includes(w.optionKey));
+                  const hasExtended     = extendedWindows.length > 0;
 
-                            return (
-                              <div
-                                key={option.key}
-                                style={{
-                                  padding:"16px 18px",
-                                  borderRadius:12,
-                                  fontFamily:F,
-                                  border: optionSelected ? `1.5px solid ${C.ink}` : `1px solid ${C.surfaceBorder}`,
-                                  background: optionSelected ? C.white : C.surfaceBg,
-                                  boxShadow: optionSelected ? "0 2px 8px rgba(0,0,0,0.04)" : "none",
-                                }}
-                              >
-                                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, marginBottom:12 }}>
-                                  <div>
-                                    <div style={{ fontSize:16, fontWeight:800, color:C.ink, fontFamily:F }}>{option.label}</div>
-                                    <div style={{ marginTop:2, fontSize:13, color:C.inkMuted, fontFamily:F }}>{option.sub}</div>
-                                    <div style={{ marginTop:8, fontSize:22, fontWeight:900, color:C.ink, fontFamily:F, letterSpacing:"-0.5px" }}>
-                                      {typeof displayPrice === "number" ? `$${displayPrice}` : "Pricing unavailable"}
-                                    </div>
-                                    <div style={{ marginTop:2, fontSize:12, color:C.inkMuted, fontFamily:F }}>
-                                      Includes delivery + {sizeMeta[effectiveSize]?.label?.toLowerCase()}
-                                    </div>
-                                  </div>
-                                  {option.tag && (
-                                    <span style={{ background:C.pinkBg, color:C.pinkText, border:`1px solid ${C.pinkBorder}`, fontSize:11, fontWeight:800, padding:"3px 9px", borderRadius:99, whiteSpace:"nowrap", fontFamily:F }}>
-                                      {option.tag}
-                                    </span>
-                                  )}
-                                </div>
+                  const optionLabel = {
+                    "Weekend Warrior": "Fri–Mon",
+                    "Early Bird":      "Mon–Tue",
+                    "Base Rental":     "2-Day",
+                    "Full Reset":      "7-Day",
+                  };
 
-                                <div style={{ fontSize:10, fontWeight:700, color:C.inkFaint, textTransform:"uppercase", letterSpacing:"0.6px", marginBottom:8, fontFamily:F }}>
-                                  Available delivery dates
-                                </div>
-
-                                <div style={{ display:"grid", gap:8 }}>
-                                  {(showMoreDates[option.key] ? windows : windows.slice(0, 2)).map((windowObj) => {
-                                    const isSelected =
-                                      selectedWindow?.start === windowObj.start &&
-                                      selectedWindow?.end === windowObj.end &&
-                                      duration === option.label;
-
-                                    return (
-                                      <button
-                                        key={`${option.key}-${windowObj.start}-${windowObj.end}`}
-                                        onClick={() => handleWindowSelect(option, windowObj)}
-                                        style={{
-                                          width:"100%",
-                                          textAlign:"left",
-                                          padding:"12px 14px",
-                                          borderRadius:10,
-                                          cursor:"pointer",
-                                          fontFamily:F,
-                                          transition:"border-color 150ms, background 150ms",
-                                          border: isSelected ? `1.5px solid ${C.pinkText}` : `1px solid ${C.surfaceBorder}`,
-                                          background: isSelected ? C.pinkBg : C.white,
-                                        }}
-                                      >
-                                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                                          <div>
-                                            <div style={{ fontSize:13, fontWeight:800, color: isSelected ? C.pinkText : C.ink }}>
-                                              {windowObj.startLabel}
-                                            </div>
-                                            <div style={{ marginTop:2, fontSize:12, color: isSelected ? C.pinkText : C.inkMuted, opacity: isSelected ? 0.85 : 1 }}>
-                                              Through {windowObj.endLabel}
-                                            </div>
-                                          </div>
-                                          {isSelected && (
-                                            <span style={{ fontSize:11, fontWeight:800, color:C.pinkText, background:C.white, border:`1px solid ${C.pinkBorder}`, borderRadius:99, padding:"3px 9px", fontFamily:F, whiteSpace:"nowrap" }}>
-                                              Selected
-                                            </span>
-                                          )}
-                                        </div>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-
-                                {windows.length > 2 && (
-                                  <button
-                                    onClick={() => setShowMoreDates(prev => ({ ...prev, [option.key]: !prev[option.key] }))}
-                                    style={{ marginTop:6, background:"none", border:"none", cursor:"pointer", fontSize:12, fontWeight:700, color:C.inkMuted, fontFamily:F, padding:"4px 0", textAlign:"left" }}
-                                  >
-                                    {showMoreDates[option.key] ? "▲ Show fewer dates" : `▼ Show more dates (${windows.length - 2} more)`}
-                                  </button>
-                                )}
-                              </div>
-                            );
-                          })}
-
-                        {!rentalOptions.some(option => (availableOptions[option.key] || []).length > 0) && (
-                          <div style={{ background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:12, padding:"12px 14px", color:C.ink, lineHeight:1.5, fontSize:13, fontFamily:F }}>
-                            We couldn't find an open delivery window for this size in the current look-ahead period. Try another size or contact us directly.
+                  const renderDateChip = (item) => {
+                    const { optionKey, window: w } = item;
+                    const price = calculatedPrices[optionKey];
+                    const isSelected = selectedWindow?.start === w.start && duration === optionKey;
+                    const option = rentalOptions.find(o => o.key === optionKey);
+                    return (
+                      <button
+                        key={`${optionKey}-${w.start}`}
+                        onClick={() => handleWindowSelect(option, w)}
+                        style={{
+                          width:"100%", textAlign:"left",
+                          padding:"14px 16px", borderRadius:12,
+                          cursor:"pointer", fontFamily:F,
+                          transition:"border-color 150ms, background 150ms, box-shadow 150ms",
+                          border: isSelected ? `1.5px solid ${C.pinkText}` : `1px solid ${C.surfaceBorder}`,
+                          background: isSelected ? C.pinkBg : C.white,
+                          boxShadow: isSelected ? `0 0 0 3px ${C.pinkBorder}` : "none",
+                        }}
+                      >
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                          <div>
+                            <div style={{ fontSize:15, fontWeight:900, color: isSelected ? C.pinkText : C.ink, letterSpacing:"-0.3px" }}>
+                              {w.startLabel}
+                            </div>
+                            <div style={{ marginTop:3, fontSize:12, color: isSelected ? C.pinkText : C.inkMuted, opacity:0.9 }}>
+                              Through {w.endLabel}
+                            </div>
                           </div>
-                        )}
+                          <div style={{ textAlign:"right", flexShrink:0, marginLeft:12 }}>
+                            <div style={{ fontSize:18, fontWeight:900, color: isSelected ? C.pinkText : C.ink, letterSpacing:"-0.4px" }}>
+                              {typeof price === "number" ? `$${price}` : "—"}
+                            </div>
+                            <div style={{ fontSize:10, fontWeight:700, color: isSelected ? C.pinkText : C.inkFaint, textTransform:"uppercase", letterSpacing:"0.4px", marginTop:2 }}>
+                              {optionLabel[optionKey] || optionKey}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  };
+
+                  return (
+                    <div>
+                      <StepHeading
+                        eyebrow="Almost there"
+                        title={availabilityLoading ? "Checking availability..." : "When do you want your dumpster?"}
+                        text={
+                          availabilityLoading
+                            ? `Pulling live delivery dates for your ${effectiveSize}.`
+                            : isAvailabilityDegraded
+                              ? "Live scheduling is temporarily unavailable. Choose a rental option below and we'll confirm the date with you."
+                              : `Pick a delivery date for your ${effectiveSize}. Price includes delivery and ${sizeMeta[effectiveSize]?.label?.toLowerCase()}.`
+                        }
+                      />
+
+                      {/* Size strip */}
+                      <div style={{ marginBottom:16, background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:12, padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", gap:12 }}>
+                        <div>
+                          <div style={{ fontSize:10, fontWeight:700, color:C.inkFaint, textTransform:"uppercase", letterSpacing:"0.5px", fontFamily:F }}>Selected Dumpster</div>
+                          <div style={{ fontSize:20, fontWeight:900, color:C.ink, marginTop:2, fontFamily:F }}>{effectiveSize}</div>
+                        </div>
+                        <TonnagePill label={sizeMeta[effectiveSize]?.label || ""} />
                       </div>
-                    )}
-                  </div>
-                )}
+
+                      {availabilityLoading ? (
+                        <div style={{ background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:"24px 16px", fontFamily:F, textAlign:"center" }}>
+                          <div style={{ fontSize:14, fontWeight:700, color:C.ink, marginBottom:4 }}>Checking dates...</div>
+                          <div style={{ fontSize:13, color:C.inkMuted }}>Pulling live availability from our schedule.</div>
+                        </div>
+                      ) : isAvailabilityDegraded ? (
+                        <div>
+                          <div style={{ marginBottom:12, background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:12, padding:"12px 14px", color:C.ink, lineHeight:1.5, fontSize:13, fontFamily:F }}>
+                            <strong>Subject to confirmation:</strong> we'll confirm the exact delivery date after you submit.
+                          </div>
+                          <div style={{ display:"grid", gap:10 }}>
+                            {rentalOptions.map(option => {
+                              const price = calculatedPrices[option.key];
+                              return (
+                                <button key={option.key} onClick={() => handleFallbackOptionSelect(option)} style={{
+                                  width:"100%", textAlign:"left", padding:"14px 16px", borderRadius:12,
+                                  border: `1px solid ${C.surfaceBorder}`, background: C.white,
+                                  cursor:"pointer", fontFamily:F,
+                                }}>
+                                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                                    <div>
+                                      <div style={{ fontSize:15, fontWeight:800, color:C.ink }}>{option.label}</div>
+                                      <div style={{ fontSize:12, color:C.inkMuted, marginTop:2 }}>{option.sub}</div>
+                                    </div>
+                                    <div style={{ fontSize:18, fontWeight:900, color:C.ink }}>
+                                      {typeof price === "number" ? `$${price}` : "—"}
+                                    </div>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : primaryWindows.length === 0 && extendedWindows.length === 0 ? (
+                        <div style={{ background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:12, padding:"12px 14px", color:C.ink, lineHeight:1.5, fontSize:13, fontFamily:F }}>
+                          No delivery windows found in the next 3 weeks for this size. <a href="tel:4708136270" style={{ color:C.ink, fontWeight:700 }}>Call us</a> to book further out or try a different size.
+                        </div>
+                      ) : (
+                        <div>
+                          {/* Primary date grid */}
+                          <div style={{ display:"grid", gap:10, marginBottom: hasExtended ? 6 : 0 }}>
+                            {primaryWindows.map(renderDateChip)}
+                          </div>
+
+                          {/* Extended options toggle */}
+                          {hasExtended && (
+                            <div style={{ marginTop:10 }}>
+                              <button
+                                onClick={() => setShowMoreDates(prev => ({ ...prev, extended: !prev.extended }))}
+                                style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, fontWeight:700, color:C.inkMuted, fontFamily:F, padding:"6px 0", display:"flex", alignItems:"center", gap:6 }}
+                              >
+                                <span>{showMoreDates.extended ? "▲" : "▼"}</span>
+                                <span>{showMoreDates.extended ? "Hide other rental lengths" : "Need a different rental length?"}</span>
+                              </button>
+                              {showMoreDates.extended && (
+                                <div style={{ display:"grid", gap:10, marginTop:8 }}>
+                                  {extendedWindows.map(renderDateChip)}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {step === 6 && (
                   <div>
