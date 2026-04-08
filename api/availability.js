@@ -1,165 +1,131 @@
 // api/availability.js
-// Queries Odoo for available delivery dates for a given dumpster size.
-// Auth: XML-RPC (confirmed working pattern)
-// Data: JSON-RPC /web/dataset/call_kw (avoids XML-RPC kwargs list bug)
-//
-// POST { size: "11 Yard" | "16 Yard" | "21 Yard" }
-// Returns { size, available: { [optionKey]: [{ start, end, startLabel, endLabel }] } }
+// Auth: XML-RPC authenticate → get uid
+// Data: JSON-RPC call_kw with uid+apikey passed directly in the request params
+// This matches how Odoo 18 Online accepts programmatic API calls.
 
-// ─── Fleet config ─────────────────────────────────────────────────────────────
-// product.template IDs confirmed from Odoo Inventory URLs
 const FLEET = {
   "11 Yard": { templateId: 60, units: 3 },
   "16 Yard": { templateId: 4,  units: 2 },
   "21 Yard": { templateId: 46, units: 2 },
 };
 
-// ─── Rental option delivery rules ─────────────────────────────────────────────
-// days: day-of-week for valid delivery (0=Sun, 1=Mon ... 6=Sat)
-// duration: how many days the rental lasts
 const RENTAL_OPTIONS = {
-  "Early Bird":      { days: [1, 2],       duration: 2 },  // Mon or Tue, 2-day
-  "Weekend Warrior": { days: [5],          duration: 3 },  // Fri delivery, return Mon
-  "Base Rental":     { days: [1,2,3,4,5], duration: 2 },  // Any weekday, 2-day
-  "Full Reset":      { days: [1,2,3,4,5], duration: 7 },  // Any weekday, 7-day
+  "Early Bird":      { days: [1, 2],       duration: 2 },
+  "Weekend Warrior": { days: [5],          duration: 3 },
+  "Base Rental":     { days: [1,2,3,4,5], duration: 2 },
+  "Full Reset":      { days: [1,2,3,4,5], duration: 7 },
 };
 
-// ─── XML-RPC helpers (auth only) ──────────────────────────────────────────────
-function xe(v) {
-  return String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&apos;");
-}
+// ─── XML-RPC auth ─────────────────────────────────────────────────────────────
+function xe(v) { return String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&apos;"); }
 function xv(val) {
   if (val === null || val === undefined || val === false) return "<value><boolean>0</boolean></value>";
-  if (val === true)  return "<value><boolean>1</boolean></value>";
+  if (val === true) return "<value><boolean>1</boolean></value>";
   if (typeof val === "number" && Number.isInteger(val)) return `<value><int>${val}</int></value>`;
   if (typeof val === "string") return `<value><string>${xe(val)}</string></value>`;
   if (Array.isArray(val)) return `<value><array><data>${val.map(xv).join("")}</data></array></value>`;
   if (typeof val === "object") return `<value><struct>${Object.entries(val).map(([k,v])=>`<member><n>${xe(k)}</n>${xv(v)}</member>`).join("")}</struct></value>`;
   return `<value><string>${xe(String(val))}</string></value>`;
 }
+
 async function xmlrpcAuth() {
   const { ODOO_URL, ODOO_DB, ODOO_USER, ODOO_API_KEY } = process.env;
   const body = `<?xml version="1.0"?><methodCall><methodName>authenticate</methodName><params><param>${xv(ODOO_DB)}</param><param>${xv(ODOO_USER)}</param><param>${xv(ODOO_API_KEY)}</param><param>${xv({})}</param></params></methodCall>`;
-  const r = await fetch(`${ODOO_URL}/xmlrpc/2/common`, {
-    method: "POST", headers: { "Content-Type": "text/xml" }, body,
-  });
+  const r = await fetch(`${ODOO_URL}/xmlrpc/2/common`, { method:"POST", headers:{"Content-Type":"text/xml"}, body });
   const xml = await r.text();
   const m = xml.match(/<(?:int|i4)>(-?\d+)<\/(?:int|i4)>/);
   const uid = m ? parseInt(m[1], 10) : null;
-  if (!uid) throw new Error("Odoo authentication failed");
+  if (!uid) throw new Error("XML-RPC auth failed");
   return uid;
 }
 
-// ─── JSON-RPC data helper ──────────────────────────────────────────────────────
-// Authenticates via /web/session/authenticate (password = API key on Odoo 18 SaaS)
-// then uses the session cookie for data calls — more reliable than Basic auth on call_kw
+// ─── JSON-RPC data call ────────────────────────────────────────────────────────
+// Odoo 18 Online: pass uid + api_key directly in the JSON-RPC execute_kw params.
+// No session, no Basic auth — the uid from XML-RPC auth IS the auth token for JSON-RPC.
 async function odooCall(uid, model, method, args, kwargs = {}) {
-  const { ODOO_URL, ODOO_DB, ODOO_USER, ODOO_API_KEY } = process.env;
+  const { ODOO_URL, ODOO_DB, ODOO_API_KEY } = process.env;
 
-  // Step 1: get a session cookie using API key as password
-  const sessionRes = await fetch(`${ODOO_URL}/web/session/authenticate`, {
+  const payload = {
+    jsonrpc: "2.0",
+    method: "call",
+    id: 1,
+    params: {
+      service: "object",
+      method: "execute_kw",
+      args: [
+        ODOO_DB,
+        uid,
+        ODOO_API_KEY,
+        model,
+        method,
+        args,
+        kwargs,
+      ],
+    },
+  };
+
+  const r = await fetch(`${ODOO_URL}/jsonrpc`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0", method: "call", id: 1,
-      params: { db: ODOO_DB, login: ODOO_USER, password: ODOO_API_KEY },
-    }),
-  });
-  if (!sessionRes.ok) throw new Error(`Session auth HTTP ${sessionRes.status}`);
-  const sessionJson = await sessionRes.json();
-  if (sessionJson.error) throw new Error(sessionJson.error.data?.message || "Session auth failed");
-  if (!sessionJson.result?.uid) throw new Error("Session auth returned no uid");
-
-  // Step 2: extract session cookie
-  const setCookie = sessionRes.headers.get("set-cookie") || "";
-  const sessionCookie = setCookie.split(";")[0];
-
-  // Step 3: call the actual endpoint with session cookie
-  const r = await fetch(`${ODOO_URL}/web/dataset/call_kw`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(sessionCookie ? { "Cookie": sessionCookie } : {}),
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0", method: "call", id: 2,
-      params: { model, method, args, kwargs: { context: {}, ...kwargs } },
-    }),
+    body: JSON.stringify(payload),
   });
 
-  if (!r.ok) throw new Error(`Odoo JSON-RPC HTTP ${r.status}`);
+  if (!r.ok) throw new Error(`Odoo /jsonrpc HTTP ${r.status}`);
   const json = await r.json();
   if (json.error) throw new Error(json.error.data?.message || JSON.stringify(json.error));
   return json.result;
 }
 
 // ─── Date helpers ──────────────────────────────────────────────────────────────
-function toDateStr(d) {
-  // YYYY-MM-DD in local time
-  return d.toISOString().split("T")[0];
-}
-function addDays(d, n) {
-  const r = new Date(d);
-  r.setDate(r.getDate() + n);
-  return r;
-}
-function parseOdooDate(str) {
-  if (!str || str === false) return null;
-  // Odoo returns "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD"
-  return new Date(str.replace(" ", "T") + (str.length === 10 ? "T00:00:00Z" : "Z"));
+function toDateStr(d) { return d.toISOString().split("T")[0]; }
+function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function parseOdooDate(s) {
+  if (!s || s === false) return null;
+  return new Date(s.replace(" ", "T") + (s.length === 10 ? "T00:00:00Z" : "Z"));
 }
 function formatDisplay(d) {
-  return d.toLocaleDateString("en-US", {
-    weekday: "long", month: "long", day: "numeric",
-    timeZone: "America/New_York",
-  });
+  return d.toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric", timeZone:"America/New_York" });
 }
 
-// ─── Core logic ────────────────────────────────────────────────────────────────
-function buildBlockedSet(orders, fleetUnits, windowStart, windowEnd) {
+function buildBlockedSet(lines, units, today, windowEnd) {
   const blocked = new Set();
-  const cursor = new Date(windowStart);
-  while (cursor <= windowEnd) {
-    const dayMs = cursor.getTime();
-    let busyCount = 0;
-    for (const o of orders) {
-      const s = parseOdooDate(o.rental_start_date || o.start_date);
-      const e = parseOdooDate(o.rental_return_date || o.return_date);
-      if (!s || !e) continue;
-      if (s.getTime() <= dayMs && dayMs <= e.getTime()) busyCount++;
+  const cur = new Date(today);
+  while (cur <= windowEnd) {
+    const ms = cur.getTime();
+    let busy = 0;
+    for (const l of lines) {
+      const s = parseOdooDate(l.start_date);
+      const e = parseOdooDate(l.return_date);
+      if (s && e && s.getTime() <= ms && ms <= e.getTime()) busy++;
     }
-    if (busyCount >= fleetUnits) blocked.add(toDateStr(cursor));
-    cursor.setDate(cursor.getDate() + 1);
+    if (busy >= units) blocked.add(toDateStr(cur));
+    cur.setDate(cur.getDate() + 1);
   }
   return blocked;
 }
 
-function buildWindows(optionKey, blocked, windowStart, windowEnd) {
-  const opt = RENTAL_OPTIONS[optionKey];
+function buildWindows(optKey, blocked, today, windowEnd) {
+  const opt = RENTAL_OPTIONS[optKey];
   if (!opt) return [];
   const windows = [];
-  const cursor = new Date(windowStart);
-  cursor.setDate(cursor.getDate() + 1); // start from tomorrow minimum
-
-  while (cursor <= windowEnd && windows.length < 4) {
-    if (opt.days.includes(cursor.getDay())) {
+  const cur = new Date(today);
+  cur.setDate(cur.getDate() + 1);
+  while (cur <= windowEnd && windows.length < 4) {
+    if (opt.days.includes(cur.getDay())) {
       let clear = true;
       for (let i = 0; i < opt.duration; i++) {
-        if (blocked.has(toDateStr(addDays(cursor, i)))) { clear = false; break; }
+        if (blocked.has(toDateStr(addDays(cur, i)))) { clear = false; break; }
       }
       if (clear) {
-        const endDate = addDays(cursor, opt.duration);
+        const end = addDays(cur, opt.duration);
         windows.push({
-          start:      toDateStr(cursor),
-          end:        toDateStr(endDate),
-          startLabel: formatDisplay(cursor),
-          endLabel:   formatDisplay(endDate),
-          startIso:   cursor.toISOString(),
-          endIso:     endDate.toISOString(),
+          start: toDateStr(cur), end: toDateStr(end),
+          startLabel: formatDisplay(cur), endLabel: formatDisplay(end),
+          startIso: cur.toISOString(), endIso: end.toISOString(),
         });
       }
     }
-    cursor.setDate(cursor.getDate() + 1);
+    cur.setDate(cur.getDate() + 1);
   }
   return windows;
 }
@@ -173,22 +139,15 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   const { size } = req.body || {};
-  if (!size || !FLEET[size]) {
-    return res.status(400).json({ error: "Invalid size. Must be '11 Yard', '16 Yard', or '21 Yard'." });
-  }
+  if (!size || !FLEET[size]) return res.status(400).json({ error: "Invalid size" });
 
   const fleet = FLEET[size];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const windowEnd = addDays(today, 21); // 21 days covers 7-day rental windows
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const windowEnd = addDays(today, 21);
 
   try {
-    // 1. Authenticate via XML-RPC
     const uid = await xmlrpcAuth();
 
-    // 2. Query active rental order lines for this product via JSON-RPC
-    // Confirmed fields: start_date, return_date on sale.order.line
-    // Confirmed status values: rental_status on sale.order = 'pickup' | 'pickedup'
     const lines = await odooCall(uid, "sale.order.line", "search_read",
       [[
         ["product_id.product_tmpl_id", "=", fleet.templateId],
@@ -196,45 +155,33 @@ export default async function handler(req, res) {
         ["order_id.rental_status", "in", ["pickup", "pickedup"]],
         ["return_date", ">=", toDateStr(today)],
       ]],
-      {
-        fields: ["id", "order_id", "start_date", "return_date"],
-        limit: 200,
-      }
+      { fields: ["id", "start_date", "return_date"], limit: 200 }
     );
 
-    // 3. Compute blocked dates
     const blocked = buildBlockedSet(lines, fleet.units, today, windowEnd);
-
-    // 4. Build available windows per rental option
     const available = {};
     for (const key of Object.keys(RENTAL_OPTIONS)) {
       available[key] = buildWindows(key, blocked, today, windowEnd);
     }
 
-    const isProduction = process.env.NODE_ENV === "production";
     return res.status(200).json({
       size,
       available,
-      ...(!isProduction && {
-        debug: {
-          activeRentals: lines.length,
-          blockedDates: [...blocked].sort(),
-          fleetUnits: fleet.units,
-        }
-      }),
+      debug: {
+        activeRentals: lines.length,
+        blockedDates: [...blocked].sort(),
+        fleetUnits: fleet.units,
+      },
     });
 
   } catch (err) {
     console.error("[availability] error:", err.message);
-
-    // Graceful degradation — show all dates open rather than blocking the funnel
-    // Funnel will show "subject to confirmation" copy when degraded: true
+    // Graceful degradation
+    const today2 = new Date(); today2.setHours(0, 0, 0, 0);
     const available = {};
-    const today2 = new Date();
-    today2.setHours(0, 0, 0, 0);
     for (const key of Object.keys(RENTAL_OPTIONS)) {
       available[key] = buildWindows(key, new Set(), today2, addDays(today2, 21));
     }
-    return res.status(200).json({ size, available, degraded: true });
+    return res.status(200).json({ size, available, degraded: true, degradedReason: err.message });
   }
 }
