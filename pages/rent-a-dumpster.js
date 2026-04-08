@@ -797,76 +797,112 @@ export default function Funnel() {
                 )}
 
                 {step === 5 && (() => {
-                  // Build a flat chronological list of all available date windows
-                  // Each entry carries its option key, price, and window data
-                  const PRIMARY_KEYS = ["Weekend Warrior", "Early Bird"];
-                  const EXTENDED_KEYS = ["Base Rental", "Full Reset"];
+                  // ── Two-card approach ──────────────────────────────────────
+                  // Card 1: next available Weekend Warrior (Friday delivery)
+                  // Card 2: next available Early Bird (Monday or Tuesday delivery)
+                  // "See more options" toggle reveals Base Rental + Full Reset windows
 
-                  const flatWindows = [];
-                  const allKeys = [...PRIMARY_KEYS, ...EXTENDED_KEYS];
-                  allKeys.forEach(key => {
-                    const windows = availableOptions[key] || [];
-                    windows.forEach(w => {
-                      flatWindows.push({ optionKey: key, window: w });
-                    });
-                  });
-                  // Sort chronologically
-                  flatWindows.sort((a, b) => a.window.start.localeCompare(b.window.start));
+                  const weekendWindows  = availableOptions["Weekend Warrior"] || [];
+                  const earlyWindows    = availableOptions["Early Bird"]       || [];
+                  const baseWindows     = availableOptions["Base Rental"]      || [];
+                  const resetWindows    = availableOptions["Full Reset"]       || [];
 
-                  // Remove duplicate start dates — keep earliest option for that date
-                  const seen = new Set();
-                  const dedupedWindows = flatWindows.filter(item => {
-                    if (seen.has(item.window.start)) return false;
-                    seen.add(item.window.start);
-                    return true;
-                  });
+                  const nextWeekend = weekendWindows[0] || null;
+                  const nextEarly   = earlyWindows[0]   || null;
 
-                  const primaryWindows  = dedupedWindows.filter(w => PRIMARY_KEYS.includes(w.optionKey));
-                  const extendedWindows = dedupedWindows.filter(w => EXTENDED_KEYS.includes(w.optionKey));
-                  const hasExtended     = extendedWindows.length > 0;
+                  const weekendOption = rentalOptions.find(o => o.key === "Weekend Warrior");
+                  const earlyOption   = rentalOptions.find(o => o.key === "Early Bird");
+                  const baseOption    = rentalOptions.find(o => o.key === "Base Rental");
+                  const resetOption   = rentalOptions.find(o => o.key === "Full Reset");
 
-                  const optionLabel = {
-                    "Weekend Warrior": "Fri–Mon",
-                    "Early Bird":      "Mon–Tue",
-                    "Base Rental":     "2-Day",
-                    "Full Reset":      "7-Day",
-                  };
+                  const hasMore = baseWindows.length > 0 || resetWindows.length > 0;
 
-                  const renderDateChip = (item) => {
-                    const { optionKey, window: w } = item;
-                    const price = calculatedPrices[optionKey];
-                    const isSelected = selectedWindow?.start === w.start && duration === optionKey;
-                    const option = rentalOptions.find(o => o.key === optionKey);
+                  const PrimaryCard = ({ option, window: w, label, sublabel }) => {
+                    if (!w || !option) return null;
+                    const price = calculatedPrices[option.key];
+                    const isSelected = selectedWindow?.start === w.start && duration === option.key;
                     return (
                       <button
-                        key={`${optionKey}-${w.start}`}
                         onClick={() => handleWindowSelect(option, w)}
                         style={{
-                          width:"100%", textAlign:"left",
-                          padding:"14px 16px", borderRadius:12,
-                          cursor:"pointer", fontFamily:F,
+                          width:"100%", textAlign:"left", padding:"18px 20px",
+                          borderRadius:14, cursor:"pointer", fontFamily:F,
                           transition:"border-color 150ms, background 150ms, box-shadow 150ms",
-                          border: isSelected ? `1.5px solid ${C.pinkText}` : `1px solid ${C.surfaceBorder}`,
+                          border: isSelected ? `2px solid ${C.pinkText}` : `1px solid ${C.surfaceBorder}`,
                           background: isSelected ? C.pinkBg : C.white,
-                          boxShadow: isSelected ? `0 0 0 3px ${C.pinkBorder}` : "none",
+                          boxShadow: isSelected ? `0 0 0 3px ${C.pinkBorder}` : "0 1px 3px rgba(0,0,0,0.04)",
+                          marginBottom:0,
                         }}
                       >
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                          <div>
-                            <div style={{ fontSize:15, fontWeight:900, color: isSelected ? C.pinkText : C.ink, letterSpacing:"-0.3px" }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
+                          <div style={{ flex:1 }}>
+                            {/* Option label pill */}
+                            <div style={{ marginBottom:8 }}>
+                              <span style={{
+                                fontSize:10, fontWeight:800, letterSpacing:"0.6px",
+                                textTransform:"uppercase", fontFamily:F,
+                                color: isSelected ? C.pinkText : C.inkFaint,
+                              }}>
+                                {label}
+                              </span>
+                            </div>
+                            {/* Date — primary */}
+                            <div style={{ fontSize:20, fontWeight:900, color: isSelected ? C.pinkText : C.ink, letterSpacing:"-0.5px", lineHeight:1.1, fontFamily:F }}>
                               {w.startLabel}
                             </div>
-                            <div style={{ marginTop:3, fontSize:12, color: isSelected ? C.pinkText : C.inkMuted, opacity:0.9 }}>
+                            <div style={{ marginTop:4, fontSize:13, color: isSelected ? C.pinkText : C.inkMuted, fontFamily:F }}>
                               Through {w.endLabel}
                             </div>
+                            {sublabel && (
+                              <div style={{ marginTop:8, fontSize:12, color: isSelected ? C.pinkText : C.inkMuted, fontFamily:F, opacity:0.85 }}>
+                                {sublabel}
+                              </div>
+                            )}
                           </div>
-                          <div style={{ textAlign:"right", flexShrink:0, marginLeft:12 }}>
-                            <div style={{ fontSize:18, fontWeight:900, color: isSelected ? C.pinkText : C.ink, letterSpacing:"-0.4px" }}>
+                          {/* Price */}
+                          <div style={{ textAlign:"right", flexShrink:0 }}>
+                            <div style={{ fontSize:26, fontWeight:900, color: isSelected ? C.pinkText : C.ink, letterSpacing:"-0.8px", lineHeight:1, fontFamily:F }}>
                               {typeof price === "number" ? `$${price}` : "—"}
                             </div>
-                            <div style={{ fontSize:10, fontWeight:700, color: isSelected ? C.pinkText : C.inkFaint, textTransform:"uppercase", letterSpacing:"0.4px", marginTop:2 }}>
-                              {optionLabel[optionKey] || optionKey}
+                            {isSelected && (
+                              <div style={{ marginTop:6 }}>
+                                <span style={{ fontSize:11, fontWeight:800, color:C.pinkText, background:C.white, border:`1px solid ${C.pinkBorder}`, borderRadius:99, padding:"3px 9px", fontFamily:F }}>
+                                  Selected ✓
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  };
+
+                  const ExtendedCard = ({ option, windows }) => {
+                    if (!windows.length || !option) return null;
+                    const w = windows[0];
+                    const price = calculatedPrices[option.key];
+                    const isSelected = selectedWindow?.start === w.start && duration === option.key;
+                    return (
+                      <button
+                        onClick={() => handleWindowSelect(option, w)}
+                        style={{
+                          width:"100%", textAlign:"left", padding:"14px 16px",
+                          borderRadius:12, cursor:"pointer", fontFamily:F,
+                          transition:"border-color 150ms, background 150ms",
+                          border: isSelected ? `1.5px solid ${C.pinkText}` : `1px solid ${C.surfaceBorder}`,
+                          background: isSelected ? C.pinkBg : C.surfaceBg,
+                        }}
+                      >
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12 }}>
+                          <div style={{ flex:1 }}>
+                            <div style={{ fontSize:10, fontWeight:800, color: isSelected ? C.pinkText : C.inkFaint, letterSpacing:"0.6px", textTransform:"uppercase", marginBottom:4, fontFamily:F }}>
+                              {option.label} · {option.sub}
                             </div>
+                            <div style={{ fontSize:15, fontWeight:800, color: isSelected ? C.pinkText : C.ink, fontFamily:F }}>{w.startLabel}</div>
+                            <div style={{ fontSize:12, color: isSelected ? C.pinkText : C.inkMuted, marginTop:2, fontFamily:F }}>Through {w.endLabel}</div>
+                          </div>
+                          <div style={{ fontSize:20, fontWeight:900, color: isSelected ? C.pinkText : C.ink, letterSpacing:"-0.5px", fontFamily:F }}>
+                            {typeof price === "number" ? `$${price}` : "—"}
                           </div>
                         </div>
                       </button>
@@ -882,13 +918,13 @@ export default function Funnel() {
                           availabilityLoading
                             ? `Pulling live delivery dates for your ${effectiveSize}.`
                             : isAvailabilityDegraded
-                              ? "Live scheduling is temporarily unavailable. Choose a rental option below and we'll confirm the date with you."
-                              : `Pick a delivery date for your ${effectiveSize}. Price includes delivery and ${sizeMeta[effectiveSize]?.label?.toLowerCase()}.`
+                              ? "Live scheduling is temporarily unavailable. Choose a rental option and we'll confirm the date with you."
+                              : `Delivery and ${sizeMeta[effectiveSize]?.label?.toLowerCase()} included in all prices below.`
                         }
                       />
 
                       {/* Size strip */}
-                      <div style={{ marginBottom:16, background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:12, padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", gap:12 }}>
+                      <div style={{ marginBottom:18, background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:12, padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", gap:12 }}>
                         <div>
                           <div style={{ fontSize:10, fontWeight:700, color:C.inkFaint, textTransform:"uppercase", letterSpacing:"0.5px", fontFamily:F }}>Selected Dumpster</div>
                           <div style={{ fontSize:20, fontWeight:900, color:C.ink, marginTop:2, fontFamily:F }}>{effectiveSize}</div>
@@ -907,20 +943,20 @@ export default function Funnel() {
                             <strong>Subject to confirmation:</strong> we'll confirm the exact delivery date after you submit.
                           </div>
                           <div style={{ display:"grid", gap:10 }}>
-                            {rentalOptions.map(option => {
-                              const price = calculatedPrices[option.key];
+                            {rentalOptions.map(opt => {
+                              const price = calculatedPrices[opt.key];
                               return (
-                                <button key={option.key} onClick={() => handleFallbackOptionSelect(option)} style={{
+                                <button key={opt.key} onClick={() => handleFallbackOptionSelect(opt)} style={{
                                   width:"100%", textAlign:"left", padding:"14px 16px", borderRadius:12,
-                                  border: `1px solid ${C.surfaceBorder}`, background: C.white,
+                                  border:`1px solid ${C.surfaceBorder}`, background:C.white,
                                   cursor:"pointer", fontFamily:F,
                                 }}>
                                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                                     <div>
-                                      <div style={{ fontSize:15, fontWeight:800, color:C.ink }}>{option.label}</div>
-                                      <div style={{ fontSize:12, color:C.inkMuted, marginTop:2 }}>{option.sub}</div>
+                                      <div style={{ fontSize:15, fontWeight:800, color:C.ink }}>{opt.label}</div>
+                                      <div style={{ fontSize:12, color:C.inkMuted, marginTop:2 }}>{opt.sub}</div>
                                     </div>
-                                    <div style={{ fontSize:18, fontWeight:900, color:C.ink }}>
+                                    <div style={{ fontSize:20, fontWeight:900, color:C.ink }}>
                                       {typeof price === "number" ? `$${price}` : "—"}
                                     </div>
                                   </div>
@@ -929,30 +965,53 @@ export default function Funnel() {
                             })}
                           </div>
                         </div>
-                      ) : primaryWindows.length === 0 && extendedWindows.length === 0 ? (
+                      ) : !nextWeekend && !nextEarly ? (
                         <div style={{ background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:12, padding:"12px 14px", color:C.ink, lineHeight:1.5, fontSize:13, fontFamily:F }}>
-                          No delivery windows found in the next 3 weeks for this size. <a href="tel:4708136270" style={{ color:C.ink, fontWeight:700 }}>Call us</a> to book further out or try a different size.
+                          No delivery windows found in the next 3 weeks for this size. <a href="tel:4708136270" style={{ color:C.ink, fontWeight:700 }}>Call us</a> to book or try a different size.
                         </div>
                       ) : (
                         <div>
-                          {/* Primary date grid */}
-                          <div style={{ display:"grid", gap:10, marginBottom: hasExtended ? 6 : 0 }}>
-                            {primaryWindows.map(renderDateChip)}
+                          {/* Two primary cards */}
+                          <div style={{ display:"grid", gap:12 }}>
+                            <PrimaryCard
+                              option={weekendOption}
+                              window={nextWeekend}
+                              label="This weekend"
+                              sublabel="Friday delivery · back Monday"
+                            />
+                            <PrimaryCard
+                              option={earlyOption}
+                              window={nextEarly}
+                              label="Early in the week"
+                              sublabel="Monday or Tuesday delivery · best price"
+                            />
                           </div>
 
-                          {/* Extended options toggle */}
-                          {hasExtended && (
-                            <div style={{ marginTop:10 }}>
+                          {/* More dates under primary options */}
+                          {(weekendWindows.length > 1 || earlyWindows.length > 1 || hasMore) && (
+                            <div style={{ marginTop:14 }}>
                               <button
                                 onClick={() => setShowMoreDates(prev => ({ ...prev, extended: !prev.extended }))}
-                                style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, fontWeight:700, color:C.inkMuted, fontFamily:F, padding:"6px 0", display:"flex", alignItems:"center", gap:6 }}
+                                style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, fontWeight:700, color:C.inkMuted, fontFamily:F, padding:"4px 0", display:"flex", alignItems:"center", gap:6 }}
                               >
                                 <span>{showMoreDates.extended ? "▲" : "▼"}</span>
-                                <span>{showMoreDates.extended ? "Hide other rental lengths" : "Need a different rental length?"}</span>
+                                <span>{showMoreDates.extended ? "Hide other options" : "More dates or rental lengths"}</span>
                               </button>
+
                               {showMoreDates.extended && (
-                                <div style={{ display:"grid", gap:10, marginTop:8 }}>
-                                  {extendedWindows.map(renderDateChip)}
+                                <div style={{ marginTop:10, display:"grid", gap:10 }}>
+                                  {/* Additional weekend dates */}
+                                  {weekendWindows.slice(1).map(w => (
+                                    <ExtendedCard key={`ww-${w.start}`} option={weekendOption} windows={[w]} />
+                                  ))}
+                                  {/* Additional early bird dates */}
+                                  {earlyWindows.slice(1).map(w => (
+                                    <ExtendedCard key={`eb-${w.start}`} option={earlyOption} windows={[w]} />
+                                  ))}
+                                  {/* Base Rental */}
+                                  <ExtendedCard option={baseOption} windows={baseWindows} />
+                                  {/* Full Reset */}
+                                  <ExtendedCard option={resetOption} windows={resetWindows} />
                                 </div>
                               )}
                             </div>
