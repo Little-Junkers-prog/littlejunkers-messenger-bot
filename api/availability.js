@@ -51,34 +51,40 @@ async function xmlrpcAuth() {
 }
 
 // ─── JSON-RPC data helper ──────────────────────────────────────────────────────
-// Uses /web/dataset/call_kw which accepts JSON — no XML kwargs bug
+// Authenticates via /web/session/authenticate (password = API key on Odoo 18 SaaS)
+// then uses the session cookie for data calls — more reliable than Basic auth on call_kw
 async function odooCall(uid, model, method, args, kwargs = {}) {
-  const { ODOO_URL, ODOO_DB, ODOO_API_KEY } = process.env;
+  const { ODOO_URL, ODOO_DB, ODOO_USER, ODOO_API_KEY } = process.env;
 
-  // Build Basic auth from user:apikey
-  const credentials = Buffer.from(
-    `${process.env.ODOO_USER}:${ODOO_API_KEY}`
-  ).toString("base64");
+  // Step 1: get a session cookie using API key as password
+  const sessionRes = await fetch(`${ODOO_URL}/web/session/authenticate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", method: "call", id: 1,
+      params: { db: ODOO_DB, login: ODOO_USER, password: ODOO_API_KEY },
+    }),
+  });
+  if (!sessionRes.ok) throw new Error(`Session auth HTTP ${sessionRes.status}`);
+  const sessionJson = await sessionRes.json();
+  if (sessionJson.error) throw new Error(sessionJson.error.data?.message || "Session auth failed");
+  if (!sessionJson.result?.uid) throw new Error("Session auth returned no uid");
 
-  const payload = {
-    jsonrpc: "2.0",
-    method: "call",
-    id: 1,
-    params: {
-      model,
-      method,
-      args,
-      kwargs: { context: { uid }, ...kwargs },
-    },
-  };
+  // Step 2: extract session cookie
+  const setCookie = sessionRes.headers.get("set-cookie") || "";
+  const sessionCookie = setCookie.split(";")[0];
 
+  // Step 3: call the actual endpoint with session cookie
   const r = await fetch(`${ODOO_URL}/web/dataset/call_kw`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Basic ${credentials}`,
+      ...(sessionCookie ? { "Cookie": sessionCookie } : {}),
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      jsonrpc: "2.0", method: "call", id: 2,
+      params: { model, method, args, kwargs: { context: {}, ...kwargs } },
+    }),
   });
 
   if (!r.ok) throw new Error(`Odoo JSON-RPC HTTP ${r.status}`);
