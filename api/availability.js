@@ -201,7 +201,7 @@ function buildBlockedSet(rentals, templateId, units, today, windowEnd) {
   const cur = new Date(today);
 
   while (cur <= windowEnd) {
-    const ms = cur.getTime();
+    const dayStr = toDateStr(cur);
     let used = 0;
 
     for (const rental of rentals) {
@@ -212,13 +212,38 @@ function buildBlockedSet(rentals, templateId, units, today, windowEnd) {
 
       if (!s || !e) continue;
 
-      if (s.getTime() <= ms && ms <= e.getTime()) {
+      const startStr = toDateStr(s);
+      const endStr = toDateStr(e);
+
+      // Day is fully within the active rental span
+      if (startStr < dayStr && dayStr < endStr) {
         used += rental.qty;
+        continue;
+      }
+
+      // Rental starts on this day — it consumes the day
+      if (startStr === dayStr) {
+        used += rental.qty;
+        continue;
+      }
+
+      // Rental ends on this day:
+      // allow same-day turnover if returned before local noon
+      if (endStr === dayStr) {
+        const returnHourUtc = e.getUTCHours();
+
+        // 12:00 UTC ~= 8 AM Eastern during DST, 7 AM Eastern otherwise
+        // Conservative enough to allow early-morning returns to reopen the day
+        const EARLY_RETURN_CUTOFF_UTC = 12;
+
+        if (returnHourUtc >= EARLY_RETURN_CUTOFF_UTC) {
+          used += rental.qty;
+        }
       }
     }
 
     if (used >= units) {
-      blocked.add(toDateStr(cur));
+      blocked.add(dayStr);
     }
 
     cur.setDate(cur.getDate() + 1);
