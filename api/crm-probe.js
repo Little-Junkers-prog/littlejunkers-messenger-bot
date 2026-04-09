@@ -55,10 +55,15 @@ export default async function handler(req, res) {
       { attributes: ["string", "type", "required"] }
     );
 
-    // Filter to only custom studio fields (x_ prefix)
+    // Filter to only custom studio fields (x_ prefix) — include selection values
     const customFields = Object.entries(allFields)
       .filter(([key]) => key.startsWith("x_"))
-      .map(([key, meta]) => ({ field: key, label: meta.string, type: meta.type }));
+      .map(([key, meta]) => ({
+        field: key,
+        label: meta.string,
+        type: meta.type,
+        selection: meta.selection || null,
+      }));
 
     // Step 2: Get sales team IDs
     const teams = await odooCall(uid, "crm.team", "search_read",
