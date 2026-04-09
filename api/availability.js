@@ -2,7 +2,7 @@
 // Little Junkers — Odoo Rental Availability
 //
 // Source of truth:
-// - sale.order       -> rental_start_date, rental_return_date, rental_status
+// - sale.order       -> rental_start_date, rental_return_date, state, rental_status
 // - sale.order.line  -> which dumpster product is actually on the order
 //
 // Why this version is more reliable:
@@ -13,6 +13,7 @@
 // - Uses order header dates as the active rental window
 // - Corrects Weekend Warrior to a true 4-day rental
 // - Corrects end-date display to be inclusive
+// - Uses confirmed-order logic instead of fragile rental_status filtering
 
 const FLEET = {
   "11 Yard": { templateId: 60, units: 3 },
@@ -21,13 +22,12 @@ const FLEET = {
 };
 
 const RENTAL_OPTIONS = {
-  "Early Bird":      { days: [1, 2],       duration: 2 }, // Mon/Tue start, 2-day rental
-  "Weekend Warrior": { days: [5],          duration: 4 }, // Fri start, Fri-Mon inclusive
+  "Early Bird":      { days: [1, 2], duration: 2 }, // Mon/Tue start
+  "Weekend Warrior": { days: [5], duration: 4 },    // Fri-Mon inclusive
   "Base Rental":     { days: [1, 2, 3, 4, 5], duration: 2 },
   "Full Reset":      { days: [1, 2, 3, 4, 5], duration: 7 },
 };
 
-const ACTIVE_RENTAL_STATUSES = ["reserved", "pickup", "pickedup", "booked"];
 const INCLUDE_DEBUG =
   process.env.NODE_ENV !== "production" ||
   process.env.AVAILABILITY_DEBUG === "true";
@@ -149,13 +149,13 @@ function addDays(d, n) {
 function parseOdooDate(s) {
   if (!s || s === false) return null;
 
-  // "YYYY-MM-DD"
+  // Date only
   if (typeof s === "string" && s.length === 10) {
     const [y, m, d] = s.split("-").map(Number);
     return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
   }
 
-  // "YYYY-MM-DD HH:MM:SS"
+  // Datetime
   if (typeof s === "string") {
     const normalized = s.replace(" ", "T");
     return new Date(`${normalized}Z`);
@@ -165,7 +165,6 @@ function parseOdooDate(s) {
 }
 
 function formatDisplay(d) {
-  // Use local noon to avoid timezone shifting the visible date
   const safe = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0);
   return safe.toLocaleDateString("en-US", {
     weekday: "long",
@@ -189,9 +188,9 @@ function qtyInUse(line) {
   const ordered = Number(line.product_uom_qty || 0);
   const delivered = Number(line.qty_delivered || 0);
 
-  // For reserved/booked: ordered qty matters
-  // For picked-up: delivered qty matters
-  // For weird zero-ordered/legacy cases: use whichever is higher
+  // Reserved/booked commonly rely on ordered qty.
+  // Picked-up often relies on delivered qty.
+  // Use the greater of the two to avoid undercounting.
   return Math.max(ordered, delivered, 0);
 }
 
@@ -240,7 +239,6 @@ function buildWindows(optKey, blocked, today, windowEnd) {
     if (opt.days.includes(cur.getDay())) {
       let clear = true;
 
-      // Inclusive duration blocking
       for (let i = 0; i < opt.duration; i++) {
         const day = addDays(cur, i);
         if (blocked.has(toDateStr(day))) {
@@ -299,27 +297,30 @@ export default async function handler(req, res) {
   try {
     const uid = await xmlrpcAuth();
 
-    // 1) Pull active rental orders by header fields only
+    // Pull confirmed rental orders that still occupy inventory.
+    // This is intentionally based on order confirmation + future return date,
+    // not on brittle rental_status labels.
     const orders = await odooCall(
       uid,
       "sale.order",
       "search_read",
       [[
         ["is_rental_order", "=", true],
-        ["rental_status", "in", ACTIVE_RENTAL_STATUSES],
+        ["state", "in", ["sale", "done"]],
+        ["rental_return_date", "!=", false],
         ["rental_return_date", ">=", toDateStr(today)],
-        ["rental_start_date", "<=", toDateStr(windowEnd)],
       ]],
       {
         fields: [
           "id",
           "name",
+          "state",
+          "rental_status",
           "rental_start_date",
           "rental_return_date",
-          "rental_status",
           "order_line",
         ],
-        limit: 200,
+        limit: 500,
       }
     );
 
@@ -328,11 +329,10 @@ export default async function handler(req, res) {
       for (const key of Object.keys(RENTAL_OPTIONS)) {
         available[key] = buildWindows(key, new Set(), today, windowEnd);
       }
-
       return res.status(200).json({ size, available });
     }
 
-    // 2) Pull all lines from those orders
+    // Pull all lines from those orders
     const lineIds = normalizeIdList(orders.flatMap((o) => o.order_line || []));
 
     if (!lineIds.length) {
@@ -340,7 +340,6 @@ export default async function handler(req, res) {
       for (const key of Object.keys(RENTAL_OPTIONS)) {
         available[key] = buildWindows(key, new Set(), today, windowEnd);
       }
-
       return res.status(200).json({ size, available });
     }
 
@@ -360,12 +359,14 @@ export default async function handler(req, res) {
       }
     );
 
-    // 3) Resolve product.product -> product template
-    const productIds = [...new Set(
-      lines
-        .map((line) => normalizeMany2oneId(line.product_id))
-        .filter(Boolean)
-    )];
+    // Resolve product.product -> product template
+    const productIds = [
+      ...new Set(
+        lines
+          .map((line) => normalizeMany2oneId(line.product_id))
+          .filter(Boolean)
+      ),
+    ];
 
     let products = [];
     if (productIds.length) {
@@ -389,13 +390,13 @@ export default async function handler(req, res) {
       }
     }
 
-    // 4) Create a fast lookup for orders by id
+    // Fast lookup for orders by id
     const orderById = new Map();
     for (const order of orders) {
       orderById.set(order.id, order);
     }
 
-    // 5) Build normalized active rentals from relevant dumpster lines only
+    // Build normalized active rentals from actual dumpster lines only
     const rentals = [];
 
     for (const line of lines) {
@@ -407,7 +408,6 @@ export default async function handler(req, res) {
       if (!orderId || !productId || !templateId) continue;
       if (qty <= 0) continue;
 
-      // Only keep actual dumpster templates we care about
       const isDumpsterTemplate = Object.values(FLEET).some(
         (f) => f.templateId === templateId
       );
@@ -421,6 +421,7 @@ export default async function handler(req, res) {
       rentals.push({
         order_id: order.id,
         order_name: order.name,
+        state: order.state,
         status: order.rental_status,
         templateId,
         qty,
@@ -429,7 +430,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 6) Build blocked dates for the requested size only
+    // Build blocked dates for the requested dumpster size only
     const blocked = buildBlockedSet(
       rentals,
       fleet.templateId,
@@ -438,7 +439,7 @@ export default async function handler(req, res) {
       windowEnd
     );
 
-    // 7) Build available windows
+    // Build available windows
     const available = {};
     for (const key of Object.keys(RENTAL_OPTIONS)) {
       available[key] = buildWindows(key, blocked, today, windowEnd);
@@ -452,10 +453,18 @@ export default async function handler(req, res) {
         fleetUnits: fleet.units,
         activeOrders: orders.length,
         activeLines: lines.length,
+        orders: orders.map((o) => ({
+          name: o.name,
+          state: o.state,
+          rental_status: o.rental_status,
+          start: o.rental_start_date,
+          end: o.rental_return_date,
+        })),
         relevantRentals: rentals
           .filter((r) => r.templateId === fleet.templateId)
           .map((r) => ({
             order: r.order_name,
+            state: r.state,
             status: r.status,
             qty: r.qty,
             start: r.start_date,
@@ -472,7 +481,6 @@ export default async function handler(req, res) {
     console.error("[availability] msg2:", err.message?.slice(200, 400));
     console.error("[availability] stack:", err.stack?.split("\n")[1]);
 
-    // Graceful degradation: still return generic windows so funnel doesn't die
     const available = {};
     for (const key of Object.keys(RENTAL_OPTIONS)) {
       available[key] = buildWindows(key, new Set(), today, windowEnd);
