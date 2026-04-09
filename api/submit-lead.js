@@ -127,7 +127,13 @@ export default async function handler(req, res) {
     console.error("[submit-lead] msg:", err.message?.slice(0, 200));
     console.error("[submit-lead] msg2:", err.message?.slice(200, 400));
     console.error("[submit-lead] stack:", err.stack?.split("\n")[1]);
-    // Don't block the customer — return success anyway
-    return res.status(200).json({ success: true, degraded: true, error: err.message });
+    // Return full error in response for debugging — will remove once working
+    return res.status(200).json({
+      success: true,
+      degraded: true,
+      error: err.message,
+      errorFull: String(err.message),
+      errorStack: err.stack?.split("\n").slice(0, 4).join(" | "),
+    });
   }
 }
