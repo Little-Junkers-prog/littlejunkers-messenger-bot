@@ -287,6 +287,10 @@ function Step5DatePicker({
   const resetOption = rentalOptions.find(o => o.key === "Full Reset");
 
   const priceFor = (key) => calculatedPrices[key];
+  const earlyIsDiscounted =
+    typeof priceFor("Early Bird") === "number" &&
+    typeof priceFor("Base Rental") === "number" &&
+    priceFor("Early Bird") < priceFor("Base Rental");
 
   const allRankedCandidates = [
     ...standardWindows.map(w => ({ type: "Base Rental", option: standardOption, window: w })),
@@ -297,7 +301,7 @@ function Step5DatePicker({
 
   const soonestCard = allRankedCandidates[0] || null;
 
-  const bestWeekdayCard =
+  const weekdayCard =
     earlyWindows.length > 0
       ? { type: "Early Bird", option: earlyOption, window: earlyWindows[0] }
       : null;
@@ -310,12 +314,12 @@ function Step5DatePicker({
   const featured = [];
   const seen = new Set();
 
-  function pushUnique(card, label, sublabel) {
+  function pushUnique(card, label, sublabel, accentTag = null) {
     if (!card || !card.option || !card.window) return;
     const id = `${card.type}-${card.window.start}`;
     if (seen.has(id)) return;
     seen.add(id);
-    featured.push({ ...card, cardLabel: label, cardSubLabel: sublabel });
+    featured.push({ ...card, cardLabel: label, cardSubLabel: sublabel, accentTag });
   }
 
   pushUnique(
@@ -324,34 +328,50 @@ function Step5DatePicker({
     soonestCard?.type === "Base Rental"
       ? "Standard 2-day rental"
       : soonestCard?.type === "Early Bird"
-        ? "Discounted 2-day rental"
+        ? (earlyIsDiscounted ? "Discounted 2-day rental" : "2-day rental · Mon or Tue delivery")
         : soonestCard?.type === "Weekend Warrior"
           ? "4-day weekend rental"
           : "7-day rental"
   );
 
   pushUnique(
-    bestWeekdayCard,
-    "Best weekday price",
-    "Discounted 2-day rental · Mon or Tue delivery"
+    weekdayCard,
+    earlyIsDiscounted ? "Best weekday price" : "Weekday option",
+    earlyIsDiscounted
+      ? "Discounted 2-day rental · Mon or Tue delivery"
+      : "2-day rental · Mon or Tue delivery"
   );
 
   pushUnique(
     weekendCard,
     "Weekend option",
-    "4-day weekend rental · Fri delivery, back Mon"
+    "4-day weekend rental · Fri delivery, back Mon",
+    "Recommended"
   );
 
   const featuredIds = new Set(featured.map(f => `${f.type}-${f.window.start}`));
-
   const moreCards = allRankedCandidates.filter(c => !featuredIds.has(`${c.type}-${c.window.start}`));
   const hasMore = moreCards.length > 0;
 
   const isSelectedCard = (optionKey, w) =>
     selectedWindow?.start === w.start && duration === optionKey;
 
+  const rentalTypeLabel = (type) => {
+    if (type === "Base Rental") return "Standard 2-Day Rental";
+    if (type === "Early Bird") return earlyIsDiscounted ? "Discounted 2-Day Rental" : "2-Day Rental";
+    if (type === "Weekend Warrior") return "4-Day Weekend Rental";
+    return "7-Day Rental";
+  };
+
+  const rentalTypeSub = (type) => {
+    if (type === "Base Rental") return "Next available delivery";
+    if (type === "Early Bird") return "Mon or Tue delivery";
+    if (type === "Weekend Warrior") return "Fri delivery, back Mon";
+    return "Any weekday delivery";
+  };
+
   const PrimaryCard = ({ card }) => {
-    const { option, window: w, cardLabel, cardSubLabel, type } = card;
+    const { option, window: w, cardLabel, cardSubLabel, type, accentTag } = card;
     const price = priceFor(option.key);
     const isSelected = isSelectedCard(option.key, w);
 
@@ -366,14 +386,22 @@ function Step5DatePicker({
           cursor: "pointer",
           fontFamily: F,
           transition: "border-color 150ms, background 150ms, box-shadow 150ms",
-          border: isSelected ? `2px solid ${C.pinkText}` : `1px solid ${C.surfaceBorder}`,
+          border: isSelected
+            ? `2px solid ${C.pinkText}`
+            : accentTag
+              ? `1.5px solid ${C.pinkBorder}`
+              : `1px solid ${C.surfaceBorder}`,
           background: isSelected ? C.pinkBg : C.white,
-          boxShadow: isSelected ? `0 0 0 3px ${C.pinkBorder}` : "0 1px 3px rgba(0,0,0,0.04)",
+          boxShadow: isSelected
+            ? `0 0 0 3px ${C.pinkBorder}`
+            : accentTag
+              ? "0 1px 4px rgba(194,88,122,0.08)"
+              : "0 1px 3px rgba(0,0,0,0.04)",
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ marginBottom: 8 }}>
+            <div style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span style={{
                 fontSize: 10,
                 fontWeight: 800,
@@ -384,6 +412,21 @@ function Step5DatePicker({
               }}>
                 {cardLabel}
               </span>
+
+              {accentTag && (
+                <span style={{
+                  background: C.pinkBg,
+                  color: C.pinkText,
+                  border: `1px solid ${C.pinkBorder}`,
+                  fontSize: 10,
+                  fontWeight: 800,
+                  padding: "2px 8px",
+                  borderRadius: 99,
+                  fontFamily: F
+                }}>
+                  {accentTag}
+                </span>
+              )}
             </div>
 
             <div style={{
@@ -406,10 +449,7 @@ function Step5DatePicker({
             </div>
 
             <div style={{ marginTop: 8, fontSize: 11, color: isSelected ? C.pinkText : C.inkFaint, fontFamily: F, fontWeight: 700 }}>
-              {type === "Base Rental" && "Standard 2-Day Rental"}
-              {type === "Early Bird" && "Discounted 2-Day Rental"}
-              {type === "Weekend Warrior" && "4-Day Weekend Rental"}
-              {type === "Full Reset" && "7-Day Rental"}
+              {rentalTypeLabel(type)}
             </div>
           </div>
 
@@ -452,24 +492,6 @@ function Step5DatePicker({
     const price = priceFor(option.key);
     const isSelected = isSelectedCard(option.key, w);
 
-    const topLabel =
-      type === "Base Rental"
-        ? "Standard 2-Day Rental"
-        : type === "Early Bird"
-          ? "Discounted 2-Day Rental"
-          : type === "Weekend Warrior"
-            ? "4-Day Weekend Rental"
-            : "7-Day Rental";
-
-    const subLabel =
-      type === "Base Rental"
-        ? "Next available delivery"
-        : type === "Early Bird"
-          ? "Mon or Tue delivery"
-          : type === "Weekend Warrior"
-            ? "Fri delivery, back Mon"
-            : "Any weekday delivery";
-
     return (
       <button
         onClick={() => handleWindowSelect(option, w)}
@@ -496,7 +518,7 @@ function Step5DatePicker({
               marginBottom: 4,
               fontFamily: F
             }}>
-              {topLabel} · {subLabel}
+              {rentalTypeLabel(type)} · {rentalTypeSub(type)}
             </div>
 
             <div style={{ fontSize: 15, fontWeight: 800, color: isSelected ? C.pinkText : C.ink, fontFamily: F }}>
