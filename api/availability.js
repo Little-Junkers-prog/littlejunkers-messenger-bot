@@ -5,15 +5,15 @@
 // - sale.order       -> rental_start_date, rental_return_date, state, rental_status
 // - sale.order.line  -> which dumpster product is actually on the order
 //
-// Why this version is more reliable:
+// Notes:
 // - Handles mixed orders (multiple dumpster sizes on one order)
 // - Respects line quantities
 // - Ignores non-dumpster lines like delivery fees
 // - Ignores zero-quantity lines that should not consume inventory
 // - Uses order header dates as the active rental window
-// - Corrects Weekend Warrior to a true 4-day rental
-// - Corrects end-date display to be inclusive
-// - Uses confirmed-order logic instead of fragile rental_status filtering
+// - Uses confirmed-order logic instead of brittle rental_status filtering
+// - Allows same-day turnover for early returns
+// - Allows Saturday starts for Base Rental so "soonest available" can surface on Saturdays
 
 const FLEET = {
   "11 Yard": { templateId: 60, units: 3 },
@@ -22,9 +22,9 @@ const FLEET = {
 };
 
 const RENTAL_OPTIONS = {
-  "Early Bird":      { days: [1, 2], duration: 2 }, // Mon/Tue start
-  "Weekend Warrior": { days: [5], duration: 4 },    // Fri-Mon inclusive
-  "Base Rental":     { days: [1, 2, 3, 4, 5], duration: 2 },
+  "Early Bird":      { days: [1, 2], duration: 2 },          // discounted Mon/Tue
+  "Weekend Warrior": { days: [5], duration: 4 },             // Fri-Mon inclusive
+  "Base Rental":     { days: [1, 2, 3, 4, 5, 6], duration: 2 }, // standard 2-day incl. Saturday start
   "Full Reset":      { days: [1, 2, 3, 4, 5], duration: 7 },
 };
 
@@ -215,25 +215,25 @@ function buildBlockedSet(rentals, templateId, units, today, windowEnd) {
       const startStr = toDateStr(s);
       const endStr = toDateStr(e);
 
-      // Day is fully within the active rental span
+      // Fully inside active span
       if (startStr < dayStr && dayStr < endStr) {
         used += rental.qty;
         continue;
       }
 
-      // Rental starts on this day — it consumes the day
+      // Rental starts on this day: consumes the day
       if (startStr === dayStr) {
         used += rental.qty;
         continue;
       }
 
       // Rental ends on this day:
-      // allow same-day turnover if returned before local noon
+      // allow same-day turnover if it returns early enough
       if (endStr === dayStr) {
         const returnHourUtc = e.getUTCHours();
 
-        // 12:00 UTC ~= 8 AM Eastern during DST, 7 AM Eastern otherwise
-        // Conservative enough to allow early-morning returns to reopen the day
+        // Conservative cutoff for early-morning returns
+        // 12:00 UTC is early AM in Georgia depending on DST
         const EARLY_RETURN_CUTOFF_UTC = 12;
 
         if (returnHourUtc >= EARLY_RETURN_CUTOFF_UTC) {
@@ -323,8 +323,6 @@ export default async function handler(req, res) {
     const uid = await xmlrpcAuth();
 
     // Pull confirmed rental orders that still occupy inventory.
-    // This is intentionally based on order confirmation + future return date,
-    // not on brittle rental_status labels.
     const orders = await odooCall(
       uid,
       "sale.order",
