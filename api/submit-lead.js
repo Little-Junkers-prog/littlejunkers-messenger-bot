@@ -105,7 +105,7 @@ export default async function handler(req, res) {
       contact_name:    contact.name,
       email_from:      contact.email,
       phone:           contact.phone || false,
-      planned_revenue: rentalPrice   || 0,
+      expected_revenue: rentalPrice  || 0,
       description:     notes,
       type:            "lead",
       team_id:         ODOO_TEAM_ID,
