@@ -43,23 +43,18 @@ async function odooCall(uid, model, method, args, kwargs = {}) {
   return json.result;
 }
 
-// Get the "Website" sales team ID and "New" stage ID
-async function getOdooIds(uid) {
-  const [teams, stages] = await Promise.all([
-    odooCall(uid, "crm.team", "search_read",
-      [[["name", "=", "Website"]]],
-      { fields: ["id","name"], limit: 1 }
-    ),
-    odooCall(uid, "crm.stage", "search_read",
-      [[["name", "=", "New"]]],
-      { fields: ["id","name"], limit: 1 }
-    ),
-  ]);
-  return {
-    teamId:  teams[0]?.id  || false,
-    stageId: stages[0]?.id || false,
-  };
-}
+// Hardcoded IDs confirmed via crm-probe on 2026-04-09
+// Website team = 2, New stage = 1
+const ODOO_TEAM_ID  = 2; // "Website"
+const ODOO_STAGE_ID = 1; // "New"
+
+// Confirmed Studio field names from crm-probe
+const CRM_FIELDS = {
+  customerType:    "x_studio_selection_field_2sf_1jkvlallv",
+  projectType:     "x_studio_selection_field_es_1jkvlssq9",
+  recommendedSize: "x_studio_selection_field_7as_1jkvmd591",
+  deliveryDate:    "x_studio_date_field_9dh_1jkvmi2t7",
+};
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -83,7 +78,6 @@ export default async function handler(req, res) {
 
   try {
     const uid = await xmlrpcAuth();
-    const { teamId, stageId } = await getOdooIds(uid);
 
     // Build internal notes with full context
     const deliveryLine = selectedWindow
@@ -105,9 +99,7 @@ export default async function handler(req, res) {
     // Build lead name
     const leadName = `Funnel Lead: ${contact.name} — ${selectedSize || recommendedSize || "?"}`;
 
-    // Build the values object using confirmed standard crm.lead fields only.
-    // Custom Studio fields are written to description/internal notes as fallback
-    // until we confirm their exact API field names from Odoo.
+    // Build the values object with confirmed field names from crm-probe
     const values = {
       name:            leadName,
       contact_name:    contact.name,
@@ -116,11 +108,14 @@ export default async function handler(req, res) {
       planned_revenue: rentalPrice   || 0,
       description:     notes,
       type:            "lead",
+      team_id:         ODOO_TEAM_ID,
+      stage_id:        ODOO_STAGE_ID,
+      // Custom Studio fields — confirmed API names
+      [CRM_FIELDS.customerType]:    customerType || false,
+      [CRM_FIELDS.projectType]:     project      || false,
+      [CRM_FIELDS.recommendedSize]: selectedSize || recommendedSize || false,
+      [CRM_FIELDS.deliveryDate]:    selectedWindow?.start || false,
     };
-
-    // Attach team and stage if found
-    if (teamId)  values.team_id  = teamId;
-    if (stageId) values.stage_id = stageId;
 
     const leadId = await odooCall(uid, "crm.lead", "create", [values]);
 
