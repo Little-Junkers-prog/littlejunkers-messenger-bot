@@ -100,10 +100,10 @@ const basePricing = {
 };
 
 const rentalOptions = [
-  { key:"Early Bird",      label:"2-Day Rental",    sub:"Mon–Tue delivery",              tag:"Best Value"   },
-  { key:"Weekend Warrior", label:"3-Day Rental",    sub:"Fri–Mon delivery",              tag:"Most Popular", highlight:true },
-  { key:"Base Rental",     label:"2-Day Rental",    sub:"Any weekday delivery",           tag:"Flexible"     },
-  { key:"Full Reset",      label:"7-Day Rental",    sub:"Any weekday delivery",           tag:"Big Project"  },
+  { key:"Base Rental",     label:"Standard 2-Day Rental",   sub:"Next available delivery",        tag:"Soonest" },
+  { key:"Early Bird",      label:"Discounted 2-Day Rental", sub:"Mon or Tue delivery",            tag:"Best Price" },
+  { key:"Weekend Warrior", label:"4-Day Weekend Rental",    sub:"Fri delivery, back Mon",         tag:"Weekend" },
+  { key:"Full Reset",      label:"7-Day Rental",            sub:"Any weekday delivery",           tag:"Extended" },
 ];
 
 const allSizes = ["11 Yard", "16 Yard", "21 Yard"];
