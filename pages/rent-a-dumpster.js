@@ -262,68 +262,181 @@ function CardFooter() {
 
 // ─── Step 5: Date picker component ───────────────────────────────────────────
 function Step5DatePicker({
-  effectiveSize, availabilityLoading, isAvailabilityDegraded, availableOptions,
-  calculatedPrices, selectedWindow, duration, showMoreDates, setShowMoreDates,
-  handleWindowSelect, handleFallbackOptionSelect, sizeMeta, rentalOptions,
+  effectiveSize,
+  availabilityLoading,
+  isAvailabilityDegraded,
+  availableOptions,
+  calculatedPrices,
+  selectedWindow,
+  duration,
+  showMoreDates,
+  setShowMoreDates,
+  handleWindowSelect,
+  handleFallbackOptionSelect,
+  sizeMeta,
+  rentalOptions,
 }) {
-  const weekendWindows  = availableOptions["Weekend Warrior"] || [];
-  const earlyWindows    = availableOptions["Early Bird"]       || [];
-  const baseWindows     = availableOptions["Base Rental"]      || [];
-  const resetWindows    = availableOptions["Full Reset"]       || [];
+  const standardWindows = availableOptions["Base Rental"] || [];
+  const earlyWindows = availableOptions["Early Bird"] || [];
+  const weekendWindows = availableOptions["Weekend Warrior"] || [];
+  const resetWindows = availableOptions["Full Reset"] || [];
 
-  const nextWeekend = weekendWindows[0] || null;
-  const nextEarly   = earlyWindows[0]   || null;
-
+  const standardOption = rentalOptions.find(o => o.key === "Base Rental");
+  const earlyOption = rentalOptions.find(o => o.key === "Early Bird");
   const weekendOption = rentalOptions.find(o => o.key === "Weekend Warrior");
-  const earlyOption   = rentalOptions.find(o => o.key === "Early Bird");
-  const baseOption    = rentalOptions.find(o => o.key === "Base Rental");
-  const resetOption   = rentalOptions.find(o => o.key === "Full Reset");
+  const resetOption = rentalOptions.find(o => o.key === "Full Reset");
 
-  const hasMore = baseWindows.length > 0 || resetWindows.length > 0
-    || weekendWindows.length > 1 || earlyWindows.length > 1;
+  const priceFor = (key) => calculatedPrices[key];
 
-  const PrimaryCard = ({ option, window: w, label, sublabel }) => {
-    if (!w || !option) return null;
-    const price = calculatedPrices[option.key];
-    const isSelected = selectedWindow?.start === w.start && duration === option.key;
+  const allRankedCandidates = [
+    ...standardWindows.map(w => ({ type: "Base Rental", option: standardOption, window: w })),
+    ...earlyWindows.map(w => ({ type: "Early Bird", option: earlyOption, window: w })),
+    ...weekendWindows.map(w => ({ type: "Weekend Warrior", option: weekendOption, window: w })),
+    ...resetWindows.map(w => ({ type: "Full Reset", option: resetOption, window: w })),
+  ].sort((a, b) => new Date(a.window.start).getTime() - new Date(b.window.start).getTime());
+
+  const soonestCard = allRankedCandidates[0] || null;
+
+  const bestWeekdayCard =
+    earlyWindows.length > 0
+      ? { type: "Early Bird", option: earlyOption, window: earlyWindows[0] }
+      : null;
+
+  const weekendCard =
+    weekendWindows.length > 0
+      ? { type: "Weekend Warrior", option: weekendOption, window: weekendWindows[0] }
+      : null;
+
+  const featured = [];
+  const seen = new Set();
+
+  function pushUnique(card, label, sublabel) {
+    if (!card || !card.option || !card.window) return;
+    const id = `${card.type}-${card.window.start}`;
+    if (seen.has(id)) return;
+    seen.add(id);
+    featured.push({ ...card, cardLabel: label, cardSubLabel: sublabel });
+  }
+
+  pushUnique(
+    soonestCard,
+    "Soonest available",
+    soonestCard?.type === "Base Rental"
+      ? "Standard 2-day rental"
+      : soonestCard?.type === "Early Bird"
+        ? "Discounted 2-day rental"
+        : soonestCard?.type === "Weekend Warrior"
+          ? "4-day weekend rental"
+          : "7-day rental"
+  );
+
+  pushUnique(
+    bestWeekdayCard,
+    "Best weekday price",
+    "Discounted 2-day rental · Mon or Tue delivery"
+  );
+
+  pushUnique(
+    weekendCard,
+    "Weekend option",
+    "4-day weekend rental · Fri delivery, back Mon"
+  );
+
+  const featuredIds = new Set(featured.map(f => `${f.type}-${f.window.start}`));
+
+  const moreCards = allRankedCandidates.filter(c => !featuredIds.has(`${c.type}-${c.window.start}`));
+  const hasMore = moreCards.length > 0;
+
+  const isSelectedCard = (optionKey, w) =>
+    selectedWindow?.start === w.start && duration === optionKey;
+
+  const PrimaryCard = ({ card }) => {
+    const { option, window: w, cardLabel, cardSubLabel, type } = card;
+    const price = priceFor(option.key);
+    const isSelected = isSelectedCard(option.key, w);
+
     return (
       <button
         onClick={() => handleWindowSelect(option, w)}
         style={{
-          width:"100%", textAlign:"left", padding:"18px 20px",
-          borderRadius:14, cursor:"pointer", fontFamily:F,
-          transition:"border-color 150ms, background 150ms, box-shadow 150ms",
+          width: "100%",
+          textAlign: "left",
+          padding: "18px 20px",
+          borderRadius: 14,
+          cursor: "pointer",
+          fontFamily: F,
+          transition: "border-color 150ms, background 150ms, box-shadow 150ms",
           border: isSelected ? `2px solid ${C.pinkText}` : `1px solid ${C.surfaceBorder}`,
           background: isSelected ? C.pinkBg : C.white,
           boxShadow: isSelected ? `0 0 0 3px ${C.pinkBorder}` : "0 1px 3px rgba(0,0,0,0.04)",
         }}
       >
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
-          <div style={{ flex:1 }}>
-            <div style={{ marginBottom:8 }}>
-              <span style={{ fontSize:10, fontWeight:800, letterSpacing:"0.6px", textTransform:"uppercase", fontFamily:F, color: isSelected ? C.pinkText : C.inkFaint }}>
-                {label}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ marginBottom: 8 }}>
+              <span style={{
+                fontSize: 10,
+                fontWeight: 800,
+                letterSpacing: "0.6px",
+                textTransform: "uppercase",
+                fontFamily: F,
+                color: isSelected ? C.pinkText : C.inkFaint
+              }}>
+                {cardLabel}
               </span>
             </div>
-            <div style={{ fontSize:20, fontWeight:900, color: isSelected ? C.pinkText : C.ink, letterSpacing:"-0.5px", lineHeight:1.1, fontFamily:F }}>
+
+            <div style={{
+              fontSize: 20,
+              fontWeight: 900,
+              color: isSelected ? C.pinkText : C.ink,
+              letterSpacing: "-0.5px",
+              lineHeight: 1.1,
+              fontFamily: F
+            }}>
               {w.startLabel}
             </div>
-            <div style={{ marginTop:4, fontSize:13, color: isSelected ? C.pinkText : C.inkMuted, fontFamily:F }}>
+
+            <div style={{ marginTop: 4, fontSize: 13, color: isSelected ? C.pinkText : C.inkMuted, fontFamily: F }}>
               Through {w.endLabel}
             </div>
-            {sublabel && (
-              <div style={{ marginTop:8, fontSize:12, color: isSelected ? C.pinkText : C.inkMuted, fontFamily:F, opacity:0.85 }}>
-                {sublabel}
-              </div>
-            )}
+
+            <div style={{ marginTop: 8, fontSize: 12, color: isSelected ? C.pinkText : C.inkMuted, fontFamily: F, opacity: 0.9 }}>
+              {cardSubLabel}
+            </div>
+
+            <div style={{ marginTop: 8, fontSize: 11, color: isSelected ? C.pinkText : C.inkFaint, fontFamily: F, fontWeight: 700 }}>
+              {type === "Base Rental" && "Standard 2-Day Rental"}
+              {type === "Early Bird" && "Discounted 2-Day Rental"}
+              {type === "Weekend Warrior" && "4-Day Weekend Rental"}
+              {type === "Full Reset" && "7-Day Rental"}
+            </div>
           </div>
-          <div style={{ textAlign:"right", flexShrink:0 }}>
-            <div style={{ fontSize:26, fontWeight:900, color: isSelected ? C.pinkText : C.ink, letterSpacing:"-0.8px", lineHeight:1, fontFamily:F }}>
+
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
+            <div style={{
+              fontSize: 26,
+              fontWeight: 900,
+              color: isSelected ? C.pinkText : C.ink,
+              letterSpacing: "-0.8px",
+              lineHeight: 1,
+              fontFamily: F
+            }}>
               {typeof price === "number" ? `$${price}` : "—"}
             </div>
+
             {isSelected && (
-              <div style={{ marginTop:6 }}>
-                <span style={{ fontSize:11, fontWeight:800, color:C.pinkText, background:C.white, border:`1px solid ${C.pinkBorder}`, borderRadius:99, padding:"3px 9px", fontFamily:F }}>
+              <div style={{ marginTop: 6 }}>
+                <span style={{
+                  fontSize: 11,
+                  fontWeight: 800,
+                  color: C.pinkText,
+                  background: C.white,
+                  border: `1px solid ${C.pinkBorder}`,
+                  borderRadius: 99,
+                  padding: "3px 9px",
+                  fontFamily: F
+                }}>
                   Selected ✓
                 </span>
               </div>
@@ -334,31 +447,68 @@ function Step5DatePicker({
     );
   };
 
-  const ExtendedCard = ({ option, windows }) => {
-    if (!windows || !windows.length || !option) return null;
-    const w = windows[0];
-    const price = calculatedPrices[option.key];
-    const isSelected = selectedWindow?.start === w.start && duration === option.key;
+  const MoreCard = ({ card }) => {
+    const { option, window: w, type } = card;
+    const price = priceFor(option.key);
+    const isSelected = isSelectedCard(option.key, w);
+
+    const topLabel =
+      type === "Base Rental"
+        ? "Standard 2-Day Rental"
+        : type === "Early Bird"
+          ? "Discounted 2-Day Rental"
+          : type === "Weekend Warrior"
+            ? "4-Day Weekend Rental"
+            : "7-Day Rental";
+
+    const subLabel =
+      type === "Base Rental"
+        ? "Next available delivery"
+        : type === "Early Bird"
+          ? "Mon or Tue delivery"
+          : type === "Weekend Warrior"
+            ? "Fri delivery, back Mon"
+            : "Any weekday delivery";
+
     return (
       <button
         onClick={() => handleWindowSelect(option, w)}
         style={{
-          width:"100%", textAlign:"left", padding:"14px 16px",
-          borderRadius:12, cursor:"pointer", fontFamily:F,
-          transition:"border-color 150ms, background 150ms",
+          width: "100%",
+          textAlign: "left",
+          padding: "14px 16px",
+          borderRadius: 12,
+          cursor: "pointer",
+          fontFamily: F,
+          transition: "border-color 150ms, background 150ms",
           border: isSelected ? `1.5px solid ${C.pinkText}` : `1px solid ${C.surfaceBorder}`,
           background: isSelected ? C.pinkBg : C.surfaceBg,
         }}
       >
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12 }}>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:10, fontWeight:800, color: isSelected ? C.pinkText : C.inkFaint, letterSpacing:"0.6px", textTransform:"uppercase", marginBottom:4, fontFamily:F }}>
-              {option.label} · {option.sub}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{
+              fontSize: 10,
+              fontWeight: 800,
+              color: isSelected ? C.pinkText : C.inkFaint,
+              letterSpacing: "0.6px",
+              textTransform: "uppercase",
+              marginBottom: 4,
+              fontFamily: F
+            }}>
+              {topLabel} · {subLabel}
             </div>
-            <div style={{ fontSize:15, fontWeight:800, color: isSelected ? C.pinkText : C.ink, fontFamily:F }}>{w.startLabel}</div>
-            <div style={{ fontSize:12, color: isSelected ? C.pinkText : C.inkMuted, marginTop:2, fontFamily:F }}>Through {w.endLabel}</div>
+
+            <div style={{ fontSize: 15, fontWeight: 800, color: isSelected ? C.pinkText : C.ink, fontFamily: F }}>
+              {w.startLabel}
+            </div>
+
+            <div style={{ fontSize: 12, color: isSelected ? C.pinkText : C.inkMuted, marginTop: 2, fontFamily: F }}>
+              Through {w.endLabel}
+            </div>
           </div>
-          <div style={{ fontSize:20, fontWeight:900, color: isSelected ? C.pinkText : C.ink, letterSpacing:"-0.5px", fontFamily:F }}>
+
+          <div style={{ fontSize: 20, fontWeight: 900, color: isSelected ? C.pinkText : C.ink, letterSpacing: "-0.5px", fontFamily: F }}>
             {typeof price === "number" ? `$${price}` : "—"}
           </div>
         </div>
@@ -380,40 +530,63 @@ function Step5DatePicker({
         }
       />
 
-      {/* Size strip */}
-      <div style={{ marginBottom:18, background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:12, padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", gap:12 }}>
+      <div style={{
+        marginBottom: 18,
+        background: C.surfaceBg,
+        border: `1px solid ${C.surfaceBorder}`,
+        borderRadius: 12,
+        padding: "12px 16px",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 12
+      }}>
         <div>
-          <div style={{ fontSize:10, fontWeight:700, color:C.inkFaint, textTransform:"uppercase", letterSpacing:"0.5px", fontFamily:F }}>Selected Dumpster</div>
-          <div style={{ fontSize:20, fontWeight:900, color:C.ink, marginTop:2, fontFamily:F }}>{effectiveSize}</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.inkFaint, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: F }}>
+            Selected Dumpster
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: C.ink, marginTop: 2, fontFamily: F }}>
+            {effectiveSize}
+          </div>
         </div>
         <TonnagePill label={sizeMeta[effectiveSize]?.label || ""} />
       </div>
 
       {availabilityLoading ? (
-        <div style={{ background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:"24px 16px", fontFamily:F, textAlign:"center" }}>
-          <div style={{ fontSize:14, fontWeight:700, color:C.ink, marginBottom:4 }}>Checking dates...</div>
-          <div style={{ fontSize:13, color:C.inkMuted }}>Pulling live availability from our schedule.</div>
+        <div style={{ background: C.surfaceBg, border: `1px solid ${C.surfaceBorder}`, borderRadius: 14, padding: "24px 16px", fontFamily: F, textAlign: "center" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Checking dates...</div>
+          <div style={{ fontSize: 13, color: C.inkMuted }}>Pulling live availability from our schedule.</div>
         </div>
       ) : isAvailabilityDegraded ? (
         <div>
-          <div style={{ marginBottom:12, background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:12, padding:"12px 14px", color:C.ink, lineHeight:1.5, fontSize:13, fontFamily:F }}>
+          <div style={{ marginBottom: 12, background: C.warningBg, border: `1px solid ${C.warningBorder}`, borderRadius: 12, padding: "12px 14px", color: C.ink, lineHeight: 1.5, fontSize: 13, fontFamily: F }}>
             <strong>Subject to confirmation:</strong> we'll confirm the exact delivery date after you submit.
           </div>
-          <div style={{ display:"grid", gap:10 }}>
+
+          <div style={{ display: "grid", gap: 10 }}>
             {rentalOptions.map(opt => {
               const price = calculatedPrices[opt.key];
               return (
-                <button key={opt.key} onClick={() => handleFallbackOptionSelect(opt)} style={{
-                  width:"100%", textAlign:"left", padding:"14px 16px", borderRadius:12,
-                  border:`1px solid ${C.surfaceBorder}`, background:C.white,
-                  cursor:"pointer", fontFamily:F,
-                }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <button
+                  key={opt.key}
+                  onClick={() => handleFallbackOptionSelect(opt)}
+                  style={{
+                    width: "100%",
+                    textAlign: "left",
+                    padding: "14px 16px",
+                    borderRadius: 12,
+                    border: `1px solid ${C.surfaceBorder}`,
+                    background: C.white,
+                    cursor: "pointer",
+                    fontFamily: F,
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
-                      <div style={{ fontSize:15, fontWeight:800, color:C.ink }}>{opt.label}</div>
-                      <div style={{ fontSize:12, color:C.inkMuted, marginTop:2 }}>{opt.sub}</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>{opt.label}</div>
+                      <div style={{ fontSize: 12, color: C.inkMuted, marginTop: 2 }}>{opt.sub}</div>
                     </div>
-                    <div style={{ fontSize:20, fontWeight:900, color:C.ink }}>
+                    <div style={{ fontSize: 20, fontWeight: 900, color: C.ink }}>
                       {typeof price === "number" ? `$${price}` : "—"}
                     </div>
                   </div>
@@ -422,37 +595,45 @@ function Step5DatePicker({
             })}
           </div>
         </div>
-      ) : !nextWeekend && !nextEarly ? (
-        <div style={{ background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:12, padding:"12px 14px", color:C.ink, lineHeight:1.5, fontSize:13, fontFamily:F }}>
-          No delivery windows found in the next 3 weeks for this size. <a href="tel:4708136270" style={{ color:C.ink, fontWeight:700 }}>Call us</a> to book or try a different size.
+      ) : featured.length === 0 ? (
+        <div style={{ background: C.warningBg, border: `1px solid ${C.warningBorder}`, borderRadius: 12, padding: "12px 14px", color: C.ink, lineHeight: 1.5, fontSize: 13, fontFamily: F }}>
+          No delivery windows found in the next 3 weeks for this size. <a href="tel:4708136270" style={{ color: C.ink, fontWeight: 700 }}>Call us</a> to book or try a different size.
         </div>
       ) : (
         <div>
-          <div style={{ display:"grid", gap:12 }}>
-            <PrimaryCard option={weekendOption} window={nextWeekend} label="This weekend" sublabel="3-day rental · Fri delivery, back Mon" />
-            <PrimaryCard option={earlyOption} window={nextEarly} label="Early in the week" sublabel="2-day rental · Mon or Tue delivery" />
+          <div style={{ display: "grid", gap: 12 }}>
+            {featured.map(card => (
+              <PrimaryCard key={`${card.type}-${card.window.start}`} card={card} />
+            ))}
           </div>
 
           {hasMore && (
-            <div style={{ marginTop:14 }}>
+            <div style={{ marginTop: 14 }}>
               <button
                 onClick={() => setShowMoreDates(prev => ({ ...prev, extended: !prev.extended }))}
-                style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, fontWeight:700, color:C.inkMuted, fontFamily:F, padding:"4px 0", display:"flex", alignItems:"center", gap:6 }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: C.inkMuted,
+                  fontFamily: F,
+                  padding: "4px 0",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6
+                }}
               >
                 <span>{showMoreDates.extended ? "▲" : "▼"}</span>
-                <span>{showMoreDates.extended ? "Hide other options" : "More dates or rental lengths"}</span>
+                <span>{showMoreDates.extended ? "Hide other options" : "More dates and rental lengths"}</span>
               </button>
 
               {showMoreDates.extended && (
-                <div style={{ marginTop:10, display:"grid", gap:10 }}>
-                  {weekendWindows.slice(1).map(w => (
-                    <ExtendedCard key={`ww-${w.start}`} option={weekendOption} windows={[w]} />
+                <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                  {moreCards.map(card => (
+                    <MoreCard key={`${card.type}-${card.window.start}`} card={card} />
                   ))}
-                  {earlyWindows.slice(1).map(w => (
-                    <ExtendedCard key={`eb-${w.start}`} option={earlyOption} windows={[w]} />
-                  ))}
-                  <ExtendedCard option={baseOption} windows={baseWindows} />
-                  <ExtendedCard option={resetOption} windows={resetWindows} />
                 </div>
               )}
             </div>
@@ -462,7 +643,6 @@ function Step5DatePicker({
     </div>
   );
 }
-
 // ─── main component ───────────────────────────────────────────────────────────
 
 export default function Funnel() {
