@@ -100,10 +100,10 @@ const basePricing = {
 };
 
 const rentalOptions = [
-  { key:"Early Bird",      label:"Early Bird",      sub:"(Mon–Tue Delivery) Best Price", tag:"Best Value"   },
-  { key:"Weekend Warrior", label:"Weekend Warrior", sub:"(Fri–Mon) Most Popular",        tag:"Most Popular", highlight:true },
-  { key:"Base Rental",     label:"Base Rental",     sub:"2-Day Rental",                  tag:"Quick Job"    },
-  { key:"Full Reset",      label:"Full Reset",      sub:"7-Day Rental",                  tag:"Big Project"  },
+  { key:"Early Bird",      label:"2-Day Rental",    sub:"Mon–Tue delivery",              tag:"Best Value"   },
+  { key:"Weekend Warrior", label:"3-Day Rental",    sub:"Fri–Mon delivery",              tag:"Most Popular", highlight:true },
+  { key:"Base Rental",     label:"2-Day Rental",    sub:"Any weekday delivery",           tag:"Flexible"     },
+  { key:"Full Reset",      label:"7-Day Rental",    sub:"Any weekday delivery",           tag:"Big Project"  },
 ];
 
 const allSizes = ["11 Yard", "16 Yard", "21 Yard"];
@@ -124,7 +124,7 @@ function containsLightKeywords(text) {
 
 function getRecommendation(customerType, project, otherText = "") {
   const o = String(otherText || "").toLowerCase();
-  if (customerType === "Contractor") {
+  if (customerType === "Contractor" || customerType === "Contractor / Roofer") {
     if (project === "Roofing")          return { size:"11 Yard", holds:["Approx. 30 squares of single-layer shingles","Approx. 4-5 pickup truck loads of debris","Heavy roofing material with safer weight control"],    reason:"Roofing materials are deceptively heavy. We recommend the 11-Yard to keep the load within a safer lifting range and reduce overweight risk.",       note:"For larger tear-offs, two smaller loads are often better than one overweight container with added overage costs." };
     if (project === "Renovation / demo") return { size:"21 Yard", holds:["Larger renovation and demo loads","Approx. 8-10 pickup truck loads","Bulky debris that builds fast on jobsites"],                              reason:"Contractor demo jobs usually generate more volume and bulk than expected, so the 21-Yard is the better operational starting point.",                  note:"This gives your crew more working room up front and reduces the chance of needing an early swap." };
     if (project === "General Cleanup")  return { size:"16 Yard", holds:["General contractor cleanup and mixed debris","Approx. 6-7 pickup truck loads","Day-to-day jobsite volume without oversizing"],                  reason:"For mixed contractor cleanup, the 16-Yard is the strongest all-around fit because it balances usable capacity and fast turnaround.",                  note:"It handles a broad mix of material without jumping straight to the biggest box." };
@@ -254,7 +254,7 @@ function CardFooter() {
   return (
     <div style={{ borderTop:`1px solid ${C.surfaceBorder}`, padding:"13px 24px", display:"flex", justifyContent:"space-between", alignItems:"center", background:C.surfaceBg }}>
       <span style={{ fontSize:11, fontWeight:700, color:C.inkFaint, fontFamily:F, letterSpacing:"0.3px" }}>Little Junkers LLC</span>
-      <a href="tel:4708136270" style={{ fontSize:14, fontWeight:900, color:C.ink, textDecoration:"none", fontFamily:F }}>470-813-6270</a>
+      <a href="tel:4705484733" style={{ fontSize:14, fontWeight:900, color:C.ink, textDecoration:"none", fontFamily:F }}>470-548-4733</a>
     </div>
   );
 }
@@ -429,8 +429,8 @@ function Step5DatePicker({
       ) : (
         <div>
           <div style={{ display:"grid", gap:12 }}>
-            <PrimaryCard option={weekendOption} window={nextWeekend} label="This weekend" sublabel="Friday delivery · back Monday" />
-            <PrimaryCard option={earlyOption} window={nextEarly} label="Early in the week" sublabel="Monday or Tuesday delivery · best price" />
+            <PrimaryCard option={weekendOption} window={nextWeekend} label="This weekend" sublabel="3-day rental · Fri delivery, back Mon" />
+            <PrimaryCard option={earlyOption} window={nextEarly} label="Early in the week" sublabel="2-day rental · Mon or Tue delivery" />
           </div>
 
           {hasMore && (
@@ -544,7 +544,7 @@ export default function Funnel() {
   };
 
   const handleProject = (sel) => {
-    if (customerType === "Contractor" && sel === "Concrete") { setShowConcreteNotice(true); return; }
+    if ((customerType === "Contractor" || customerType === "Contractor / Roofer") && sel === "Concrete") { setShowConcreteNotice(true); return; }
     setProject(sel);
     const reco = getRecommendation(customerType, sel, otherText);
     setSize(reco.size); setOverrideSize(""); setShowComparison(false);
@@ -570,6 +570,33 @@ export default function Funnel() {
       setDuration("");
       setSelectedPrice(null);
       setAvailabilityData(null); setAvailabilityLoading(false); setAvailabilityError(""); setSelectedWindow(null);
+      // Auto-advance on mobile — no need to scroll to Continue button
+      // Small timeout lets the selected state render before transitioning
+      setTimeout(() => {
+        setDuration("");
+        setSelectedPrice(null);
+        setSelectedWindow(null);
+        setAvailabilityData(null);
+        setAvailabilityError("");
+        setAvailabilityLoading(true);
+        setStep(5);
+        fetch("/api/availability", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ size: sel }),
+        })
+          .then(r => r.json())
+          .then(json => { setAvailabilityData(json); })
+          .catch(err => {
+            if (err.message === "Failed to fetch" || err.message?.includes("NetworkError")) {
+              window.location.href = ECOM_FALLBACK;
+              return;
+            }
+            setAvailabilityError("Live date availability is temporarily unavailable.");
+            setAvailabilityData({ size: sel, available: {}, degraded: true });
+          })
+          .finally(() => setAvailabilityLoading(false));
+      }, 120);
       return;
     }
     setOverrideSize(sel === size ? "" : sel);
@@ -688,7 +715,7 @@ export default function Funnel() {
           </div>
           <div style={{ textAlign:"right" }}>
             <div style={{ fontSize:10, fontWeight:700, color:C.inkFaint, letterSpacing:"0.8px", textTransform:"uppercase" }}>Peachtree City, GA</div>
-            <a href="tel:4708136270" style={{ fontSize:16, fontWeight:900, color:C.ink, textDecoration:"none", fontFamily:F }}>470-813-6270</a>
+            <a href="tel:4705484733" style={{ fontSize:16, fontWeight:900, color:C.ink, textDecoration:"none", fontFamily:F }}>470-548-4733</a>
           </div>
         </header>
 
@@ -785,7 +812,7 @@ export default function Funnel() {
                       {[
                         { label:"New Customer",  sub:"First time renting with us"        },
                         { label:"Returning",     sub:"You've rented from us before"       },
-                        { label:"Contractor",    sub:"Business or repeat jobsite use"     },
+                        { label:"Contractor / Roofer", sub:"Business or repeat jobsite use" },
                       ].map(item => (
                         <OptionCard key={item.label} title={item.label} sub={item.sub} selected={customerType===item.label} onClick={() => handleCustomerType(item.label)} />
                       ))}
@@ -811,13 +838,13 @@ export default function Funnel() {
                   <div>
                     <StepHeading
                       eyebrow="Step 3"
-                      title={customerType==="Contractor" ? "What type of debris are you dealing with?" : customerType==="Returning" ? "What are you tossing this time?" : "What kind of cleanup are you tackling?"}
-                      text={customerType==="Contractor" ? "We'll filter out unsupported material and match the best container for the job." : "Choose the option closest to your current project so we can size it correctly."}
+                      title={(customerType==="Contractor" || customerType==="Contractor / Roofer") ? "What type of debris are you dealing with?" : customerType==="Returning" ? "What are you tossing this time?" : "What kind of cleanup are you tackling?"}
+                      text={(customerType==="Contractor" || customerType==="Contractor / Roofer") ? "We'll filter out unsupported material and match the best container for the job." : "Choose the option closest to your current project so we can size it correctly."}
                     />
                     <div style={{ display:"grid", gap:10 }}>
-                      {(customerType==="Contractor"
+                      {((customerType==="Contractor" || customerType==="Contractor / Roofer")
                         ? ["General Cleanup","Renovation / demo","Roofing","Concrete","Other"]
-                        : ["Cleaning the garage / basement","Moving / decluttering","Renovation / demo","Roofing","Other"]
+                        : ["Cleaning the garage / basement","Moving / decluttering","Renovation / demo","Other"]
                       ).map(type => (
                         <OptionCard key={type} title={type} selected={project===type} onClick={() => type==="Other" ? setProject("Other") : handleProject(type)} />
                       ))}
@@ -893,7 +920,7 @@ export default function Funnel() {
                       </div>
                     )}
 
-                    {customerType==="Contractor" && project==="Roofing" && (
+                    {(customerType==="Contractor" || customerType==="Contractor / Roofer") && project==="Roofing" && (
                       <div style={{ background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:12, padding:"12px 14px", color:C.ink, lineHeight:1.5, fontSize:13, marginBottom:16, fontFamily:F }}>
                         <strong>Roofing note:</strong> Roofing debris gets heavy quickly, so we bias smaller here to reduce overweight risk.
                       </div>
