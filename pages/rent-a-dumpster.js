@@ -486,6 +486,9 @@ export default function Funnel() {
   const [selectedWindow,     setSelectedWindow]     = useState(null);
   const [showComparison,     setShowComparison]     = useState(false);
   const [showMoreDates,      setShowMoreDates]      = useState({});
+  const [submitting,         setSubmitting]         = useState(false);
+  const [submitted,          setSubmitted]          = useState(false);
+  const [submitError,        setSubmitError]        = useState("");
   const [form,               setForm]               = useState({ name:"", email:"", phone:"", source:"" });
 
   const areaLabel      = getAreaLabel(zip);
@@ -662,8 +665,10 @@ export default function Funnel() {
     setStep(6);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!form.name.trim() || !form.email.trim()) return alert("Please enter your name and email.");
+    setSubmitting(true);
+    setSubmitError("");
     const payload = {
       zip, areaLabel, zone:zoneKey, deliveryFee:zoneFee, customerType, returningPath,
       project, otherText, recommendedSize:size, selectedSize:effectiveSize,
@@ -674,8 +679,21 @@ export default function Funnel() {
       pricingShown:calculatedPrices,
       contact:form,
     };
-    console.log(payload);
-    alert("Lead captured (next step: Odoo)");
+    try {
+      const res = await fetch("/api/submit-lead", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok && !json?.success) throw new Error(json?.error || "Submission failed.");
+      setSubmitted(true);
+    } catch (err) {
+      console.error("[handleSubmit] error:", err.message);
+      setSubmitError("Something went wrong. Please call us at 470-548-4733 or try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const goBack = () => {
@@ -1045,7 +1063,25 @@ export default function Funnel() {
                   />
                 )}
 
-                {step === 6 && (
+                {step === 6 && submitted && (
+                  <div style={{ textAlign:"center", padding:"20px 0" }}>
+                    <div style={{ fontSize:40, marginBottom:12 }}>🎉</div>
+                    <div style={{ fontSize:22, fontWeight:900, color:C.ink, letterSpacing:"-0.5px", marginBottom:8, fontFamily:F }}>
+                      Request received!
+                    </div>
+                    <p style={{ fontSize:14, color:C.inkMid, lineHeight:1.6, marginBottom:24, fontFamily:F }}>
+                      We'll reach out to confirm your delivery window and finalize the details. You can also call or text us anytime.
+                    </p>
+                    <a
+                      href="tel:4705484733"
+                      style={{ display:"inline-block", padding:"13px 28px", background:C.ink, color:C.white, borderRadius:12, fontSize:15, fontWeight:800, textDecoration:"none", fontFamily:F }}
+                    >
+                      Call / Text 470-548-4733
+                    </a>
+                  </div>
+                )}
+
+                {step === 6 && !submitted && (
                   <div>
                     <StepHeading
                       eyebrow="Almost done"
@@ -1103,7 +1139,14 @@ export default function Funnel() {
                       </select>
                     </div>
 
-                    <PrimaryButton onClick={handleSubmit}>Submit Request</PrimaryButton>
+                    {submitError && (
+                      <div style={{ marginTop:12, background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:10, padding:"12px 14px", fontSize:13, color:C.ink, fontFamily:F }}>
+                        {submitError}
+                      </div>
+                    )}
+                    <PrimaryButton onClick={handleSubmit} disabled={submitting}>
+                      {submitting ? "Submitting..." : "Submit Request"}
+                    </PrimaryButton>
                   </div>
                 )}
 
