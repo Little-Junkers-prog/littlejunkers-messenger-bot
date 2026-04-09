@@ -105,20 +105,17 @@ export default async function handler(req, res) {
     // Build lead name
     const leadName = `Funnel Lead: ${contact.name} — ${selectedSize || recommendedSize || "?"}`;
 
-    // Build the values object — use confirmed field names from existing leads
+    // Build the values object using confirmed standard crm.lead fields only.
+    // Custom Studio fields are written to description/internal notes as fallback
+    // until we confirm their exact API field names from Odoo.
     const values = {
       name:            leadName,
       contact_name:    contact.name,
       email_from:      contact.email,
       phone:           contact.phone || false,
-      planned_revenue: rentalPrice || 0,
+      planned_revenue: rentalPrice   || 0,
       description:     notes,
       type:            "lead",
-      // Custom Studio fields — matching field names visible on existing chatbot lead
-      x_customer_type:          customerType   || false,
-      x_project_type:           project        || false,
-      x_recommended_size:       selectedSize   || recommendedSize || false,
-      x_requested_delivery_date: selectedWindow?.start || false,
     };
 
     // Attach team and stage if found
