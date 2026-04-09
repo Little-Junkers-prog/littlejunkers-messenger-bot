@@ -28,7 +28,9 @@ const RENTAL_OPTIONS = {
 };
 
 const ACTIVE_RENTAL_STATUSES = ["reserved", "pickup", "pickedup", "booked"];
-const INCLUDE_DEBUG = process.env.NODE_ENV !== "production";
+const INCLUDE_DEBUG =
+  process.env.NODE_ENV !== "production" ||
+  process.env.AVAILABILITY_DEBUG === "true";
 
 // ─── XML-RPC auth ─────────────────────────────────────────────────────────────
 
