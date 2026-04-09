@@ -48,13 +48,8 @@ async function odooCall(uid, model, method, args, kwargs = {}) {
 const ODOO_TEAM_ID  = 2; // "Website"
 const ODOO_STAGE_ID = 1; // "New"
 
-// Confirmed Studio field names from crm-probe
-const CRM_FIELDS = {
-  customerType:    "x_studio_selection_field_2sf_1jkvlallv",
-  projectType:     "x_studio_selection_field_es_1jkvlssq9",
-  recommendedSize: "x_studio_selection_field_7as_1jkvmd591",
-  deliveryDate:    "x_studio_date_field_9dh_1jkvmi2t7",
-};
+// Studio selection field keys confirmed via Odoo Studio UI — add back once keys are known
+// const CRM_FIELDS = { customerType, projectType, recommendedSize, deliveryDate }
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -99,22 +94,19 @@ export default async function handler(req, res) {
     // Build lead name
     const leadName = `Funnel Lead: ${contact.name} — ${selectedSize || recommendedSize || "?"}`;
 
-    // Build the values object with confirmed field names from crm-probe
+    // Build the values object — standard fields only.
+    // Studio selection fields require internal key values (not display labels)
+    // which aren't exposed via fields_get. All context is captured in description.
     const values = {
-      name:            leadName,
-      contact_name:    contact.name,
-      email_from:      contact.email,
-      phone:           contact.phone || false,
-      expected_revenue: rentalPrice  || 0,
-      description:     notes,
-      type:            "lead",
-      team_id:         ODOO_TEAM_ID,
-      stage_id:        ODOO_STAGE_ID,
-      // Custom Studio fields — confirmed API names
-      [CRM_FIELDS.customerType]:    customerType || false,
-      [CRM_FIELDS.projectType]:     project      || false,
-      [CRM_FIELDS.recommendedSize]: selectedSize || recommendedSize || false,
-      [CRM_FIELDS.deliveryDate]:    selectedWindow?.start || false,
+      name:             leadName,
+      contact_name:     contact.name,
+      email_from:       contact.email,
+      phone:            contact.phone || false,
+      expected_revenue: rentalPrice   || 0,
+      description:      notes,
+      type:             "lead",
+      team_id:          ODOO_TEAM_ID,
+      stage_id:         ODOO_STAGE_ID,
     };
 
     const leadId = await odooCall(uid, "crm.lead", "create", [values]);
