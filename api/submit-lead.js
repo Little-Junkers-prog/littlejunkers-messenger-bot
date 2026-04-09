@@ -122,9 +122,12 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true, leadId });
 
   } catch (err) {
-    console.error("[submit-lead] error:", err.message);
-    // Don't block the customer — return success anyway and log the failure
-    // The form data is logged server-side for manual recovery
+    // Log in chunks so Vercel doesn't truncate the key part
+    console.error("[submit-lead] FAILED");
+    console.error("[submit-lead] msg:", err.message?.slice(0, 200));
+    console.error("[submit-lead] msg2:", err.message?.slice(200, 400));
+    console.error("[submit-lead] stack:", err.stack?.split("\n")[1]);
+    // Don't block the customer — return success anyway
     return res.status(200).json({ success: true, degraded: true, error: err.message });
   }
 }
