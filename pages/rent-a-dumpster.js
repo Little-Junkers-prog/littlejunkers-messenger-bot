@@ -803,7 +803,17 @@ export default function Funnel() {
   const [submitted,           setSubmitted]           = useState(false);
   const [submitError,         setSubmitError]         = useState("");
   const [smsOptIn,            setSmsOptIn]            = useState(false);
-  const [form,                setForm]                = useState({ name:"", email:"", phone:"", source:"" });
+  const [form, setForm] = useState({
+  name: "",
+  email: "",
+  phone: "",
+  source: "",
+  street: "",
+  street2: "",
+  city: "",
+  state: "GA",
+  zip: "",
+});
 
   // Safety Net state
   const [capturedLeadId,      setCapturedLeadId]      = useState(null);
