@@ -690,6 +690,9 @@ export default function Funnel() {
   const [smsOptIn,            setSmsOptIn]            = useState(false);
   const [form,                setForm]                = useState({ name:"", email:"", phone:"", source:"" });
 
+  // Safety Net state
+  const [capturedLeadId,      setCapturedLeadId]      = useState(null);
+
   // Exit modal state
   const [showExitModal,       setShowExitModal]       = useState(false);
   const [exitSubmitting,      setExitSubmitting]      = useState(false);
@@ -805,7 +808,6 @@ export default function Funnel() {
   };
 
   const handleExitSubmit = async ({ name, phone, smsOptIn: optIn, smsOptInDate }) => {
-    // Phone is required — name is optional
     if (!phone) return;
 
     setExitSubmitting(true);
@@ -843,7 +845,6 @@ export default function Funnel() {
       if (!res.ok || !json?.success) throw new Error(json?.error || "Submission failed.");
       setExitSubmitted(true);
       setShowExitModal(false);
-      // Brief confirmation then redirect
       setTimeout(() => { window.location.href = HOMEPAGE; }, 1800);
     } catch (err) {
       setExitError("Something went wrong. Call or text us at 470-548-4733.");
@@ -966,11 +967,51 @@ export default function Funnel() {
     setStep(6);
   };
 
+  // ── Safety Net Soft Push ──
+  const handlePhoneBlur = async () => {
+    if (capturedLeadId) return; // already pushed, don't spam
+    const cleanPhone = form.phone.trim();
+    if (cleanPhone.length < 10) return; // wait for a real phone number
+
+    const payload = {
+      zip, areaLabel, zone:zoneKey, deliveryFee:zoneFee, customerType, returningPath,
+      project:        normalizeProjectForOdoo(project),
+      otherText:      project === "Other" ? otherText.trim() : "",
+      recommendedSize: size,
+      selectedSize:   effectiveSize,
+      includedTons:   sizeMeta[effectiveSize]?.tons || null,
+      rentalOption:   normalizeRentalOption(duration),
+      rentalPrice:    selectedPrice,
+      selectedWindow,
+      funnelSource:   "rent_a_dumpster_funnel_partial",
+      leadSourceName: "Website",
+      contact: {
+        name:   form.name.trim(),
+        email:  form.email.trim(),
+        phone:  cleanPhone,
+        mobile: cleanPhone,
+        source: form.source,
+      },
+    };
+
+    try {
+      const res = await fetch("/api/submit-lead", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(payload) });
+      const json = await res.json();
+      if (json?.success && json?.leadId) {
+        setCapturedLeadId(json.leadId);
+      }
+    } catch (err) {
+      console.error("Soft push failed silently in background");
+    }
+  };
+
+  // ── Final Checkout Push ──
   const handleSubmit = async () => {
-    if (!form.name.trim() || !form.email.trim()) return alert("Please enter your name and email.");
+    if (!form.name.trim() || !form.email.trim() || !form.phone.trim()) return alert("Please enter your name, email, and phone number.");
     setSubmitting(true); setSubmitError("");
 
     const payload = {
+      leadId:         capturedLeadId, // Triggers the upsert if we caught them on blur!
       zip, areaLabel, zone:zoneKey, deliveryFee:zoneFee, customerType, returningPath,
       project:        normalizeProjectForOdoo(project),
       otherText:      project === "Other" ? otherText.trim() : "",
@@ -995,14 +1036,35 @@ export default function Funnel() {
     };
 
     try {
-      const res  = await fetch("/api/submit-lead", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(payload) });
-      const json = await res.json();
-      if (!res.ok || !json?.success) throw new Error(json?.error || "Submission failed.");
-      setSubmitted(true);
+      // 1. Send the full payload to Odoo
+      const resOdoo  = await fetch("/api/submit-lead", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(payload) });
+      const odooJson = await resOdoo.json();
+      if (!resOdoo.ok || !odooJson?.success) throw new Error(odooJson?.error || "Lead Submission failed.");
+
+      const finalLeadId = odooJson.leadId || capturedLeadId;
+
+      // 2. Prep the Stripe Checkout Payload
+      const stripePayload = {
+        leadId: finalLeadId,
+        customerEmail: form.email.trim(),
+        dumpsterSize: effectiveSize,
+        rentalOption: getRentalDisplayLabel(duration),
+        basePrice: selectedPrice - zoneFee, // separate out the base price for the receipt
+        deliveryFee: zoneFee,
+        zone: zoneKey
+      };
+
+      // 3. Request the Checkout Session URL
+      const resStripe = await fetch("/api/create-checkout", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(stripePayload) });
+      const stripeJson = await resStripe.json();
+      if (!resStripe.ok || !stripeJson?.url) throw new Error(stripeJson?.error || "Stripe Checkout failed.");
+
+      // 4. Redirect the user to pay
+      window.location.href = stripeJson.url;
+
     } catch (err) {
-      setSubmitError("Something went wrong. Please call us at 470-548-4733 or try again.");
-    } finally {
-      setSubmitting(false);
+      setSubmitError("Something went wrong preparing your checkout. Please try again or call us at 470-548-4733.");
+      setSubmitting(false); // Only re-enable the button if it fails
     }
   };
 
@@ -1360,7 +1422,7 @@ export default function Funnel() {
                   />
                 )}
 
-                {/* Step 6 — success */}
+                {/* Step 6 — success (Fallback only, normally redirects to Stripe) */}
                 {step === 6 && submitted && (
                   <div style={{ textAlign:"center", padding:"20px 0" }}>
                     <div style={{ fontSize:40, marginBottom:12 }}>🎉</div>
@@ -1420,8 +1482,17 @@ export default function Funnel() {
                       <input placeholder="Your name" value={form.name} onChange={e => setForm({...form, name:e.target.value})} style={inputStyle} />
                       <label style={labelStyle}>Email *</label>
                       <input placeholder="you@example.com" value={form.email} onChange={e => setForm({...form, email:e.target.value})} style={inputStyle} />
-                      <label style={labelStyle}>Phone</label>
-                      <input placeholder="For faster scheduling" value={form.phone} onChange={e => setForm({...form, phone:e.target.value})} type="tel" style={inputStyle} />
+                      
+                      <label style={labelStyle}>Phone *</label>
+                      {/* Note the onBlur event attached here to trigger the soft push! */}
+                      <input 
+                        placeholder="For faster scheduling" 
+                        value={form.phone} 
+                        onChange={e => setForm({...form, phone:e.target.value})} 
+                        onBlur={handlePhoneBlur}
+                        type="tel" 
+                        style={inputStyle} 
+                      />
 
                       {/* SMS opt-in — only shown when phone has a value */}
                       {phoneHasValue && (
@@ -1457,7 +1528,7 @@ export default function Funnel() {
                       </div>
                     )}
                     <PrimaryButton onClick={handleSubmit} disabled={submitting}>
-                      {submitting ? "Submitting..." : "Submit Request"}
+                      {submitting ? "Preparing Checkout..." : "Proceed to Checkout"}
                     </PrimaryButton>
                   </div>
                 )}
