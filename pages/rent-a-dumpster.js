@@ -288,87 +288,183 @@ function CardFooter() {
 // ─── Exit Modal ───────────────────────────────────────────────────────────────
 
 function ExitModal({ onSubmit, onDismiss, submitting, error, capturedSize, capturedPrice }) {
-  const [name, setName]       = useState("");
-  const [phone, setPhone]     = useState("");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [smsOptIn, setSmsOptIn] = useState(false);
 
   const phoneHasValue = phone.trim().length > 0;
 
   const handleSubmit = () => {
     if (!phone.trim()) return;
-    onSubmit({ name: name.trim(), phone: phone.trim(), smsOptIn, smsOptInDate: smsOptIn ? new Date().toISOString() : null });
+    onSubmit({
+      name: name.trim(),
+      phone: phone.trim(),
+      smsOptIn,
+      smsOptInDate: smsOptIn ? new Date().toISOString() : null,
+    });
   };
 
   return (
-    <div style={{
-      position:"fixed", inset:0, zIndex:1000,
-      background:"rgba(0,0,0,0.55)",
-      display:"flex", alignItems:"flex-end", justifyContent:"center",
-      fontFamily:F,
-    }}>
-      <div style={{
-        width:"100%", maxWidth:800,
-        background:C.white,
-        borderRadius:"20px 20px 0 0",
-        padding:"28px 24px 40px",
-        boxShadow:"0 -4px 32px rgba(0,0,0,0.18)",
-      }}>
-        {/* drag handle */}
-        <div style={{ width:40, height:4, background:C.surfaceBorder, borderRadius:99, margin:"0 auto 22px" }} />
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1000,
+        background: "rgba(0,0,0,0.55)",
+        display: "flex",
+        alignItems: "flex-end",
+        justifyContent: "center",
+        fontFamily: F,
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 800,
+          background: C.white,
+          borderRadius: "20px 20px 0 0",
+          padding: "28px 24px 40px",
+          boxShadow: "0 -4px 32px rgba(0,0,0,0.18)",
+        }}
+      >
+        <div style={{ position: "relative", marginBottom: 22 }}>
+          <div
+            style={{
+              width: 40,
+              height: 4,
+              background: C.surfaceBorder,
+              borderRadius: 99,
+              margin: "0 auto",
+            }}
+          />
+          <button
+            onClick={onDismiss}
+            aria-label="Close"
+            style={{
+              position: "absolute",
+              top: -8,
+              right: 0,
+              width: 36,
+              height: 36,
+              borderRadius: "50%",
+              background: C.surfaceBg,
+              border: `1px solid ${C.surfaceBorder}`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              fontSize: 18,
+              color: C.ink,
+              fontWeight: 700,
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
+        </div>
 
-        <div style={{ fontSize:10, fontWeight:700, color:C.pinkText, letterSpacing:"1.2px", textTransform:"uppercase", marginBottom:6 }}>
+        <div
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            color: C.pinkText,
+            letterSpacing: "1.2px",
+            textTransform: "uppercase",
+            marginBottom: 6,
+          }}
+        >
           Before you go
         </div>
-        <h2 style={{ margin:"0 0 8px", fontSize:22, fontWeight:900, color:C.ink, letterSpacing:"-0.5px", lineHeight:1.15 }}>
+
+        <h2
+          style={{
+            margin: "0 0 8px",
+            fontSize: 22,
+            fontWeight: 900,
+            color: C.ink,
+            letterSpacing: "-0.5px",
+            lineHeight: 1.15,
+          }}
+        >
           Want us to text you this quote?
         </h2>
-        <p style={{ margin:"0 0 20px", fontSize:14, color:C.inkMid, lineHeight:1.55 }}>
+
+        <p
+          style={{
+            margin: "0 0 20px",
+            fontSize: 14,
+            color: C.inkMid,
+            lineHeight: 1.55,
+          }}
+        >
           {capturedSize && capturedPrice
             ? `We'll hold your ${capturedSize} quote of $${capturedPrice} and text you when you're ready.`
             : "Drop your number and we'll send the details so you can finish when you're ready."}
         </p>
 
-        <div style={{ display:"grid", gap:12 }}>
+        <div style={{ display: "grid", gap: 12 }}>
           <input
             placeholder="Your name (optional)"
             value={name}
-            onChange={e => setName(e.target.value)}
+            onChange={(e) => setName(e.target.value)}
             style={{
-              display:"block", width:"100%", padding:"13px 14px",
-              border:`1.5px solid ${C.surfaceBorder}`, borderRadius:10,
-              background:C.white, fontSize:15, color:C.ink,
-              boxSizing:"border-box", fontFamily:F,
+              display: "block",
+              width: "100%",
+              padding: "13px 14px",
+              border: `1.5px solid ${C.surfaceBorder}`,
+              borderRadius: 10,
+              background: C.white,
+              fontSize: 15,
+              color: C.ink,
+              boxSizing: "border-box",
+              fontFamily: F,
             }}
           />
+
           <input
             placeholder="Phone number *"
             value={phone}
-            onChange={e => setPhone(e.target.value)}
+            onChange={(e) => setPhone(e.target.value)}
             type="tel"
             style={{
-              display:"block", width:"100%", padding:"13px 14px",
-              border:`1.5px solid ${phoneHasValue ? C.ink : C.surfaceBorder}`, borderRadius:10,
-              background:C.white, fontSize:15, color:C.ink,
-              boxSizing:"border-box", fontFamily:F,
+              display: "block",
+              width: "100%",
+              padding: "13px 14px",
+              border: `1.5px solid ${phoneHasValue ? C.ink : C.surfaceBorder}`,
+              borderRadius: 10,
+              background: C.white,
+              fontSize: 15,
+              color: C.ink,
+              boxSizing: "border-box",
+              fontFamily: F,
             }}
           />
 
           {phoneHasValue && (
-            <label style={{ display:"flex", gap:10, alignItems:"flex-start", fontFamily:F }}>
+            <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontFamily: F }}>
               <input
                 type="checkbox"
                 checked={smsOptIn}
-                onChange={e => setSmsOptIn(e.target.checked)}
-                style={{ marginTop:3, flexShrink:0 }}
+                onChange={(e) => setSmsOptIn(e.target.checked)}
+                style={{ marginTop: 3, flexShrink: 0 }}
               />
-              <span style={{ fontSize:13, color:C.inkMid, lineHeight:1.45 }}>
+              <span style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.45 }}>
                 I agree to receive text messages from Little Junkers about my quote and rental.
               </span>
             </label>
           )}
 
           {error && (
-            <div style={{ background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:10, padding:"10px 14px", fontSize:13, color:C.ink }}>
+            <div
+              style={{
+                background: C.warningBg,
+                border: `1px solid ${C.warningBorder}`,
+                borderRadius: 10,
+                padding: "10px 14px",
+                fontSize: 13,
+                color: C.ink,
+              }}
+            >
               {error}
             </div>
           )}
@@ -377,10 +473,16 @@ function ExitModal({ onSubmit, onDismiss, submitting, error, capturedSize, captu
             onClick={handleSubmit}
             disabled={!phoneHasValue || submitting}
             style={{
-              width:"100%", padding:"15px", background: (!phoneHasValue || submitting) ? C.inkFaint : C.ink,
-              color:C.white, border:"none", borderRadius:12, fontSize:15, fontWeight:800,
-              cursor: (!phoneHasValue || submitting) ? "not-allowed" : "pointer", fontFamily:F,
-              marginTop:4,
+              width: "100%",
+              padding: "15px",
+              background: !phoneHasValue || submitting ? C.inkFaint : C.ink,
+              color: C.white,
+              border: "none",
+              borderRadius: 12,
+              fontSize: 15,
+              fontWeight: 800,
+              cursor: !phoneHasValue || submitting ? "not-allowed" : "pointer",
+              fontFamily: F,
             }}
           >
             {submitting ? "Sending..." : "Text Me My Quote"}
@@ -389,23 +491,36 @@ function ExitModal({ onSubmit, onDismiss, submitting, error, capturedSize, captu
           <button
             onClick={onDismiss}
             style={{
-              width:"100%", padding:"13px", background:"transparent", color:C.inkMuted,
-              border:`1px solid ${C.surfaceBorder}`, borderRadius:12, fontSize:14,
-              fontWeight:700, cursor:"pointer", fontFamily:F,
+              width: "100%",
+              padding: "15px",
+              background: C.white,
+              color: C.inkMuted,
+              border: `1px solid ${C.surfaceBorder}`,
+              borderRadius: 12,
+              fontSize: 15,
+              fontWeight: 700,
+              cursor: "pointer",
+              fontFamily: F,
             }}
           >
             No thanks
           </button>
-        </div>
 
-        <p style={{ margin:"16px 0 0", fontSize:11, color:C.inkFaint, lineHeight:1.5, textAlign:"center" }}>
-          We won't spam you. One text, that's it.
-        </p>
+          <div
+            style={{
+              textAlign: "center",
+              fontSize: 12,
+              color: C.inkFaint,
+              marginTop: 4,
+            }}
+          >
+            We won't spam you. One text, that's it.
+          </div>
+        </div>
       </div>
     </div>
   );
 }
-
 // ─── Step 5 Date Picker ───────────────────────────────────────────────────────
 
 function Step5DatePicker({
