@@ -1619,115 +1619,216 @@ const handleSubmit = async () => {
                 )}
 
                 {/* Step 6 — success (Fallback only, normally redirects to Stripe) */}
-                {step === 6 && submitted && (
-                  <div style={{ textAlign:"center", padding:"20px 0" }}>
-                    <div style={{ fontSize:40, marginBottom:12 }}>🎉</div>
-                    <div style={{ fontSize:22, fontWeight:900, color:C.ink, letterSpacing:"-0.5px", marginBottom:8, fontFamily:F }}>Request received!</div>
-                    <p style={{ fontSize:14, color:C.inkMid, lineHeight:1.6, marginBottom:24, fontFamily:F }}>
-                      We'll reach out to confirm your delivery window and finalize the details. You can also call or text us anytime.
-                    </p>
-                    <a href="tel:4705484733" style={{ display:"inline-block", padding:"13px 28px", background:C.ink, color:C.white, borderRadius:12, fontSize:15, fontWeight:800, textDecoration:"none", fontFamily:F }}>
-                      Call / Text 470-548-4733
-                    </a>
-                  </div>
-                )}
+               {step === 6 && !submitted && (
+  <div>
+    <StepHeading
+      eyebrow="Almost done"
+      title="Complete your booking"
+      text="Enter your service address and contact details, then continue to secure checkout."
+    />
 
-                {/* Step 6 — form */}
-                {step === 6 && !submitted && (
-                  <div>
-                    <StepHeading
-                      eyebrow="Almost done"
-                      title="Submit your request"
-                      text="We'll use this information to confirm availability and finalize your rental."
-                    />
+    <div style={{ marginBottom: 18, border: `1px solid ${C.surfaceBorder}`, borderRadius: 14, overflow: "hidden" }}>
+      <div
+        style={{
+          background: C.surfaceBg,
+          padding: "9px 16px",
+          fontSize: 10,
+          fontWeight: 800,
+          color: C.inkFaint,
+          letterSpacing: "0.8px",
+          textTransform: "uppercase",
+          fontFamily: F,
+          borderBottom: `1px solid ${C.surfaceBorder}`,
+        }}
+      >
+        Rental Summary
+      </div>
 
-                    {/* Rental summary */}
-                    <div style={{ marginBottom:18, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, overflow:"hidden" }}>
-                      <div style={{ background:C.surfaceBg, padding:"9px 16px", fontSize:10, fontWeight:800, color:C.inkFaint, letterSpacing:"0.8px", textTransform:"uppercase", fontFamily:F, borderBottom:`1px solid ${C.surfaceBorder}` }}>
-                        Rental Summary
-                      </div>
-                      {[
-                        { label:"Service Area",    value: areaLabel },
-                        { label:"Delivery",        value: `${zones[zoneKey]?.label || ""} ${zoneFee > 0 ? `(+$${zoneFee})` : "— Included"}` },
-                        { label:"Dumpster",        value: effectiveSize || "-" },
-                        { label:"Weight included", value: sizeMeta[effectiveSize]?.label || "-" },
-                        { label:"Rental",          value: getRentalDisplayLabel(duration) },
-                        {
-                          label:"Delivery date",
-                          value: selectedWindow
-                            ? `${selectedWindow.startLabel} – ${selectedWindow.endLabel}`
-                            : (isAvailabilityDegraded ? "Subject to confirmation" : "-")
-                        },
-                      ].map(row => (
-                        <div key={row.label} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 16px", borderBottom:`1px solid ${C.surfaceBorder}`, fontFamily:F }}>
-                          <span style={{ fontSize:13, color:C.inkMuted }}>{row.label}</span>
-                          <span style={{ fontSize:13, fontWeight:700, color:C.ink, textAlign:"right" }}>{row.value}</span>
-                        </div>
-                      ))}
-                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 16px", background:C.surfaceBg, fontFamily:F }}>
-                        <span style={{ fontSize:13, color:C.inkMuted }}>Total</span>
-                        <span style={{ fontSize:20, fontWeight:900, color:C.ink, letterSpacing:"-0.4px" }}>
-                          {selectedPrice != null ? `$${selectedPrice}` : "-"}
-                        </span>
-                      </div>
-                    </div>
+      {[
+        { label: "Service Area", value: areaLabel },
+        { label: "Delivery", value: `${zones[zoneKey]?.label || ""} ${zoneFee > 0 ? `(+$${zoneFee})` : "— Included"}` },
+        { label: "Dumpster", value: effectiveSize || "-" },
+        { label: "Weight included", value: sizeMeta[effectiveSize]?.label || "-" },
+        { label: "Rental", value: getRentalDisplayLabel(duration) },
+        {
+          label: "Delivery date",
+          value: selectedWindow
+            ? `${selectedWindow.startLabel} – ${selectedWindow.endLabel}`
+            : isAvailabilityDegraded
+              ? "Subject to confirmation"
+              : "-",
+        },
+      ].map((row) => (
+        <div
+          key={row.label}
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            padding: "10px 16px",
+            borderBottom: `1px solid ${C.surfaceBorder}`,
+            fontFamily: F,
+          }}
+        >
+          <span style={{ fontSize: 13, color: C.inkMuted }}>{row.label}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: C.ink, textAlign: "right" }}>{row.value}</span>
+        </div>
+      ))}
 
-                    {/* Contact form */}
-                    <div style={{ background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:"18px 18px 6px" }}>
-                      <label style={firstLabelStyle}>Name *</label>
-                      <input placeholder="Your name" value={form.name} onChange={e => setForm({...form, name:e.target.value})} style={inputStyle} />
-                      <label style={labelStyle}>Email *</label>
-                      <input placeholder="you@example.com" value={form.email} onChange={e => setForm({...form, email:e.target.value})} style={inputStyle} />
-                      
-                      <label style={labelStyle}>Phone *</label>
-                      {/* Note the onBlur event attached here to trigger the soft push! */}
-                      <input 
-                        placeholder="For faster scheduling" 
-                        value={form.phone} 
-                        onChange={e => setForm({...form, phone:e.target.value})} 
-                        onBlur={handlePhoneBlur}
-                        type="tel" 
-                        style={inputStyle} 
-                      />
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "12px 16px",
+          background: C.surfaceBg,
+          fontFamily: F,
+        }}
+      >
+        <span style={{ fontSize: 13, color: C.inkMuted }}>Total</span>
+        <span style={{ fontSize: 20, fontWeight: 900, color: C.ink, letterSpacing: "-0.4px" }}>
+          {selectedPrice != null ? `$${selectedPrice}` : "-"}
+        </span>
+      </div>
+    </div>
 
-                      {/* SMS opt-in — only shown when phone has a value */}
-                      {phoneHasValue && (
-                        <label style={{ display:"flex", gap:10, alignItems:"flex-start", marginTop:14, marginBottom:6, fontFamily:F }}>
-                          <input
-                            type="checkbox"
-                            checked={smsOptIn}
-                            onChange={e => setSmsOptIn(e.target.checked)}
-                            style={{ marginTop:3 }}
-                          />
-                          <span style={{ fontSize:13, color:C.inkMid, lineHeight:1.45 }}>
-                            I agree to receive text messages from Little Junkers about my quote and rental.
-                          </span>
-                        </label>
-                      )}
+    <div
+      style={{
+        background: C.surfaceBg,
+        border: `1px solid ${C.surfaceBorder}`,
+        borderRadius: 14,
+        padding: "18px 18px 6px",
+      }}
+    >
+      <label style={firstLabelStyle}>Service address *</label>
+      <input
+        placeholder="Street address"
+        value={form.street}
+        onChange={(e) => setForm({ ...form, street: e.target.value })}
+        style={inputStyle}
+      />
 
-                      <label style={labelStyle}>How did you hear about us?</label>
-                      <select value={form.source} onChange={e => setForm({...form, source:e.target.value})} style={{ ...inputStyle, marginBottom:18 }}>
-                        <option value="">Select one</option>
-                        <option>Google</option>
-                        <option>Facebook</option>
-                        <option>Referral</option>
-                        <option>Repeat Customer</option>
-                        <option>Yard Sign</option>
-                        <option>Saw a Dumpster / Truck</option>
-                        <option>Other</option>
-                      </select>
-                    </div>
+      <label style={labelStyle}>Apt / Suite</label>
+      <input
+        placeholder="Apartment, suite, gate code, etc. (optional)"
+        value={form.street2}
+        onChange={(e) => setForm({ ...form, street2: e.target.value })}
+        style={inputStyle}
+      />
 
-                    {submitError && (
-                      <div style={{ marginTop:12, background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:10, padding:"12px 14px", fontSize:13, color:C.ink, fontFamily:F }}>
-                        {submitError}
-                      </div>
-                    )}
-                    <PrimaryButton onClick={handleSubmit} disabled={submitting}>
-                      {submitting ? "Preparing Checkout..." : "Proceed to Checkout"}
-                    </PrimaryButton>
-                  </div>
-                )}
+      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 0.8fr 0.8fr", gap: 10, marginTop: 14 }}>
+        <div>
+          <label style={firstLabelStyle}>City *</label>
+          <input
+            placeholder="City"
+            value={form.city}
+            onChange={(e) => setForm({ ...form, city: e.target.value })}
+            style={inputStyle}
+          />
+        </div>
+
+        <div>
+          <label style={firstLabelStyle}>State *</label>
+          <select
+            value={form.state}
+            onChange={(e) => setForm({ ...form, state: e.target.value })}
+            style={inputStyle}
+          >
+            <option value="GA">GA</option>
+          </select>
+        </div>
+
+        <div>
+          <label style={firstLabelStyle}>ZIP *</label>
+          <input
+            placeholder="ZIP"
+            value={form.zip}
+            onChange={(e) => setForm({ ...form, zip: e.target.value })}
+            maxLength={5}
+            style={inputStyle}
+          />
+        </div>
+      </div>
+
+      <label style={labelStyle}>Name *</label>
+      <input
+        placeholder="Your name"
+        value={form.name}
+        onChange={(e) => setForm({ ...form, name: e.target.value })}
+        style={inputStyle}
+      />
+
+      <label style={labelStyle}>Email *</label>
+      <input
+        placeholder="you@example.com"
+        value={form.email}
+        onChange={(e) => setForm({ ...form, email: e.target.value })}
+        style={inputStyle}
+      />
+
+      <label style={labelStyle}>Phone *</label>
+      <input
+        placeholder="For faster scheduling"
+        value={form.phone}
+        onChange={(e) => setForm({ ...form, phone: e.target.value })}
+        onBlur={handlePhoneBlur}
+        type="tel"
+        style={inputStyle}
+      />
+
+      {form.phone.trim().length > 0 && (
+        <label style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 14, marginBottom: 6, fontFamily: F }}>
+          <input
+            type="checkbox"
+            checked={smsOptIn}
+            onChange={(e) => setSmsOptIn(e.target.checked)}
+            style={{ marginTop: 3 }}
+          />
+          <span style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.45 }}>
+            I agree to receive text messages from Little Junkers about my quote and rental.
+          </span>
+        </label>
+      )}
+
+      <label style={labelStyle}>How did you hear about us?</label>
+      <select
+        value={form.source}
+        onChange={(e) => setForm({ ...form, source: e.target.value })}
+        style={{ ...inputStyle, marginBottom: 18 }}
+      >
+        <option value="">Select one</option>
+        <option>Google</option>
+        <option>Facebook</option>
+        <option>Referral</option>
+        <option>Repeat Customer</option>
+        <option>Yard Sign</option>
+        <option>Saw a Dumpster / Truck</option>
+        <option>Other</option>
+      </select>
+    </div>
+
+    {submitError && (
+      <div
+        style={{
+          marginTop: 12,
+          background: C.warningBg,
+          border: `1px solid ${C.warningBorder}`,
+          borderRadius: 10,
+          padding: "12px 14px",
+          fontSize: 13,
+          color: C.ink,
+          fontFamily: F,
+        }}
+      >
+        {submitError}
+      </div>
+    )}
+
+    <PrimaryButton onClick={handleSubmit} disabled={submitting}>
+      {submitting ? "Preparing Checkout..." : "Proceed to Checkout"}
+    </PrimaryButton>
+  </div>
+)}
 
               </CardBody>
               <CardFooter />
