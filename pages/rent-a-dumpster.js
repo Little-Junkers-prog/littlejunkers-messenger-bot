@@ -307,7 +307,7 @@ function ExitModal({ onSubmit, onDismiss, submitting, error, capturedSize, captu
       fontFamily:F,
     }}>
       <div style={{
-        width:"100%", maxWidth:480,
+        width:"100%", maxWidth:800,
         background:C.white,
         borderRadius:"20px 20px 0 0",
         padding:"28px 24px 40px",
