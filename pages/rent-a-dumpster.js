@@ -320,7 +320,7 @@ function ExitModal({ onSubmit, onDismiss, submitting, error, capturedSize, captu
       <div
         style={{
           width: "100%",
-          maxWidth: 800,
+          maxWidth: 480,
           background: C.white,
           borderRadius: "20px 20px 0 0",
           padding: "28px 24px 40px",
@@ -804,16 +804,16 @@ export default function Funnel() {
   const [submitError,         setSubmitError]         = useState("");
   const [smsOptIn,            setSmsOptIn]            = useState(false);
   const [form, setForm] = useState({
-  name: "",
-  email: "",
-  phone: "",
-  source: "",
-  street: "",
-  street2: "",
-  city: "",
-  state: "GA",
-  zip: "",
-});
+    name:    "",
+    email:   "",
+    phone:   "",
+    source:  "",
+    street:  "",
+    street2: "",
+    city:    "",
+    state:   "GA",
+    zip:     "",
+  });
 
   // Safety Net state
   const [capturedLeadId,      setCapturedLeadId]      = useState(null);
@@ -925,130 +925,56 @@ export default function Funnel() {
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [triggerExitModal]);
 
-  // ── Exit modal handlers ──────────────────────────────────────────────────
+  // ── Exit modal handlers ─────────────────────────────────────────────────
 
   const handleExitModalDismiss = () => {
-  setShowExitModal(false);
-  setExitError("");
-  if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-  resetIdleTimer();
-};
-
-const handleZipSubmit = () => {
-  const clean = zip.trim();
-  if (!/^\d{5}$/.test(clean)) {
-    setZipError("Please enter a valid 5-digit ZIP code.");
-    return;
-  }
-
-  const found = zipToZone[clean];
-  if (!found) {
-    setZipError("We may not service that area right now. If you're nearby, contact us and we'll confirm.");
-    return;
-  }
-
-  setZipError("");
-  setZoneKey(found);
-  setZoneFee(zones[found].fee);
-  setForm((prev) => ({ ...prev, zip: clean }));
-  setStep(1);
-};
-
-const handleSubmit = async () => {
-  if (
-    !form.street.trim() ||
-    !form.city.trim() ||
-    !form.zip.trim() ||
-    !form.name.trim() ||
-    !form.email.trim() ||
-    !form.phone.trim()
-  ) {
-    return alert("Please enter your service address, name, email, and phone number.");
-  }
-
-  setSubmitting(true);
-  setSubmitError("");
-
-  const payload = {
-    leadId: capturedLeadId,
-    zip,
-    areaLabel,
-    zone: zoneKey,
-    deliveryFee: zoneFee,
-    customerType,
-    returningPath,
-    project: normalizeProjectForOdoo(project),
-    otherText: project === "Other" ? otherText.trim() : "",
-    recommendedSize: size,
-    selectedSize: effectiveSize,
-    includedTons: sizeMeta[effectiveSize]?.tons || null,
-    rentalOption: normalizeRentalOption(duration),
-    rentalPrice: selectedPrice,
-    selectedWindow,
-    pricingShown: calculatedPrices,
-    funnelSource: "rent_a_dumpster_funnel",
-    leadSourceName: "Website",
-    smsOptIn,
-    smsOptInDate: smsOptIn ? new Date().toISOString() : null,
-    deliveryAddress: {
-      street: form.street.trim(),
-      street2: form.street2.trim(),
-      city: form.city.trim(),
-      state: form.state || "GA",
-      zip: form.zip.trim(),
-      country: "United States",
-    },
-    contact: {
-      name: form.name.trim(),
-      email: form.email.trim(),
-      phone: form.phone.trim(),
-      mobile: form.phone.trim(),
-      source: form.source,
-    },
+    setShowExitModal(false);
+    setExitError("");
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    resetIdleTimer();
   };
 
-  try {
-    const resOdoo = await fetch("/api/submit-lead", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+  const handleExitSubmit = async ({ name, phone, smsOptIn: optIn, smsOptInDate }) => {
+    if (!phone) return;
+    setExitSubmitting(true);
+    setExitError("");
 
-    const odooJson = await resOdoo.json();
-    if (!resOdoo.ok || !odooJson?.success) {
-      throw new Error(odooJson?.error || "Lead submission failed.");
-    }
-
-    const finalLeadId = odooJson.leadId || capturedLeadId;
-
-    const stripePayload = {
-      leadId: finalLeadId,
-      customerEmail: form.email.trim(),
-      dumpsterSize: effectiveSize,
-      rentalOption: getRentalDisplayLabel(duration),
-      basePrice: selectedPrice - zoneFee,
-      deliveryFee: zoneFee,
-      zone: zoneKey,
+    const payload = {
+      zip, areaLabel, zone:zoneKey, deliveryFee:zoneFee, customerType,
+      selectedSize:  effectiveSize || null,
+      rentalPrice:   selectedPrice || null,
+      selectedWindow: selectedWindow || null,
+      funnelSource:  "exit_capture",
+      leadSourceName: "Website",
+      smsOptIn:      optIn,
+      smsOptInDate:  smsOptInDate,
+      contact: {
+        name:   name || "",
+        email:  "",
+        phone:  phone,
+        mobile: phone,
+        source: "Exit Modal",
+      },
     };
 
-    const resStripe = await fetch("/api/create-checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(stripePayload),
-    });
-
-    const stripeJson = await resStripe.json();
-    if (!resStripe.ok || !stripeJson?.url) {
-      throw new Error(stripeJson?.error || "Stripe Checkout failed.");
+    try {
+      const res  = await fetch("/api/submit-lead", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) throw new Error(json?.error || "Submission failed.");
+      setExitSubmitted(true);
+      setShowExitModal(false);
+      setTimeout(() => { window.location.href = HOMEPAGE; }, 1800);
+    } catch (err) {
+      setExitError("Something went wrong. Call or text us at 470-548-4733.");
+    } finally {
+      setExitSubmitting(false);
     }
+  };
 
-    window.location.href = stripeJson.url;
-  } catch (err) {
-    console.error("[handleSubmit] checkout error:", err.message);
-    setSubmitError("Something went wrong preparing your checkout. Please try again or call us at 470-548-4733.");
-    setSubmitting(false);
-  }
-};
   // ── X button handler ─────────────────────────────────────────────────────
 
   const handleClose = () => {
@@ -1066,7 +992,9 @@ const handleSubmit = async () => {
     if (!/^\d{5}$/.test(clean)) { setZipError("Please enter a valid 5-digit ZIP code."); return; }
     const found = zipToZone[clean];
     if (!found) { setZipError("We may not service that area right now. If you're nearby, contact us and we'll confirm."); return; }
-    setZipError(""); setZoneKey(found); setZoneFee(zones[found].fee); setStep(1);
+    setZipError(""); setZoneKey(found); setZoneFee(zones[found].fee);
+    setForm(prev => ({ ...prev, zip: clean }));
+    setStep(1);
   };
 
   const handleCustomerType = (type) => {
