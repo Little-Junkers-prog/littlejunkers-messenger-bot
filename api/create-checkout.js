@@ -2,7 +2,7 @@
 import Stripe from "stripe";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2023-10-16",
+  apiVersion: "2025-01-27.acacia",
 });
 
 function asMoneyCents(value) {
@@ -35,6 +35,7 @@ export default async function handler(req, res) {
     const {
       leadId,
       customerEmail,
+      customerName,
       dumpsterSize,
       rentalOption,
       basePrice,
@@ -88,6 +89,7 @@ export default async function handler(req, res) {
 
     const metadata = {
       odoo_lead_id: String(leadId),
+      customer_name: String(customerName || ""),
       dumpster_size: String(dumpsterSize),
       rental_option: String(rentalOption),
       zone: String(zone || ""),
@@ -102,7 +104,7 @@ export default async function handler(req, res) {
       payment_intent_data: {
         metadata,
       },
-      success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${baseUrl}/book?status=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/rent-a-dumpster`,
     });
 
