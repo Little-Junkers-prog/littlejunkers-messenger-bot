@@ -107,12 +107,77 @@ async function odooCall(uid, model, method, args, kwargs = {}) {
 const ODOO_TEAM_ID = 2;   // Website
 const ODOO_STAGE_ID = 1;  // New
 
-// -----------------------------------------------------------------------------
-// Odoo relational address lookups
-// We use lookups instead of hardcoding IDs since you have not confirmed the
-// numeric IDs yet. Because Little Junkers only serves Georgia / United States,
-// we default to those values when not explicitly passed.
-// -----------------------------------------------------------------------------
+function asString(v) {
+  if (v === null || v === undefined) return "";
+  return String(v).trim();
+}
+
+function asNumber(v, fallback = 0) {
+  if (v === null || v === undefined || v === "") return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function asBoolean(v) {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    return ["true", "1", "yes", "y", "on"].includes(s);
+  }
+  return false;
+}
+
+function pickFirstNonEmpty(...vals) {
+  for (const v of vals) {
+    const s = asString(v);
+    if (s) return s;
+  }
+  return "";
+}
+
+function mapSelection(label, mapObj) {
+  const s = asString(label);
+  if (!s) return false;
+  return mapObj[s] || false;
+}
+
+function toOdooDatetime(val) {
+  const s = asString(val);
+  if (!s) return false;
+
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
+    return s;
+  }
+
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) {
+    return false;
+  }
+
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
+function buildNowPlusMinutes(minutes) {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() + minutes);
+
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
 
 async function findCountryId(uid, countryInput = "United States") {
   const name = asString(countryInput) || "United States";
@@ -178,40 +243,39 @@ async function findLeadSourceIdByName(uid, sourceName) {
 }
 
 // -----------------------------------------------------------------------------
-// Selection field maps
-// If any selection field errors, update only the right-hand side values.
+// Frontend label -> Odoo stored value mappings
 // -----------------------------------------------------------------------------
 
 const MAP_CUSTOMER_TYPE = {
-  "New Customer": "New Customer",
-  "Returning Customer": "Returning Customer",
+  "New Customer": "Residential",
+  "Residential": "Residential",
+  "Returning": "Returning",
+  "Returning Customer": "Returning",
   "Contractor": "Contractor",
-  "Property Manager": "Property Manager",
+  "Contractor / Roofer": "Contractor",
+  "Roofer": "Contractor",
 };
 
 const MAP_PROJECT_TYPE = {
-  "Moving / decluttering": "Moving / decluttering",
+  "Cleanout": "Cleanout",
+  "Clean Out": "Cleanout",
+  "Moving": "Moving",
+  "Moving / decluttering": "Moving",
+  "Decluttering": "Moving",
+  "Other": "Other",
   "Renovation": "Renovation",
-  "Construction": "Construction",
-  "Yard Cleanup": "Yard Cleanup",
   "Roofing": "Roofing",
-  "Other": "Other",
-};
-
-const MAP_DEBRIS_TYPE = {
-  "Household Junk": "Household Junk",
-  "Construction Debris": "Construction Debris",
-  "Yard Waste": "Yard Waste",
-  "Roofing": "Roofing",
-  "Concrete / Dirt": "Concrete / Dirt",
-  "Mixed Debris": "Mixed Debris",
-  "Other": "Other",
+  "Yard": "Yard",
+  "Yard Cleanup": "Yard",
 };
 
 const MAP_DUMPSTER_SIZE = {
-  "11 Yard": "11 Yard",
-  "16 Yard": "16 Yard",
-  "21 Yard": "21 Yard",
+  "11 Yard": "11 yard",
+  "16 Yard": "16 yard",
+  "21 Yard": "21 yard",
+  "11 yard": "11 yard",
+  "16 yard": "16 yard",
+  "21 yard": "21 yard",
 };
 
 const MAP_RENTAL_TYPE = {
@@ -221,88 +285,10 @@ const MAP_RENTAL_TYPE = {
 };
 
 const MAP_PAYMENT_STATUS = {
-  "Pending": "Pending",
-  "Paid": "Paid",
   "Expired": "Expired",
+  "Paid": "Paid",
+  "Pending": "Pending",
 };
-
-const MAP_AVAILABILITY_STATUS = {
-  "Available": "Available",
-  "Limited": "Limited",
-  "Unavailable": "Unavailable",
-};
-
-function asString(v) {
-  if (v === null || v === undefined) return "";
-  return String(v).trim();
-}
-
-function asNumber(v, fallback = 0) {
-  if (v === null || v === undefined || v === "") return fallback;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function asBoolean(v) {
-  if (typeof v === "boolean") return v;
-  if (typeof v === "number") return v !== 0;
-  if (typeof v === "string") {
-    const s = v.trim().toLowerCase();
-    return ["true", "1", "yes", "y", "on"].includes(s);
-  }
-  return false;
-}
-
-function pickFirstNonEmpty(...vals) {
-  for (const v of vals) {
-    const s = asString(v);
-    if (s) return s;
-  }
-  return "";
-}
-
-function mapSelection(label, mapObj) {
-  const s = asString(label);
-  if (!s) return false;
-  return mapObj[s] || s;
-}
-
-function toOdooDatetime(val) {
-  const s = asString(val);
-  if (!s) return false;
-
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
-    return s;
-  }
-
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) {
-    return false;
-  }
-
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  const ss = String(d.getSeconds()).padStart(2, "0");
-
-  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
-}
-
-function buildNowPlusMinutes(minutes) {
-  const d = new Date();
-  d.setMinutes(d.getMinutes() + minutes);
-
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  const ss = String(d.getSeconds()).padStart(2, "0");
-
-  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
-}
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -326,8 +312,6 @@ export default async function handler(req, res) {
     customerType,
     project,
     otherText,
-    debrisType,
-    heavyMaterial,
 
     recommendedSize,
     selectedSize,
@@ -337,12 +321,14 @@ export default async function handler(req, res) {
 
     selectedWindow,
 
-    availabilityStatus,
     funnelSource,
     referredBy,
     leadSourceName,
 
     deliveryAddress,
+    smsOptIn,
+    smsOptInDate,
+
     contact,
   } = req.body || {};
 
@@ -358,7 +344,6 @@ export default async function handler(req, res) {
   try {
     const uid = await xmlrpcAuth();
 
-    // Core rental values
     const dumpsterSize = pickFirstNonEmpty(selectedSize, recommendedSize);
     const rentalType = asString(rentalOption);
 
@@ -384,7 +369,6 @@ export default async function handler(req, res) {
     const quotedPrice = asNumber(rentalPrice, 0);
     const deliveryFeeNum = asNumber(deliveryFee, 0);
 
-    // Lead source / referral
     const sourceId =
       (await findLeadSourceIdByName(uid, pickFirstNonEmpty(leadSourceName, "Website"))) || false;
 
@@ -392,8 +376,6 @@ export default async function handler(req, res) {
     const projectText = pickFirstNonEmpty(project, otherText);
 
     // Native CRM address fields
-    // City/ZIP can be prepopulated from earlier funnel logic.
-    // State/Country default to Georgia / United States.
     const street = asString(deliveryAddress?.street);
     const street2 = asString(deliveryAddress?.street2);
     const city = pickFirstNonEmpty(deliveryAddress?.city, areaLabel);
@@ -408,9 +390,13 @@ export default async function handler(req, res) {
     const countryId = await findCountryId(uid, countryName);
     const stateId = await findStateId(uid, stateName, countryId);
 
+    const smsOptInBool = asBoolean(smsOptIn);
+    const smsOptInTimestamp = smsOptInBool
+      ? (toOdooDatetime(smsOptInDate) || buildNowPlusMinutes(0))
+      : false;
+
     const leadName = `Funnel Lead: ${contactName} — ${dumpsterSize || "Unknown Size"}`;
 
-    // Compact debug note only. Structured fields are the source of truth now.
     const debugNotes = [
       `Funnel source: ${pickFirstNonEmpty(funnelSource, "website_checkout")}`,
       `ZIP: ${postalCode || "—"}`,
@@ -419,13 +405,13 @@ export default async function handler(req, res) {
       `Delivery address: ${[street, street2, city, stateName, postalCode].filter(Boolean).join(", ") || "—"}`,
       `Customer type: ${asString(customerType) || "—"}`,
       `Project: ${projectText || "—"}`,
-      `Debris: ${asString(debrisType) || "—"}`,
       `Size: ${dumpsterSize || "—"}`,
       `Rental type: ${rentalType || "—"}`,
       `Rental start: ${rentalStart || "—"}`,
       `Rental end: ${rentalEnd || "—"}`,
       `Quoted price: ${quotedPrice}`,
       `Delivery fee: ${deliveryFeeNum}`,
+      `SMS opt-in: ${smsOptInBool ? "Yes" : "No"}`,
       referralText ? `Referred by: ${referralText}` : null,
     ].filter(Boolean).join("\n");
 
@@ -454,25 +440,27 @@ export default async function handler(req, res) {
       // useful native CRM value
       expected_revenue: quotedPrice,
 
-      // compact debug note for troubleshooting
+      // compact debug note
       description: debugNotes,
 
-      // existing Studio context fields
-      x_studio_selection_field_222_1jkvln416: mapSelection(customerType, MAP_CUSTOMER_TYPE),
-      x_studio_selection_field_es_1jkvlssq9: mapSelection(project, MAP_PROJECT_TYPE),
-      x_studio_selection_field_49d_1jkvm0va8: mapSelection(debrisType, MAP_DEBRIS_TYPE),
-      x_studio_boolean_field_88o_1jkvmg0ve: asBoolean(heavyMaterial),
-      x_studio_selection_field_2sk_1jkvmnm6c: mapSelection(availabilityStatus, MAP_AVAILABILITY_STATUS),
+      // existing Studio fields to keep
+      x_studio_selection_field_222_1jkvln416:
+        mapSelection(customerType, MAP_CUSTOMER_TYPE),
+      x_studio_selection_field_es_1jkvlssq9:
+        mapSelection(project, MAP_PROJECT_TYPE),
 
-      // new structured funnel fields
-      x_studio_dumpster_size: mapSelection(dumpsterSize, MAP_DUMPSTER_SIZE),
-      x_studio_rental_type: mapSelection(rentalType, MAP_RENTAL_TYPE),
+      // structured funnel fields
+      x_studio_dumpster_size:
+        mapSelection(dumpsterSize, MAP_DUMPSTER_SIZE),
+      x_studio_rental_type:
+        mapSelection(rentalType, MAP_RENTAL_TYPE),
       x_studio_rental_start: rentalStart || false,
       x_studio_rental_end: rentalEnd || false,
-      x_studio_payment_status: mapSelection(
-        pickFirstNonEmpty(req.body?.paymentStatus, "Pending"),
-        MAP_PAYMENT_STATUS
-      ),
+      x_studio_payment_status:
+        mapSelection(
+          pickFirstNonEmpty(req.body?.paymentStatus, "Pending"),
+          MAP_PAYMENT_STATUS
+        ),
       x_studio_hold_expires_at: holdExpiresAt || false,
       x_studio_quoted_price: quotedPrice,
       x_studio_delivery_fee: deliveryFeeNum,
@@ -480,7 +468,11 @@ export default async function handler(req, res) {
       x_studio_service_area: asString(areaLabel) || false,
       x_studio_funnel_source: pickFirstNonEmpty(funnelSource, "website_checkout"),
 
-      // native referral helper
+      // SMS compliance fields
+      x_studio_sms_opt_in: smsOptInBool,
+      x_studio_sms_opt_in_date: smsOptInTimestamp || false,
+
+      // referral helper
       referred: referralText || false,
     };
 
@@ -500,6 +492,10 @@ export default async function handler(req, res) {
         zip: postalCode || null,
         state_id: stateId || null,
         country_id: countryId || null,
+      },
+      sms: {
+        opt_in: smsOptInBool,
+        opt_in_date: smsOptInTimestamp || null,
       },
     });
   } catch (err) {
