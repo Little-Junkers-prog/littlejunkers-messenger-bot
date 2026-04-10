@@ -1,8 +1,8 @@
 // api/submit-lead.js
-// Creates a structured crm.lead in Odoo from funnel submission payload.
+// Creates or updates a structured crm.lead in Odoo from funnel submission payload.
 // Auth flow:
 //   1) XML-RPC authenticate -> uid
-//   2) JSON-RPC execute_kw -> create/search_read calls
+//   2) JSON-RPC execute_kw -> create/write/search_read calls
 
 function xe(v) {
   return String(v)
@@ -304,6 +304,7 @@ export default async function handler(req, res) {
   }
 
   const {
+    leadId, // <--- New parameter injected here
     zip,
     areaLabel,
     zone,
@@ -338,7 +339,8 @@ export default async function handler(req, res) {
   const mobile = asString(contact?.mobile);
 
   // Exit capture leads only require a phone number.
-  // All other funnel paths require name + email.
+  // Partial (abandoned cart) pushes might only have a name and phone.
+  // Full checkout pushes require name, email, and phone.
   const isExitCapture = asString(funnelSource) === "exit_capture";
 
   if (isExitCapture) {
@@ -346,8 +348,9 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Phone number is required for exit capture leads." });
     }
   } else {
-    if (!contactName || !email) {
-      return res.status(400).json({ error: "Name and email are required." });
+    // For normal funnel, we just require *at least* a phone OR an email so we have contact info for the soft push.
+    if (!phone && !email) {
+      return res.status(400).json({ error: "Phone or email is required to save progress." });
     }
   }
 
@@ -407,7 +410,7 @@ export default async function handler(req, res) {
 
     const leadName = isExitCapture
       ? `Exit Lead: ${contactName || phone} — ${dumpsterSize || "No Size Selected"}`
-      : `Funnel Lead: ${contactName} — ${dumpsterSize || "Unknown Size"}`;
+      : `Funnel Lead: ${contactName || phone} — ${dumpsterSize || "Unknown Size"}`;
 
     const debugNotes = [
       `Funnel source: ${pickFirstNonEmpty(funnelSource, "website_checkout")}`,
@@ -430,7 +433,6 @@ export default async function handler(req, res) {
     const values = {
       // standard CRM routing
       name: leadName,
-      type: "lead",
       team_id: ODOO_TEAM_ID,
       stage_id: ODOO_STAGE_ID,
       source_id: sourceId || false,
@@ -491,33 +493,32 @@ export default async function handler(req, res) {
       referred: referralText || false,
     };
 
-    const leadId = await odooCall(uid, "crm.lead", "create", [values]);
+    let resultingLeadId;
+    const parsedLeadId = parseInt(leadId, 10);
+
+    // PIIVOT LOGIC: Update if ID exists, Create if it doesn't
+    if (parsedLeadId && !isNaN(parsedLeadId)) {
+      await odooCall(uid, "crm.lead", "write", [[parsedLeadId], values]);
+      resultingLeadId = parsedLeadId;
+    } else {
+      values.type = "lead"; // only needed on creation
+      resultingLeadId = await odooCall(uid, "crm.lead", "create", [values]);
+    }
 
     return res.status(200).json({
       success: true,
-      leadId,
+      leadId: resultingLeadId, // <--- Returns the same ID back to the frontend
+      action: parsedLeadId ? "updated" : "created",
       routed: {
         type: "lead",
         team_id: ODOO_TEAM_ID,
         stage_id: ODOO_STAGE_ID,
         source_id: sourceId || null,
       },
-      address: {
-        city: city || null,
-        zip: postalCode || null,
-        state_id: stateId || null,
-        country_id: countryId || null,
-      },
-      sms: {
-        opt_in: smsOptInBool,
-        opt_in_date: smsOptInTimestamp || null,
-      },
     });
   } catch (err) {
     console.error("[submit-lead] FAILED");
     console.error("[submit-lead] msg:", err.message?.slice(0, 300));
-    console.error("[submit-lead] msg2:", err.message?.slice(300, 600));
-    console.error("[submit-lead] stack:", err.stack?.split("\n")[1]);
 
     return res.status(500).json({
       success: false,
