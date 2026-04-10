@@ -279,8 +279,8 @@ function TonnagePill({ label }) {
 function CardFooter() {
   return (
     <div style={{ borderTop:`1px solid ${C.surfaceBorder}`, padding:"13px 24px", display:"flex", justifyContent:"space-between", alignItems:"center", background:C.surfaceBg }}>
-      <span style={{ fontSize:11, fontWeight:700, color:C.inkFaint, fontFamily:F, letterSpacing:"0.3px" }}>Little Junkers LLC</span>
-      <a href="tel:4705484733" style={{ fontSize:14, fontWeight:900, color:C.ink, textDecoration:"none", fontFamily:F }}>470-548-4733</a>
+      <span style={{ fontSize:11, fontWeight:700, color:C.inkFaint, fontFamily:F, letterSpacing:"0.3px" }}>Questions? Call or text us anytime.</span>
+      <a href="tel:4705484733" style={{ fontSize:14, fontWeight:900, color:C.ink, textDecoration:"none", fontFamily:F, whiteSpace:"nowrap", marginLeft:12 }}>470-548-4733</a>
     </div>
   );
 }
@@ -430,11 +430,19 @@ function Step5DatePicker({
     typeof priceFor("Base Rental") === "number" &&
     priceFor("Early Bird") < priceFor("Base Rental");
 
+  // Suppress Base Rental windows that share a start date with an Early Bird window.
+  // If an Early Bird (discounted) option exists for that date, the Base Rental is
+  // redundant and confusing — the cheaper option wins.
+  const earlyBirdStartDates = new Set(earlyWindows.map(w => w.start));
+  const filteredStandardWindows = earlyIsDiscounted
+    ? standardWindows.filter(w => !earlyBirdStartDates.has(w.start))
+    : standardWindows;
+
   const allRankedCandidates = [
-    ...standardWindows.map(w => ({ type:"Base Rental",     option:standardOption, window:w })),
-    ...earlyWindows.map(w =>    ({ type:"Early Bird",      option:earlyOption,    window:w })),
-    ...weekendWindows.map(w =>  ({ type:"Weekend Warrior", option:weekendOption,  window:w })),
-    ...resetWindows.map(w =>    ({ type:"Full Reset",      option:resetOption,    window:w })),
+    ...filteredStandardWindows.map(w => ({ type:"Base Rental",     option:standardOption, window:w })),
+    ...earlyWindows.map(w =>           ({ type:"Early Bird",       option:earlyOption,    window:w })),
+    ...weekendWindows.map(w =>         ({ type:"Weekend Warrior",  option:weekendOption,  window:w })),
+    ...resetWindows.map(w =>           ({ type:"Full Reset",       option:resetOption,    window:w })),
   ].sort((a, b) => new Date(a.window.start).getTime() - new Date(b.window.start).getTime());
 
   const soonestCard = allRankedCandidates[0] || null;
@@ -1050,7 +1058,7 @@ export default function Funnel() {
         />
       )}
 
-      <div style={{ maxWidth:480, margin:"0 auto" }}>
+      <div style={{ maxWidth:800, margin:"0 auto" }}>
 
         {/* Header */}
         <header style={{
