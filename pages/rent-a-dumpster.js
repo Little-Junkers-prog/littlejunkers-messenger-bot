@@ -1169,13 +1169,14 @@ export default function Funnel() {
 
       // 2. Prep the Stripe Checkout Payload
       const stripePayload = {
-        leadId: finalLeadId,
+        leadId:        finalLeadId,
         customerEmail: form.email.trim(),
-        dumpsterSize: effectiveSize,
-        rentalOption: getRentalDisplayLabel(duration),
-        basePrice: selectedPrice - zoneFee, // separate out the base price for the receipt
-        deliveryFee: zoneFee,
-        zone: zoneKey
+        customerName:  form.name.trim(),
+        dumpsterSize:  effectiveSize,
+        rentalOption:  getRentalDisplayLabel(duration),
+        basePrice:     selectedPrice - zoneFee, // separate out the base price for the receipt
+        deliveryFee:   zoneFee,
+        zone:          zoneKey,
       };
 
       // 3. Request the Checkout Session URL
