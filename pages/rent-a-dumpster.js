@@ -288,87 +288,183 @@ function CardFooter() {
 // ─── Exit Modal ───────────────────────────────────────────────────────────────
 
 function ExitModal({ onSubmit, onDismiss, submitting, error, capturedSize, capturedPrice }) {
-  const [name, setName]       = useState("");
-  const [phone, setPhone]     = useState("");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [smsOptIn, setSmsOptIn] = useState(false);
 
   const phoneHasValue = phone.trim().length > 0;
 
   const handleSubmit = () => {
     if (!phone.trim()) return;
-    onSubmit({ name: name.trim(), phone: phone.trim(), smsOptIn, smsOptInDate: smsOptIn ? new Date().toISOString() : null });
+    onSubmit({
+      name: name.trim(),
+      phone: phone.trim(),
+      smsOptIn,
+      smsOptInDate: smsOptIn ? new Date().toISOString() : null,
+    });
   };
 
   return (
-    <div style={{
-      position:"fixed", inset:0, zIndex:1000,
-      background:"rgba(0,0,0,0.55)",
-      display:"flex", alignItems:"flex-end", justifyContent:"center",
-      fontFamily:F,
-    }}>
-      <div style={{
-        width:"100%", maxWidth:800,
-        background:C.white,
-        borderRadius:"20px 20px 0 0",
-        padding:"28px 24px 40px",
-        boxShadow:"0 -4px 32px rgba(0,0,0,0.18)",
-      }}>
-        {/* drag handle */}
-        <div style={{ width:40, height:4, background:C.surfaceBorder, borderRadius:99, margin:"0 auto 22px" }} />
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1000,
+        background: "rgba(0,0,0,0.55)",
+        display: "flex",
+        alignItems: "flex-end",
+        justifyContent: "center",
+        fontFamily: F,
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 480,
+          background: C.white,
+          borderRadius: "20px 20px 0 0",
+          padding: "28px 24px 40px",
+          boxShadow: "0 -4px 32px rgba(0,0,0,0.18)",
+        }}
+      >
+        <div style={{ position: "relative", marginBottom: 22 }}>
+          <div
+            style={{
+              width: 40,
+              height: 4,
+              background: C.surfaceBorder,
+              borderRadius: 99,
+              margin: "0 auto",
+            }}
+          />
+          <button
+            onClick={onDismiss}
+            aria-label="Close"
+            style={{
+              position: "absolute",
+              top: -8,
+              right: 0,
+              width: 36,
+              height: 36,
+              borderRadius: "50%",
+              background: C.surfaceBg,
+              border: `1px solid ${C.surfaceBorder}`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              fontSize: 18,
+              color: C.ink,
+              fontWeight: 700,
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
+        </div>
 
-        <div style={{ fontSize:10, fontWeight:700, color:C.pinkText, letterSpacing:"1.2px", textTransform:"uppercase", marginBottom:6 }}>
+        <div
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            color: C.pinkText,
+            letterSpacing: "1.2px",
+            textTransform: "uppercase",
+            marginBottom: 6,
+          }}
+        >
           Before you go
         </div>
-        <h2 style={{ margin:"0 0 8px", fontSize:22, fontWeight:900, color:C.ink, letterSpacing:"-0.5px", lineHeight:1.15 }}>
+
+        <h2
+          style={{
+            margin: "0 0 8px",
+            fontSize: 22,
+            fontWeight: 900,
+            color: C.ink,
+            letterSpacing: "-0.5px",
+            lineHeight: 1.15,
+          }}
+        >
           Want us to text you this quote?
         </h2>
-        <p style={{ margin:"0 0 20px", fontSize:14, color:C.inkMid, lineHeight:1.55 }}>
+
+        <p
+          style={{
+            margin: "0 0 20px",
+            fontSize: 14,
+            color: C.inkMid,
+            lineHeight: 1.55,
+          }}
+        >
           {capturedSize && capturedPrice
             ? `We'll hold your ${capturedSize} quote of $${capturedPrice} and text you when you're ready.`
             : "Drop your number and we'll send the details so you can finish when you're ready."}
         </p>
 
-        <div style={{ display:"grid", gap:12 }}>
+        <div style={{ display: "grid", gap: 12 }}>
           <input
             placeholder="Your name (optional)"
             value={name}
-            onChange={e => setName(e.target.value)}
+            onChange={(e) => setName(e.target.value)}
             style={{
-              display:"block", width:"100%", padding:"13px 14px",
-              border:`1.5px solid ${C.surfaceBorder}`, borderRadius:10,
-              background:C.white, fontSize:15, color:C.ink,
-              boxSizing:"border-box", fontFamily:F,
+              display: "block",
+              width: "100%",
+              padding: "13px 14px",
+              border: `1.5px solid ${C.surfaceBorder}`,
+              borderRadius: 10,
+              background: C.white,
+              fontSize: 15,
+              color: C.ink,
+              boxSizing: "border-box",
+              fontFamily: F,
             }}
           />
+
           <input
             placeholder="Phone number *"
             value={phone}
-            onChange={e => setPhone(e.target.value)}
+            onChange={(e) => setPhone(e.target.value)}
             type="tel"
             style={{
-              display:"block", width:"100%", padding:"13px 14px",
-              border:`1.5px solid ${phoneHasValue ? C.ink : C.surfaceBorder}`, borderRadius:10,
-              background:C.white, fontSize:15, color:C.ink,
-              boxSizing:"border-box", fontFamily:F,
+              display: "block",
+              width: "100%",
+              padding: "13px 14px",
+              border: `1.5px solid ${phoneHasValue ? C.ink : C.surfaceBorder}`,
+              borderRadius: 10,
+              background: C.white,
+              fontSize: 15,
+              color: C.ink,
+              boxSizing: "border-box",
+              fontFamily: F,
             }}
           />
 
           {phoneHasValue && (
-            <label style={{ display:"flex", gap:10, alignItems:"flex-start", fontFamily:F }}>
+            <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontFamily: F }}>
               <input
                 type="checkbox"
                 checked={smsOptIn}
-                onChange={e => setSmsOptIn(e.target.checked)}
-                style={{ marginTop:3, flexShrink:0 }}
+                onChange={(e) => setSmsOptIn(e.target.checked)}
+                style={{ marginTop: 3, flexShrink: 0 }}
               />
-              <span style={{ fontSize:13, color:C.inkMid, lineHeight:1.45 }}>
+              <span style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.45 }}>
                 I agree to receive text messages from Little Junkers about my quote and rental.
               </span>
             </label>
           )}
 
           {error && (
-            <div style={{ background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:10, padding:"10px 14px", fontSize:13, color:C.ink }}>
+            <div
+              style={{
+                background: C.warningBg,
+                border: `1px solid ${C.warningBorder}`,
+                borderRadius: 10,
+                padding: "10px 14px",
+                fontSize: 13,
+                color: C.ink,
+              }}
+            >
               {error}
             </div>
           )}
@@ -377,10 +473,16 @@ function ExitModal({ onSubmit, onDismiss, submitting, error, capturedSize, captu
             onClick={handleSubmit}
             disabled={!phoneHasValue || submitting}
             style={{
-              width:"100%", padding:"15px", background: (!phoneHasValue || submitting) ? C.inkFaint : C.ink,
-              color:C.white, border:"none", borderRadius:12, fontSize:15, fontWeight:800,
-              cursor: (!phoneHasValue || submitting) ? "not-allowed" : "pointer", fontFamily:F,
-              marginTop:4,
+              width: "100%",
+              padding: "15px",
+              background: !phoneHasValue || submitting ? C.inkFaint : C.ink,
+              color: C.white,
+              border: "none",
+              borderRadius: 12,
+              fontSize: 15,
+              fontWeight: 800,
+              cursor: !phoneHasValue || submitting ? "not-allowed" : "pointer",
+              fontFamily: F,
             }}
           >
             {submitting ? "Sending..." : "Text Me My Quote"}
@@ -389,23 +491,36 @@ function ExitModal({ onSubmit, onDismiss, submitting, error, capturedSize, captu
           <button
             onClick={onDismiss}
             style={{
-              width:"100%", padding:"13px", background:"transparent", color:C.inkMuted,
-              border:`1px solid ${C.surfaceBorder}`, borderRadius:12, fontSize:14,
-              fontWeight:700, cursor:"pointer", fontFamily:F,
+              width: "100%",
+              padding: "15px",
+              background: C.white,
+              color: C.inkMuted,
+              border: `1px solid ${C.surfaceBorder}`,
+              borderRadius: 12,
+              fontSize: 15,
+              fontWeight: 700,
+              cursor: "pointer",
+              fontFamily: F,
             }}
           >
             No thanks
           </button>
-        </div>
 
-        <p style={{ margin:"16px 0 0", fontSize:11, color:C.inkFaint, lineHeight:1.5, textAlign:"center" }}>
-          We won't spam you. One text, that's it.
-        </p>
+          <div
+            style={{
+              textAlign: "center",
+              fontSize: 12,
+              color: C.inkFaint,
+              marginTop: 4,
+            }}
+          >
+            We won't spam you. One text, that's it.
+          </div>
+        </div>
       </div>
     </div>
   );
 }
-
 // ─── Step 5 Date Picker ───────────────────────────────────────────────────────
 
 function Step5DatePicker({
@@ -688,7 +803,20 @@ export default function Funnel() {
   const [submitted,           setSubmitted]           = useState(false);
   const [submitError,         setSubmitError]         = useState("");
   const [smsOptIn,            setSmsOptIn]            = useState(false);
-  const [form,                setForm]                = useState({ name:"", email:"", phone:"", source:"" });
+  const [form, setForm] = useState({
+    name:    "",
+    email:   "",
+    phone:   "",
+    source:  "",
+    street:  "",
+    street2: "",
+    city:    "",
+    state:   "GA",
+    zip:     "",
+  });
+
+  // Safety Net state
+  const [capturedLeadId,      setCapturedLeadId]      = useState(null);
 
   // Exit modal state
   const [showExitModal,       setShowExitModal]       = useState(false);
@@ -797,26 +925,22 @@ export default function Funnel() {
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [triggerExitModal]);
 
-  // ── Exit modal handlers ──────────────────────────────────────────────────
+  // ── Exit modal handlers ─────────────────────────────────────────────────
 
   const handleExitModalDismiss = () => {
     setShowExitModal(false);
-    window.location.href = HOMEPAGE;
+    setExitError("");
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    resetIdleTimer();
   };
 
   const handleExitSubmit = async ({ name, phone, smsOptIn: optIn, smsOptInDate }) => {
-    // Phone is required — name is optional
     if (!phone) return;
-
     setExitSubmitting(true);
     setExitError("");
 
     const payload = {
-      zip,
-      areaLabel,
-      zone:        zoneKey,
-      deliveryFee: zoneFee,
-      customerType,
+      zip, areaLabel, zone:zoneKey, deliveryFee:zoneFee, customerType,
       selectedSize:  effectiveSize || null,
       rentalPrice:   selectedPrice || null,
       selectedWindow: selectedWindow || null,
@@ -843,7 +967,6 @@ export default function Funnel() {
       if (!res.ok || !json?.success) throw new Error(json?.error || "Submission failed.");
       setExitSubmitted(true);
       setShowExitModal(false);
-      // Brief confirmation then redirect
       setTimeout(() => { window.location.href = HOMEPAGE; }, 1800);
     } catch (err) {
       setExitError("Something went wrong. Call or text us at 470-548-4733.");
@@ -869,7 +992,9 @@ export default function Funnel() {
     if (!/^\d{5}$/.test(clean)) { setZipError("Please enter a valid 5-digit ZIP code."); return; }
     const found = zipToZone[clean];
     if (!found) { setZipError("We may not service that area right now. If you're nearby, contact us and we'll confirm."); return; }
-    setZipError(""); setZoneKey(found); setZoneFee(zones[found].fee); setStep(1);
+    setZipError(""); setZoneKey(found); setZoneFee(zones[found].fee);
+    setForm(prev => ({ ...prev, zip: clean }));
+    setStep(1);
   };
 
   const handleCustomerType = (type) => {
@@ -966,11 +1091,51 @@ export default function Funnel() {
     setStep(6);
   };
 
+  // ── Safety Net Soft Push ──
+  const handlePhoneBlur = async () => {
+    if (capturedLeadId) return; // already pushed, don't spam
+    const cleanPhone = form.phone.trim();
+    if (cleanPhone.length < 10) return; // wait for a real phone number
+
+    const payload = {
+      zip, areaLabel, zone:zoneKey, deliveryFee:zoneFee, customerType, returningPath,
+      project:        normalizeProjectForOdoo(project),
+      otherText:      project === "Other" ? otherText.trim() : "",
+      recommendedSize: size,
+      selectedSize:   effectiveSize,
+      includedTons:   sizeMeta[effectiveSize]?.tons || null,
+      rentalOption:   normalizeRentalOption(duration),
+      rentalPrice:    selectedPrice,
+      selectedWindow,
+      funnelSource:   "rent_a_dumpster_funnel_partial",
+      leadSourceName: "Website",
+      contact: {
+        name:   form.name.trim(),
+        email:  form.email.trim(),
+        phone:  cleanPhone,
+        mobile: cleanPhone,
+        source: form.source,
+      },
+    };
+
+    try {
+      const res = await fetch("/api/submit-lead", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(payload) });
+      const json = await res.json();
+      if (json?.success && json?.leadId) {
+        setCapturedLeadId(json.leadId);
+      }
+    } catch (err) {
+      console.error("Soft push failed silently in background");
+    }
+  };
+
+  // ── Final Checkout Push ──
   const handleSubmit = async () => {
-    if (!form.name.trim() || !form.email.trim()) return alert("Please enter your name and email.");
+    if (!form.name.trim() || !form.email.trim() || !form.phone.trim()) return alert("Please enter your name, email, and phone number.");
     setSubmitting(true); setSubmitError("");
 
     const payload = {
+      leadId:         capturedLeadId, // Triggers the upsert if we caught them on blur!
       zip, areaLabel, zone:zoneKey, deliveryFee:zoneFee, customerType, returningPath,
       project:        normalizeProjectForOdoo(project),
       otherText:      project === "Other" ? otherText.trim() : "",
@@ -995,14 +1160,36 @@ export default function Funnel() {
     };
 
     try {
-      const res  = await fetch("/api/submit-lead", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(payload) });
-      const json = await res.json();
-      if (!res.ok || !json?.success) throw new Error(json?.error || "Submission failed.");
-      setSubmitted(true);
+      // 1. Send the full payload to Odoo
+      const resOdoo  = await fetch("/api/submit-lead", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(payload) });
+      const odooJson = await resOdoo.json();
+      if (!resOdoo.ok || !odooJson?.success) throw new Error(odooJson?.error || "Lead Submission failed.");
+
+      const finalLeadId = odooJson.leadId || capturedLeadId;
+
+      // 2. Prep the Stripe Checkout Payload
+      const stripePayload = {
+        leadId:        finalLeadId,
+        customerEmail: form.email.trim(),
+        customerName:  form.name.trim(),
+        dumpsterSize:  effectiveSize,
+        rentalOption:  getRentalDisplayLabel(duration),
+        basePrice:     selectedPrice - zoneFee, // separate out the base price for the receipt
+        deliveryFee:   zoneFee,
+        zone:          zoneKey,
+      };
+
+      // 3. Request the Checkout Session URL
+      const resStripe = await fetch("/api/create-checkout", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(stripePayload) });
+      const stripeJson = await resStripe.json();
+      if (!resStripe.ok || !stripeJson?.url) throw new Error(stripeJson?.error || "Stripe Checkout failed.");
+
+      // 4. Redirect the user to pay
+      window.location.href = stripeJson.url;
+
     } catch (err) {
-      setSubmitError("Something went wrong. Please call us at 470-548-4733 or try again.");
-    } finally {
-      setSubmitting(false);
+      setSubmitError("Something went wrong preparing your checkout. Please try again or call us at 470-548-4733.");
+      setSubmitting(false); // Only re-enable the button if it fails
     }
   };
 
@@ -1360,107 +1547,217 @@ export default function Funnel() {
                   />
                 )}
 
-                {/* Step 6 — success */}
-                {step === 6 && submitted && (
-                  <div style={{ textAlign:"center", padding:"20px 0" }}>
-                    <div style={{ fontSize:40, marginBottom:12 }}>🎉</div>
-                    <div style={{ fontSize:22, fontWeight:900, color:C.ink, letterSpacing:"-0.5px", marginBottom:8, fontFamily:F }}>Request received!</div>
-                    <p style={{ fontSize:14, color:C.inkMid, lineHeight:1.6, marginBottom:24, fontFamily:F }}>
-                      We'll reach out to confirm your delivery window and finalize the details. You can also call or text us anytime.
-                    </p>
-                    <a href="tel:4705484733" style={{ display:"inline-block", padding:"13px 28px", background:C.ink, color:C.white, borderRadius:12, fontSize:15, fontWeight:800, textDecoration:"none", fontFamily:F }}>
-                      Call / Text 470-548-4733
-                    </a>
-                  </div>
-                )}
+                {/* Step 6 — success (Fallback only, normally redirects to Stripe) */}
+               {step === 6 && !submitted && (
+  <div>
+    <StepHeading
+      eyebrow="Almost done"
+      title="Complete your booking"
+      text="Enter your service address and contact details, then continue to secure checkout."
+    />
 
-                {/* Step 6 — form */}
-                {step === 6 && !submitted && (
-                  <div>
-                    <StepHeading
-                      eyebrow="Almost done"
-                      title="Submit your request"
-                      text="We'll use this information to confirm availability and finalize your rental."
-                    />
+    <div style={{ marginBottom: 18, border: `1px solid ${C.surfaceBorder}`, borderRadius: 14, overflow: "hidden" }}>
+      <div
+        style={{
+          background: C.surfaceBg,
+          padding: "9px 16px",
+          fontSize: 10,
+          fontWeight: 800,
+          color: C.inkFaint,
+          letterSpacing: "0.8px",
+          textTransform: "uppercase",
+          fontFamily: F,
+          borderBottom: `1px solid ${C.surfaceBorder}`,
+        }}
+      >
+        Rental Summary
+      </div>
 
-                    {/* Rental summary */}
-                    <div style={{ marginBottom:18, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, overflow:"hidden" }}>
-                      <div style={{ background:C.surfaceBg, padding:"9px 16px", fontSize:10, fontWeight:800, color:C.inkFaint, letterSpacing:"0.8px", textTransform:"uppercase", fontFamily:F, borderBottom:`1px solid ${C.surfaceBorder}` }}>
-                        Rental Summary
-                      </div>
-                      {[
-                        { label:"Service Area",    value: areaLabel },
-                        { label:"Delivery",        value: `${zones[zoneKey]?.label || ""} ${zoneFee > 0 ? `(+$${zoneFee})` : "— Included"}` },
-                        { label:"Dumpster",        value: effectiveSize || "-" },
-                        { label:"Weight included", value: sizeMeta[effectiveSize]?.label || "-" },
-                        { label:"Rental",          value: getRentalDisplayLabel(duration) },
-                        {
-                          label:"Delivery date",
-                          value: selectedWindow
-                            ? `${selectedWindow.startLabel} – ${selectedWindow.endLabel}`
-                            : (isAvailabilityDegraded ? "Subject to confirmation" : "-")
-                        },
-                      ].map(row => (
-                        <div key={row.label} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 16px", borderBottom:`1px solid ${C.surfaceBorder}`, fontFamily:F }}>
-                          <span style={{ fontSize:13, color:C.inkMuted }}>{row.label}</span>
-                          <span style={{ fontSize:13, fontWeight:700, color:C.ink, textAlign:"right" }}>{row.value}</span>
-                        </div>
-                      ))}
-                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 16px", background:C.surfaceBg, fontFamily:F }}>
-                        <span style={{ fontSize:13, color:C.inkMuted }}>Total</span>
-                        <span style={{ fontSize:20, fontWeight:900, color:C.ink, letterSpacing:"-0.4px" }}>
-                          {selectedPrice != null ? `$${selectedPrice}` : "-"}
-                        </span>
-                      </div>
-                    </div>
+      {[
+        { label: "Service Area", value: areaLabel },
+        { label: "Delivery", value: `${zones[zoneKey]?.label || ""} ${zoneFee > 0 ? `(+$${zoneFee})` : "— Included"}` },
+        { label: "Dumpster", value: effectiveSize || "-" },
+        { label: "Weight included", value: sizeMeta[effectiveSize]?.label || "-" },
+        { label: "Rental", value: getRentalDisplayLabel(duration) },
+        {
+          label: "Delivery date",
+          value: selectedWindow
+            ? `${selectedWindow.startLabel} – ${selectedWindow.endLabel}`
+            : isAvailabilityDegraded
+              ? "Subject to confirmation"
+              : "-",
+        },
+      ].map((row) => (
+        <div
+          key={row.label}
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            padding: "10px 16px",
+            borderBottom: `1px solid ${C.surfaceBorder}`,
+            fontFamily: F,
+          }}
+        >
+          <span style={{ fontSize: 13, color: C.inkMuted }}>{row.label}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: C.ink, textAlign: "right" }}>{row.value}</span>
+        </div>
+      ))}
 
-                    {/* Contact form */}
-                    <div style={{ background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:"18px 18px 6px" }}>
-                      <label style={firstLabelStyle}>Name *</label>
-                      <input placeholder="Your name" value={form.name} onChange={e => setForm({...form, name:e.target.value})} style={inputStyle} />
-                      <label style={labelStyle}>Email *</label>
-                      <input placeholder="you@example.com" value={form.email} onChange={e => setForm({...form, email:e.target.value})} style={inputStyle} />
-                      <label style={labelStyle}>Phone</label>
-                      <input placeholder="For faster scheduling" value={form.phone} onChange={e => setForm({...form, phone:e.target.value})} type="tel" style={inputStyle} />
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "12px 16px",
+          background: C.surfaceBg,
+          fontFamily: F,
+        }}
+      >
+        <span style={{ fontSize: 13, color: C.inkMuted }}>Total</span>
+        <span style={{ fontSize: 20, fontWeight: 900, color: C.ink, letterSpacing: "-0.4px" }}>
+          {selectedPrice != null ? `$${selectedPrice}` : "-"}
+        </span>
+      </div>
+    </div>
 
-                      {/* SMS opt-in — only shown when phone has a value */}
-                      {phoneHasValue && (
-                        <label style={{ display:"flex", gap:10, alignItems:"flex-start", marginTop:14, marginBottom:6, fontFamily:F }}>
-                          <input
-                            type="checkbox"
-                            checked={smsOptIn}
-                            onChange={e => setSmsOptIn(e.target.checked)}
-                            style={{ marginTop:3 }}
-                          />
-                          <span style={{ fontSize:13, color:C.inkMid, lineHeight:1.45 }}>
-                            I agree to receive text messages from Little Junkers about my quote and rental.
-                          </span>
-                        </label>
-                      )}
+    <div
+      style={{
+        background: C.surfaceBg,
+        border: `1px solid ${C.surfaceBorder}`,
+        borderRadius: 14,
+        padding: "18px 18px 6px",
+      }}
+    >
+      <label style={firstLabelStyle}>Service address *</label>
+      <input
+        placeholder="Street address"
+        value={form.street}
+        onChange={(e) => setForm({ ...form, street: e.target.value })}
+        style={inputStyle}
+      />
 
-                      <label style={labelStyle}>How did you hear about us?</label>
-                      <select value={form.source} onChange={e => setForm({...form, source:e.target.value})} style={{ ...inputStyle, marginBottom:18 }}>
-                        <option value="">Select one</option>
-                        <option>Google</option>
-                        <option>Facebook</option>
-                        <option>Referral</option>
-                        <option>Repeat Customer</option>
-                        <option>Yard Sign</option>
-                        <option>Saw a Dumpster / Truck</option>
-                        <option>Other</option>
-                      </select>
-                    </div>
+      <label style={labelStyle}>Apt / Suite</label>
+      <input
+        placeholder="Apartment, suite, gate code, etc. (optional)"
+        value={form.street2}
+        onChange={(e) => setForm({ ...form, street2: e.target.value })}
+        style={inputStyle}
+      />
 
-                    {submitError && (
-                      <div style={{ marginTop:12, background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:10, padding:"12px 14px", fontSize:13, color:C.ink, fontFamily:F }}>
-                        {submitError}
-                      </div>
-                    )}
-                    <PrimaryButton onClick={handleSubmit} disabled={submitting}>
-                      {submitting ? "Submitting..." : "Submit Request"}
-                    </PrimaryButton>
-                  </div>
-                )}
+      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 0.8fr 0.8fr", gap: 10, marginTop: 14 }}>
+        <div>
+          <label style={firstLabelStyle}>City *</label>
+          <input
+            placeholder="City"
+            value={form.city}
+            onChange={(e) => setForm({ ...form, city: e.target.value })}
+            style={inputStyle}
+          />
+        </div>
+
+        <div>
+          <label style={firstLabelStyle}>State *</label>
+          <select
+            value={form.state}
+            onChange={(e) => setForm({ ...form, state: e.target.value })}
+            style={inputStyle}
+          >
+            <option value="GA">GA</option>
+          </select>
+        </div>
+
+        <div>
+          <label style={firstLabelStyle}>ZIP *</label>
+          <input
+            placeholder="ZIP"
+            value={form.zip}
+            onChange={(e) => setForm({ ...form, zip: e.target.value })}
+            maxLength={5}
+            style={inputStyle}
+          />
+        </div>
+      </div>
+
+      <label style={labelStyle}>Name *</label>
+      <input
+        placeholder="Your name"
+        value={form.name}
+        onChange={(e) => setForm({ ...form, name: e.target.value })}
+        style={inputStyle}
+      />
+
+      <label style={labelStyle}>Email *</label>
+      <input
+        placeholder="you@example.com"
+        value={form.email}
+        onChange={(e) => setForm({ ...form, email: e.target.value })}
+        style={inputStyle}
+      />
+
+      <label style={labelStyle}>Phone *</label>
+      <input
+        placeholder="For faster scheduling"
+        value={form.phone}
+        onChange={(e) => setForm({ ...form, phone: e.target.value })}
+        onBlur={handlePhoneBlur}
+        type="tel"
+        style={inputStyle}
+      />
+
+      {form.phone.trim().length > 0 && (
+        <label style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 14, marginBottom: 6, fontFamily: F }}>
+          <input
+            type="checkbox"
+            checked={smsOptIn}
+            onChange={(e) => setSmsOptIn(e.target.checked)}
+            style={{ marginTop: 3 }}
+          />
+          <span style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.45 }}>
+            I agree to receive text messages from Little Junkers about my quote and rental.
+          </span>
+        </label>
+      )}
+
+      <label style={labelStyle}>How did you hear about us?</label>
+      <select
+        value={form.source}
+        onChange={(e) => setForm({ ...form, source: e.target.value })}
+        style={{ ...inputStyle, marginBottom: 18 }}
+      >
+        <option value="">Select one</option>
+        <option>Google</option>
+        <option>Facebook</option>
+        <option>Referral</option>
+        <option>Repeat Customer</option>
+        <option>Yard Sign</option>
+        <option>Saw a Dumpster / Truck</option>
+        <option>Other</option>
+      </select>
+    </div>
+
+    {submitError && (
+      <div
+        style={{
+          marginTop: 12,
+          background: C.warningBg,
+          border: `1px solid ${C.warningBorder}`,
+          borderRadius: 10,
+          padding: "12px 14px",
+          fontSize: 13,
+          color: C.ink,
+          fontFamily: F,
+        }}
+      >
+        {submitError}
+      </div>
+    )}
+
+    <PrimaryButton onClick={handleSubmit} disabled={submitting}>
+      {submitting ? "Preparing Checkout..." : "Proceed to Checkout"}
+    </PrimaryButton>
+  </div>
+)}
 
               </CardBody>
               <CardFooter />

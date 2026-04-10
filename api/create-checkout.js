@@ -1,11 +1,24 @@
 // api/create-checkout.js
 import Stripe from "stripe";
 
-// Initialize Stripe with your secret key from Vercel environment variables
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: "2025-01-27.acacia",
+});
+
+function asMoneyCents(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100);
+}
+
+function getBaseUrl(req) {
+  if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
+  if (process.env.SITE_URL) return process.env.SITE_URL;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return req.headers.origin || "https://book.littlejunkersllc.com";
+}
 
 export default async function handler(req, res) {
-  // CORS headers
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -19,21 +32,32 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { 
-      leadId, 
-      customerEmail, 
-      dumpsterSize, 
-      rentalOption, 
-      basePrice, 
-      deliveryFee, 
-      zone 
-    } = req.body;
+    const {
+      leadId,
+      customerEmail,
+      customerName,
+      dumpsterSize,
+      rentalOption,
+      basePrice,
+      deliveryFee,
+      zone,
+    } = req.body || {};
 
     if (!leadId) {
       return res.status(400).json({ error: "Missing Odoo leadId. Cannot process payment." });
     }
 
-    // 1. Build the primary line item (The Dumpster)
+    if (!dumpsterSize || !rentalOption) {
+      return res.status(400).json({ error: "Missing dumpster size or rental option." });
+    }
+
+    const basePriceCents = asMoneyCents(basePrice);
+    const deliveryFeeCents = asMoneyCents(deliveryFee || 0);
+
+    if (basePriceCents === null) {
+      return res.status(400).json({ error: "Invalid base price." });
+    }
+
     const lineItems = [
       {
         price_data: {
@@ -42,51 +66,53 @@ export default async function handler(req, res) {
             name: `${dumpsterSize} — ${rentalOption}`,
             description: "Includes delivery, pickup, and allotted tonnage.",
           },
-          unit_amount: Math.round(basePrice * 100), // Stripe expects cents
+          unit_amount: basePriceCents,
         },
         quantity: 1,
       },
     ];
 
-    // 2. Add the Zonal Delivery Fee if applicable (Zone B or C)
-    if (deliveryFee > 0) {
+    if (deliveryFeeCents > 0) {
       lineItems.push({
         price_data: {
           currency: "usd",
           product_data: {
-            name: `Extended Area Delivery Fee (Zone ${zone})`,
+            name: `Extended Area Delivery Fee (Zone ${zone || "B/C"})`,
           },
-          unit_amount: Math.round(deliveryFee * 100), // Stripe expects cents
+          unit_amount: deliveryFeeCents,
         },
         quantity: 1,
       });
     }
 
-    // Determine the base URL for redirects (fallback to your domain)
-    const origin = req.headers.origin || "https://book.littlejunkersllc.com";
+    const baseUrl = getBaseUrl(req);
 
-    // 3. Create the Stripe Checkout Session
+    const metadata = {
+      odoo_lead_id: String(leadId),
+      customer_name: String(customerName || ""),
+      dumpster_size: String(dumpsterSize),
+      rental_option: String(rentalOption),
+      zone: String(zone || ""),
+    };
+
     const session = await stripe.checkout.sessions.create({
+      mode: "payment",
       payment_method_types: ["card"],
       customer_email: customerEmail || undefined,
       line_items: lineItems,
-      mode: "payment",
-      
-      // CRITICAL: This is how Make.com links the payment back to Odoo
-      metadata: {
-        odoo_lead_id: leadId.toString(),
+      metadata,
+      payment_intent_data: {
+        metadata,
       },
-      
-      // Redirects
-      success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: origin, // If they hit back, send them back to the funnel
+      success_url: `${baseUrl}/book?status=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/rent-a-dumpster`,
     });
 
-    // Return the Checkout URL to the frontend
     return res.status(200).json({ url: session.url });
-
   } catch (error) {
     console.error("[Stripe Checkout Error]:", error);
-    return res.status(500).json({ error: error.message || "Failed to create checkout session" });
+    return res.status(500).json({
+      error: error.message || "Failed to create checkout session",
+    });
   }
 }
