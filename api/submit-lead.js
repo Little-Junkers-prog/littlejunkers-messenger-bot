@@ -337,8 +337,18 @@ export default async function handler(req, res) {
   const phone = asString(contact?.phone);
   const mobile = asString(contact?.mobile);
 
-  if (!contactName || !email) {
-    return res.status(400).json({ error: "Name and email are required." });
+  // Exit capture leads only require a phone number.
+  // All other funnel paths require name + email.
+  const isExitCapture = asString(funnelSource) === "exit_capture";
+
+  if (isExitCapture) {
+    if (!phone) {
+      return res.status(400).json({ error: "Phone number is required for exit capture leads." });
+    }
+  } else {
+    if (!contactName || !email) {
+      return res.status(400).json({ error: "Name and email are required." });
+    }
   }
 
   try {
@@ -395,7 +405,9 @@ export default async function handler(req, res) {
       ? (toOdooDatetime(smsOptInDate) || buildNowPlusMinutes(0))
       : false;
 
-    const leadName = `Funnel Lead: ${contactName} — ${dumpsterSize || "Unknown Size"}`;
+    const leadName = isExitCapture
+      ? `Exit Lead: ${contactName || phone} — ${dumpsterSize || "No Size Selected"}`
+      : `Funnel Lead: ${contactName} — ${dumpsterSize || "Unknown Size"}`;
 
     const debugNotes = [
       `Funnel source: ${pickFirstNonEmpty(funnelSource, "website_checkout")}`,
@@ -424,8 +436,8 @@ export default async function handler(req, res) {
       source_id: sourceId || false,
 
       // contact identity on lead
-      contact_name: contactName,
-      email_from: email,
+      contact_name: contactName || false,
+      email_from: email || false,
       phone: phone || false,
       mobile: mobile || false,
 
@@ -442,6 +454,9 @@ export default async function handler(req, res) {
 
       // compact debug note
       description: debugNotes,
+
+      // flag exit capture leads for easy CRM filtering
+      priority: isExitCapture ? "1" : "0",
 
       // existing Studio fields to keep
       x_studio_selection_field_222_1jkvln416:
