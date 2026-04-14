@@ -149,11 +149,13 @@ export default function BookPage() {
                 <span style={{ fontSize:14, fontWeight:700, color:C.ink }}>{rentalOption}</span>
               </div>
             )}
-            {deliveryDate && (
+           {deliveryDate && (
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8 }}>
                 <span style={{ fontSize:13, color:C.inkMid }}>Delivery date</span>
                 <span style={{ fontSize:14, fontWeight:700, color:C.ink }}>{deliveryDate}</span>
               </div>
+            )}
+          </div>
         )}
 
         {/* What happens next */}
