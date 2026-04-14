@@ -1163,6 +1163,13 @@ export default function Funnel() {
         mobile: form.phone.trim(),
         source: form.source,
       },
+      deliveryAddress: {
+        street:  form.street.trim(),
+        street2: form.street2.trim(),
+        city:    form.city.trim(),
+        state:   form.state,
+        zip:     form.zip,
+      },
     };
 
     try {
