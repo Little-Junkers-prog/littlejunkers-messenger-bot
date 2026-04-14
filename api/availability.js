@@ -273,7 +273,7 @@ function buildWindows(optKey, blocked, today, windowEnd) {
       }
 
       if (clear) {
-        const end = addDays(cur, opt.duration - 1);
+        const end = addDays(cur, opt.duration);
 
         windows.push({
           start: toDateStr(cur),
