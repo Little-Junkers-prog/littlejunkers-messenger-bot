@@ -390,10 +390,10 @@ export default async function handler(req, res) {
     const projectText = pickFirstNonEmpty(project, otherText);
 
     // Native CRM address fields
-    const street = asString(deliveryAddress?.street);
-    const street2 = asString(deliveryAddress?.street2);
-    const city = pickFirstNonEmpty(deliveryAddress?.city, areaLabel);
-    const postalCode = pickFirstNonEmpty(deliveryAddress?.zip, zip);
+    const street  = asString(deliveryAddress?.street  || req.body?.street);
+const street2 = asString(deliveryAddress?.street2 || req.body?.street2);
+const city    = pickFirstNonEmpty(deliveryAddress?.city, req.body?.city, areaLabel);
+const postalCode = pickFirstNonEmpty(deliveryAddress?.zip, req.body?.zip, zip);
     const countryName = pickFirstNonEmpty(deliveryAddress?.country, "United States");
     const stateName = pickFirstNonEmpty(
       deliveryAddress?.state,
