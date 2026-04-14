@@ -41,6 +41,7 @@ export default async function handler(req, res) {
       basePrice,
       deliveryFee,
       zone,
+      deliveryDate,
     } = req.body || {};
 
     if (!leadId) {
@@ -93,6 +94,7 @@ export default async function handler(req, res) {
       dumpster_size: String(dumpsterSize),
       rental_option: String(rentalOption),
       zone: String(zone || ""),
+      delivery_date: String(deliveryDate || ""),
     };
 
     const session = await stripe.checkout.sessions.create({
