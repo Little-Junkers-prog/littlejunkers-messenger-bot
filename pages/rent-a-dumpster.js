@@ -976,10 +976,16 @@ export default function Funnel() {
   };
 
   // ── X button handler ─────────────────────────────────────────────────────
-
+  // NOTE: X button bypasses the exitTriggered guard intentionally.
+  // triggerExitModal() will no-op if exitTriggered is already true (idle/back
+  // already fired), so we force-show the modal directly here instead.
   const handleClose = () => {
     if (step >= 5) {
-      triggerExitModal();
+      if (!exitSubmitted && !submitted) {
+        setShowExitModal(true);
+      } else {
+        window.location.href = HOMEPAGE;
+      }
     } else {
       window.location.href = HOMEPAGE;
     }
@@ -1629,7 +1635,47 @@ export default function Funnel() {
         padding: "18px 18px 6px",
       }}
     >
-      <label style={firstLabelStyle}>Service address *</label>
+      <label style={firstLabelStyle}>Name *</label>
+      <input
+        placeholder="Your name"
+        value={form.name}
+        onChange={(e) => setForm({ ...form, name: e.target.value })}
+        style={inputStyle}
+      />
+
+      <label style={labelStyle}>Email *</label>
+      <input
+        placeholder="you@example.com"
+        value={form.email}
+        onChange={(e) => setForm({ ...form, email: e.target.value })}
+        style={inputStyle}
+      />
+
+      <label style={labelStyle}>Phone *</label>
+      <input
+        placeholder="For faster scheduling"
+        value={form.phone}
+        onChange={(e) => setForm({ ...form, phone: e.target.value })}
+        onBlur={handlePhoneBlur}
+        type="tel"
+        style={inputStyle}
+      />
+
+      {form.phone.trim().length > 0 && (
+        <label style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 14, marginBottom: 6, fontFamily: F }}>
+          <input
+            type="checkbox"
+            checked={smsOptIn}
+            onChange={(e) => setSmsOptIn(e.target.checked)}
+            style={{ marginTop: 3 }}
+          />
+          <span style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.45 }}>
+            I agree to receive text messages from Little Junkers about my quote and rental.
+          </span>
+        </label>
+      )}
+
+      <label style={labelStyle}>Service address *</label>
       <input
         placeholder="Street address"
         value={form.street}
@@ -1672,52 +1718,11 @@ export default function Funnel() {
           <input
             placeholder="ZIP"
             value={form.zip}
-            onChange={(e) => setForm({ ...form, zip: e.target.value })}
-            maxLength={5}
-            style={inputStyle}
+            readOnly
+            style={{ ...inputStyle, background: C.surfaceBg, color: C.inkMuted, cursor: "not-allowed" }}
           />
         </div>
       </div>
-
-      <label style={labelStyle}>Name *</label>
-      <input
-        placeholder="Your name"
-        value={form.name}
-        onChange={(e) => setForm({ ...form, name: e.target.value })}
-        style={inputStyle}
-      />
-
-      <label style={labelStyle}>Email *</label>
-      <input
-        placeholder="you@example.com"
-        value={form.email}
-        onChange={(e) => setForm({ ...form, email: e.target.value })}
-        style={inputStyle}
-      />
-
-      <label style={labelStyle}>Phone *</label>
-      <input
-        placeholder="For faster scheduling"
-        value={form.phone}
-        onChange={(e) => setForm({ ...form, phone: e.target.value })}
-        onBlur={handlePhoneBlur}
-        type="tel"
-        style={inputStyle}
-      />
-
-      {form.phone.trim().length > 0 && (
-        <label style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 14, marginBottom: 6, fontFamily: F }}>
-          <input
-            type="checkbox"
-            checked={smsOptIn}
-            onChange={(e) => setSmsOptIn(e.target.checked)}
-            style={{ marginTop: 3 }}
-          />
-          <span style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.45 }}>
-            I agree to receive text messages from Little Junkers about my quote and rental.
-          </span>
-        </label>
-      )}
 
       <label style={labelStyle}>How did you hear about us?</label>
       <select
