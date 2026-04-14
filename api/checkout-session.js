@@ -31,6 +31,7 @@ export default async function handler(req, res) {
       dumpster_size:  session.metadata?.dumpster_size || "",
       rental_option:  session.metadata?.rental_option || "",
       payment_status: session.payment_status || "",
+      delivery_date:  session.metadata?.delivery_date || "",
     });
   } catch (err) {
     console.error("[checkout-session lookup error]:", err.message);
