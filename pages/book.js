@@ -34,6 +34,7 @@ export default function BookPage() {
   const [customerName, setCustomerName] = useState("");
   const [dumpsterSize, setDumpsterSize] = useState("");
   const [rentalOption, setRentalOption] = useState("");
+  const [deliveryDate, setDeliveryDate] = useState("");
   const [loading, setLoading]     = useState(true);
 
   useEffect(() => {
@@ -52,6 +53,7 @@ export default function BookPage() {
           if (data?.customer_name) setCustomerName(data.customer_name);
           if (data?.dumpster_size) setDumpsterSize(data.dumpster_size);
           if (data?.rental_option) setRentalOption(data.rental_option);
+          if (data?.delivery_date) setDeliveryDate(data.delivery_date);
         })
         .catch(() => {})
         .finally(() => setLoading(false));
@@ -147,7 +149,11 @@ export default function BookPage() {
                 <span style={{ fontSize:14, fontWeight:700, color:C.ink }}>{rentalOption}</span>
               </div>
             )}
-          </div>
+            {deliveryDate && (
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8 }}>
+                <span style={{ fontSize:13, color:C.inkMid }}>Delivery date</span>
+                <span style={{ fontSize:14, fontWeight:700, color:C.ink }}>{deliveryDate}</span>
+              </div>
         )}
 
         {/* What happens next */}
