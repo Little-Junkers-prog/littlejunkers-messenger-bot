@@ -1183,6 +1183,7 @@ export default function Funnel() {
         basePrice:     selectedPrice - zoneFee, // separate out the base price for the receipt
         deliveryFee:   zoneFee,
         zone:          zoneKey,
+deliveryDate:  selectedWindow?.startLabel || "",
       };
 
       // 3. Request the Checkout Session URL
