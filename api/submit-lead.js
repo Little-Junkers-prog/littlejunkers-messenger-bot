@@ -150,7 +150,7 @@ function toOdooDatetime(val) {
     return s;
   }
 
-  const d = new Date(s);
+  const d = new Date(s.includes("T") ? s : s + "T12:00:00");
   if (Number.isNaN(d.getTime())) {
     return false;
   }
