@@ -42,69 +42,69 @@ async function getRawBody(req) {
   });
 }
 
-// ── Odoo XML-RPC helpers ───────────────────────────────────────────────────
+// ── Odoo helpers — mirrors submit-lead.js auth/call pattern exactly ────────
 
-const ODOO_URL      = process.env.ODOO_URL;
-const ODOO_DB       = process.env.ODOO_DB;
-const ODOO_USERNAME = process.env.ODOO_USERNAME;
-const ODOO_API_KEY  = process.env.ODOO_API_KEY;
-
-async function odooCall(service, method, args) {
-  const body = JSON.stringify({
-    jsonrpc: "2.0",
-    method:  "call",
-    id:      1,
-    params:  { service, method, args },
-  });
-
-  const res = await fetch(`${ODOO_URL}/web/dataset/call_kw`, {
-    method:  "POST",
-    headers: { "Content-Type": "application/json" },
-    body,
-  });
-
-  const json = await res.json();
-  if (json.error) throw new Error(`Odoo error: ${JSON.stringify(json.error)}`);
-  return json.result;
+function xe(v) {
+  return String(v)
+    .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
+}
+function xv(val) {
+  if (val === null || val === undefined || val === false) return "<value><boolean>0</boolean></value>";
+  if (val === true) return "<value><boolean>1</boolean></value>";
+  if (typeof val === "number" && Number.isInteger(val)) return `<value><int>${val}</int></value>`;
+  if (typeof val === "number") return `<value><double>${val}</double></value>`;
+  if (typeof val === "string") return `<value><string>${xe(val)}</string></value>`;
+  if (Array.isArray(val)) return `<value><array><data>${val.map(xv).join("")}</data></array></value>`;
+  if (typeof val === "object") return `<value><struct>${Object.entries(val).map(([k,v]) => `<member><n>${xe(k)}</n>${xv(v)}</member>`).join("")}</struct></value>`;
+  return `<value><string>${xe(String(val))}</string></value>`;
 }
 
-async function getOdooUid() {
-  const uid = await odooCall("common", "authenticate", [
-    ODOO_DB, ODOO_USERNAME, ODOO_API_KEY, {}
-  ]);
-  if (!uid) throw new Error("Odoo authentication failed.");
+async function xmlrpcAuth() {
+  const { ODOO_URL, ODOO_DB, ODOO_USER, ODOO_API_KEY } = process.env;
+  const body =
+    `<?xml version="1.0"?><methodCall><methodName>authenticate</methodName><params>` +
+    `<param>${xv(ODOO_DB)}</param><param>${xv(ODOO_USER)}</param>` +
+    `<param>${xv(ODOO_API_KEY)}</param><param>${xv({})}</param>` +
+    `</params></methodCall>`;
+  const r = await fetch(`${ODOO_URL}/xmlrpc/2/common`, {
+    method: "POST", headers: { "Content-Type": "text/xml" }, body,
+  });
+  const xml = await r.text();
+  const m = xml.match(/<(?:int|i4)>(-?\d+)<\/(?:int|i4)>/);
+  const uid = m ? parseInt(m[1], 10) : null;
+  if (!uid) throw new Error("XML-RPC auth failed");
   return uid;
 }
 
-// Mark a CRM lead as won and write payment metadata back to it.
+async function odooCall(uid, model, method, args, kwargs = {}) {
+  const { ODOO_URL, ODOO_DB, ODOO_API_KEY } = process.env;
+  const r = await fetch(`${ODOO_URL}/jsonrpc`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", method: "call", id: Date.now(),
+      params: { service: "object", method: "execute_kw",
+        args: [ODOO_DB, uid, ODOO_API_KEY, model, method, args, kwargs] },
+    }),
+  });
+  if (!r.ok) throw new Error(`Odoo /jsonrpc HTTP ${r.status}`);
+  const json = await r.json();
+  if (json.error) throw new Error(json.error.data?.message || JSON.stringify(json.error));
+  return json.result;
+}
+
+// Update payment status and record Stripe session ID on the CRM lead
 async function markLeadPaid(leadId, stripeSessionId, amountTotal) {
-  const uid = await getOdooUid();
+  const uid = await xmlrpcAuth();
+  const id  = parseInt(leadId, 10);
 
-  // Write Stripe session ID and payment status into the lead note / description
-  const note = `Payment confirmed via Stripe.\nSession: ${stripeSessionId}\nAmount: $${(amountTotal / 100).toFixed(2)}`;
+  await odooCall(uid, "crm.lead", "write", [[id], {
+    x_studio_payment_status:        "Paid",
+    x_studio_stripe_payment_intent: stripeSessionId,
+  }]);
 
-  await odooCall("object", "execute_kw", [
-    ODOO_DB, uid, ODOO_API_KEY,
-    "crm.lead", "write",
-    [[parseInt(leadId, 10)], {
-      stage_id:    false, // Let Odoo automation handle stage progression
-      description: note,
-      // Custom field — only works if you've added it in Odoo Studio:
-      // x_stripe_session_id: stripeSessionId,
-    }]
-  ]);
-
-  // Attempt to mark won — this may fail if lead is already won, which is fine.
-  try {
-    await odooCall("object", "execute_kw", [
-      ODOO_DB, uid, ODOO_API_KEY,
-      "crm.lead", "action_set_won",
-      [[parseInt(leadId, 10)]]
-    ]);
-  } catch (err) {
-    // Non-fatal — lead may already be in a won state or the method may not exist
-    console.warn("[Odoo] action_set_won failed (non-fatal):", err.message);
-  }
+  console.log(`[Odoo] Lead ${id} marked Paid. Session: ${stripeSessionId}. Amount: $${((amountTotal||0)/100).toFixed(2)}`);
 }
 
 // ── Main webhook handler ───────────────────────────────────────────────────
@@ -157,7 +157,7 @@ export default async function handler(req, res) {
     );
 
     // Update Odoo if we have a lead ID
-    if (odoo_lead_id && ODOO_URL && ODOO_DB && ODOO_USERNAME && ODOO_API_KEY) {
+    if (odoo_lead_id && process.env.ODOO_URL && process.env.ODOO_DB && process.env.ODOO_USER && process.env.ODOO_API_KEY) {
       try {
         await markLeadPaid(odoo_lead_id, stripeSessionId, amountTotal);
         console.log(`[Stripe Webhook] Odoo lead ${odoo_lead_id} marked paid.`);
