@@ -167,7 +167,7 @@ export default function BookPage() {
             {[
               { step:"1", label:"Confirmation text", detail:"We'll text you to confirm your delivery window — usually within a few hours." },
               { step:"2", label:"Day-before reminder", detail:"You'll get a reminder text the day before your dumpster arrives." },
-              { step:"3", label:"Delivery day", detail:"Your driver will arrive during the agreed window. Make sure the drop spot is clear." },
+              { step:"3", label:"Delivery day", detail:"Your driver will text when we are en route for delivery. Please make sure the drop spot is clear." },
             ].map(({ step, label, detail }) => (
               <div key={step} style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
                 <div style={{ width:26, height:26, borderRadius:"50%", background:C.green, color:C.white, fontSize:12, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
