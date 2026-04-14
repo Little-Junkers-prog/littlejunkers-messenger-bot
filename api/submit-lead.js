@@ -356,7 +356,6 @@ export default async function handler(req, res) {
 
   try {
     const uid = await xmlrpcAuth();
-    console.log("[DEBUG selectedWindow]", JSON.stringify(selectedWindow));
 
     const dumpsterSize = pickFirstNonEmpty(selectedSize, recommendedSize);
     const rentalType = asString(rentalOption);
