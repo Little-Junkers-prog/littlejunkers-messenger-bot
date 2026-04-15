@@ -5,6 +5,26 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: "2025-01-27.acacia",
 });
 
+const ALLOWED_ORIGINS = new Set([
+  "https://book.littlejunkersllc.com",
+  "https://www.littlejunkersllc.com",
+]);
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+function hasAllowedOrigin(req) {
+  const origin = req.headers.origin;
+  return !origin || ALLOWED_ORIGINS.has(origin);
+}
+
 function asMoneyCents(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0) return null;
@@ -19,16 +39,20 @@ function getBaseUrl(req) {
 }
 
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  applyCors(req, res);
 
   if (req.method === "OPTIONS") {
-    return res.status(200).end();
+    return hasAllowedOrigin(req)
+      ? res.status(200).end()
+      : res.status(403).json({ error: "Forbidden origin" });
   }
 
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  if (!hasAllowedOrigin(req)) {
+    return res.status(403).json({ error: "Forbidden origin" });
   }
 
   try {
