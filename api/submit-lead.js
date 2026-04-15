@@ -40,6 +40,47 @@ function xv(val) {
   return `<value><string>${xe(String(val))}</string></value>`;
 }
 
+function getClientIp(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.length > 0) {
+    return forwarded.split(",")[0].trim();
+  }
+  return req.socket?.remoteAddress || "";
+}
+
+async function validateTurnstileToken(token, remoteIp) {
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+  if (!secret) {
+    throw new Error("TURNSTILE_SECRET_KEY is not configured");
+  }
+
+  const formData = new FormData();
+  formData.append("secret", secret);
+  formData.append("response", token);
+
+  if (remoteIp) {
+    formData.append("remoteip", remoteIp);
+  }
+
+  const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+    method: "POST",
+    body: formData,
+  });
+
+  const result = await response.json();
+  const expectedHostname = process.env.TURNSTILE_EXPECTED_HOSTNAME || "";
+
+  if (!result.success) {
+    return { success: false, errorCodes: result["error-codes"] || [] };
+  }
+
+  if (expectedHostname && result.hostname !== expectedHostname) {
+    return { success: false, errorCodes: ["hostname-mismatch"] };
+  }
+
+  return { success: true };
+}
+
 async function xmlrpcAuth() {
   const { ODOO_URL, ODOO_DB, ODOO_USER, ODOO_API_KEY } = process.env;
 
@@ -103,9 +144,8 @@ async function odooCall(uid, model, method, args, kwargs = {}) {
   return json.result;
 }
 
-// Confirmed CRM routing
-const ODOO_TEAM_ID = 2;   // Website
-const ODOO_STAGE_ID = 1;  // New
+const ODOO_TEAM_ID = 2;
+const ODOO_STAGE_ID = 1;
 
 function asString(v) {
   if (v === null || v === undefined) return "";
@@ -242,10 +282,6 @@ async function findLeadSourceIdByName(uid, sourceName) {
   return Array.isArray(rows) && rows.length ? rows[0].id : false;
 }
 
-// -----------------------------------------------------------------------------
-// Frontend label -> Odoo stored value mappings
-// -----------------------------------------------------------------------------
-
 const MAP_CUSTOMER_TYPE = {
   "New Customer": "Residential",
   "Residential": "Residential",
@@ -304,53 +340,65 @@ export default async function handler(req, res) {
   }
 
   const {
-    leadId, // <--- New parameter injected here
+    leadId,
     zip,
     areaLabel,
     zone,
     deliveryFee,
-
     customerType,
     project,
     otherText,
-
     recommendedSize,
     selectedSize,
-
     rentalOption,
     rentalPrice,
-
     selectedWindow,
-
     funnelSource,
     referredBy,
     leadSourceName,
-
     deliveryAddress,
     smsOptIn,
     smsOptInDate,
-
     contact,
+    turnstileToken,
   } = req.body || {};
 
   const contactName = asString(contact?.name);
   const email = asString(contact?.email);
   const phone = asString(contact?.phone);
   const mobile = asString(contact?.mobile);
-
-  // Exit capture leads only require a phone number.
-  // Partial (abandoned cart) pushes might only have a name and phone.
-  // Full checkout pushes require name, email, and phone.
   const isExitCapture = asString(funnelSource) === "exit_capture";
+  const requiresTurnstile = asString(funnelSource) === "rent_a_dumpster_funnel";
 
   if (isExitCapture) {
     if (!phone) {
       return res.status(400).json({ error: "Phone number is required for exit capture leads." });
     }
   } else {
-    // For normal funnel, we just require *at least* a phone OR an email so we have contact info for the soft push.
     if (!phone && !email) {
       return res.status(400).json({ error: "Phone or email is required to save progress." });
+    }
+  }
+
+  if (requiresTurnstile) {
+    if (!asString(turnstileToken)) {
+      return res.status(400).json({ success: false, error: "Security verification is required." });
+    }
+
+    try {
+      const verification = await validateTurnstileToken(asString(turnstileToken), getClientIp(req));
+      if (!verification.success) {
+        return res.status(400).json({
+          success: false,
+          error: "Security verification failed. Please try again.",
+        });
+      }
+    } catch (err) {
+      console.error("[submit-lead] Turnstile validation failed:", err.message?.slice(0, 200));
+      return res.status(500).json({
+        success: false,
+        error: "Security verification could not be completed.",
+      });
     }
   }
 
@@ -388,17 +436,12 @@ export default async function handler(req, res) {
     const referralText = pickFirstNonEmpty(contact?.source, referredBy);
     const projectText = pickFirstNonEmpty(project, otherText);
 
-    // Native CRM address fields
-    const street  = asString(deliveryAddress?.street  || req.body?.street);
-const street2 = asString(deliveryAddress?.street2 || req.body?.street2);
-const city    = pickFirstNonEmpty(deliveryAddress?.city, req.body?.city, areaLabel);
-const postalCode = pickFirstNonEmpty(deliveryAddress?.zip, req.body?.zip, zip);
+    const street = asString(deliveryAddress?.street || req.body?.street);
+    const street2 = asString(deliveryAddress?.street2 || req.body?.street2);
+    const city = pickFirstNonEmpty(deliveryAddress?.city, req.body?.city, areaLabel);
+    const postalCode = pickFirstNonEmpty(deliveryAddress?.zip, req.body?.zip, zip);
     const countryName = pickFirstNonEmpty(deliveryAddress?.country, "United States");
-    const stateName = pickFirstNonEmpty(
-      deliveryAddress?.state,
-      "Georgia",
-      "Georgia (US)"
-    );
+    const stateName = pickFirstNonEmpty(deliveryAddress?.state, "Georgia", "Georgia (US)");
 
     const countryId = await findCountryId(uid, countryName);
     const stateId = await findStateId(uid, stateName, countryId);
@@ -431,83 +474,55 @@ const postalCode = pickFirstNonEmpty(deliveryAddress?.zip, req.body?.zip, zip);
     ].filter(Boolean).join("\n");
 
     const values = {
-      // standard CRM routing
       name: leadName,
       team_id: ODOO_TEAM_ID,
       stage_id: ODOO_STAGE_ID,
       source_id: sourceId || false,
-
-      // contact identity on lead
       contact_name: contactName || false,
       email_from: email || false,
       phone: phone || false,
       mobile: mobile || false,
-
-      // native CRM lead address fields
       street: street || false,
       street2: street2 || false,
       city: city || false,
       zip: postalCode || false,
       state_id: stateId || false,
       country_id: countryId || false,
-
-      // useful native CRM value
       expected_revenue: quotedPrice,
-
-      // compact debug note
       description: debugNotes,
-
-      // flag exit capture leads for easy CRM filtering
       priority: isExitCapture ? "1" : "0",
-
-      // existing Studio fields to keep
-      x_studio_selection_field_222_1jkvln416:
-        mapSelection(customerType, MAP_CUSTOMER_TYPE),
-      x_studio_selection_field_es_1jkvlssq9:
-        mapSelection(project, MAP_PROJECT_TYPE),
-
-      // structured funnel fields
-      x_studio_dumpster_size:
-        mapSelection(dumpsterSize, MAP_DUMPSTER_SIZE),
-      x_studio_rental_type:
-        mapSelection(rentalType, MAP_RENTAL_TYPE),
+      x_studio_selection_field_222_1jkvln416: mapSelection(customerType, MAP_CUSTOMER_TYPE),
+      x_studio_selection_field_es_1jkvlssq9: mapSelection(project, MAP_PROJECT_TYPE),
+      x_studio_dumpster_size: mapSelection(dumpsterSize, MAP_DUMPSTER_SIZE),
+      x_studio_rental_type: mapSelection(rentalType, MAP_RENTAL_TYPE),
       x_studio_rental_start: rentalStart || false,
       x_studio_rental_end: rentalEnd || false,
-      x_studio_payment_status:
-        mapSelection(
-          pickFirstNonEmpty(req.body?.paymentStatus, "Pending"),
-          MAP_PAYMENT_STATUS
-        ),
+      x_studio_payment_status: mapSelection(pickFirstNonEmpty(req.body?.paymentStatus, "Pending"), MAP_PAYMENT_STATUS),
       x_studio_hold_expires_at: holdExpiresAt || false,
       x_studio_quoted_price: quotedPrice,
       x_studio_delivery_fee: deliveryFeeNum,
       x_studio_zone: asString(zone) || false,
       x_studio_service_area: asString(areaLabel) || false,
       x_studio_funnel_source: pickFirstNonEmpty(funnelSource, "website_checkout"),
-
-      // SMS compliance fields
       x_studio_sms_opt_in: smsOptInBool,
       x_studio_sms_opt_in_date: smsOptInTimestamp || false,
-
-      // referral helper
       referred: referralText || false,
     };
 
     let resultingLeadId;
     const parsedLeadId = parseInt(leadId, 10);
 
-    // PIIVOT LOGIC: Update if ID exists, Create if it doesn't
     if (parsedLeadId && !isNaN(parsedLeadId)) {
       await odooCall(uid, "crm.lead", "write", [[parsedLeadId], values]);
       resultingLeadId = parsedLeadId;
     } else {
-      values.type = "lead"; // only needed on creation
+      values.type = "lead";
       resultingLeadId = await odooCall(uid, "crm.lead", "create", [values]);
     }
 
     return res.status(200).json({
       success: true,
-      leadId: resultingLeadId, // <--- Returns the same ID back to the frontend
+      leadId: resultingLeadId,
       action: parsedLeadId ? "updated" : "created",
       routed: {
         type: "lead",
