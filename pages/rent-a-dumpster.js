@@ -547,8 +547,6 @@ function Step5DatePicker({
     priceFor("Early Bird") < priceFor("Base Rental");
 
   // Suppress Base Rental windows that share a start date with an Early Bird window.
-  // If an Early Bird (discounted) option exists for that date, the Base Rental is
-  // redundant and confusing — the cheaper option wins.
   const earlyBirdStartDates = new Set(earlyWindows.map(w => w.start));
   const filteredStandardWindows = earlyIsDiscounted
     ? standardWindows.filter(w => !earlyBirdStartDates.has(w.start))
@@ -780,7 +778,6 @@ function Step5DatePicker({
 // ─── main component ───────────────────────────────────────────────────────────
 
 export default function Funnel() {
-  // Read optional ?zip= param from URL to allow pre-population from landing pages
   const _urlZip = (() => {
     try { const p = new URLSearchParams(window.location.search).get("zip"); return (p && /^\d{5}$/.test(p.trim())) ? p.trim() : ""; } catch { return ""; }
   })();
@@ -822,24 +819,19 @@ export default function Funnel() {
     zip:     "",
   });
 
-  // Safety Net state
   const [capturedLeadId,      setCapturedLeadId]      = useState(null);
-
-  // Exit modal state
   const [showExitModal,       setShowExitModal]       = useState(false);
   const [exitSubmitting,      setExitSubmitting]      = useState(false);
   const [exitError,           setExitError]           = useState("");
   const [exitSubmitted,       setExitSubmitted]       = useState(false);
-  const [exitTriggered,       setExitTriggered]       = useState(false); // only fire once per session
+  const [exitTriggered,       setExitTriggered]       = useState(false);
 
   const stepRef          = useRef(step);
   const idleTimerRef     = useRef(null);
   const historyPushedRef = useRef(false);
 
-  // Keep stepRef in sync
   useEffect(() => { stepRef.current = step; }, [step]);
 
-  // If zip was pre-populated from URL param, hydrate zone state on mount
   useEffect(() => {
     if (_urlZipValid) {
       const found = zipToZone[_urlZip];
@@ -847,7 +839,6 @@ export default function Funnel() {
       setZoneFee(zones[found].fee);
       setForm(prev => ({ ...prev, zip: _urlZip }));
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const areaLabel        = getAreaLabel(zip);
@@ -881,8 +872,6 @@ export default function Funnel() {
   const isAvailabilityDegraded = Boolean(availabilityError || availabilityData?.degraded);
   const availableOptions       = availabilityData?.available || {};
 
-  // ── Exit intent logic ────────────────────────────────────────────────────
-
   const shouldShowExitModal = useCallback(() => {
     return stepRef.current >= 5 && !exitTriggered && !exitSubmitted && !submitted;
   }, [exitTriggered, exitSubmitted, submitted]);
@@ -902,7 +891,6 @@ export default function Funnel() {
     }
   }, [triggerExitModal]);
 
-  // Idle timer — reset on any user interaction
   useEffect(() => {
     const events = ["touchstart", "touchmove", "mousedown", "mousemove", "keydown", "scroll"];
     events.forEach(e => window.addEventListener(e, resetIdleTimer, { passive:true }));
@@ -913,26 +901,21 @@ export default function Funnel() {
     };
   }, [resetIdleTimer]);
 
-  // History API back intercept — fires on browser back from Steps 5+
   useEffect(() => {
     if (step >= 5 && !historyPushedRef.current) {
       window.history.pushState({ funnelStep: step }, "");
       historyPushedRef.current = true;
     }
-
     const handlePopState = (e) => {
       if (stepRef.current >= 5) {
-        // Push state again so back is intercepted again if modal dismissed
         window.history.pushState({ funnelStep: stepRef.current }, "");
         triggerExitModal();
       }
     };
-
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, [step, triggerExitModal]);
 
-  // Visibility change — tab switch / app switch on mobile
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
@@ -943,12 +926,9 @@ export default function Funnel() {
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [triggerExitModal]);
 
-  // ── Exit modal handlers ─────────────────────────────────────────────────
-
   const handleExitModalDismiss = () => {
     setShowExitModal(false);
     setExitError("");
-    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     resetIdleTimer();
   };
 
@@ -956,7 +936,6 @@ export default function Funnel() {
     if (!phone) return;
     setExitSubmitting(true);
     setExitError("");
-
     const payload = {
       zip, areaLabel, zone:zoneKey, deliveryFee:zoneFee, customerType,
       selectedSize:  effectiveSize || null,
@@ -966,15 +945,8 @@ export default function Funnel() {
       leadSourceName: "Website",
       smsOptIn:      optIn,
       smsOptInDate:  smsOptInDate,
-      contact: {
-        name:   name || "",
-        email:  "",
-        phone:  phone,
-        mobile: phone,
-        source: "Exit Modal",
-      },
+      contact: { name: name || "", email: "", phone: phone, mobile: phone, source: "Exit Modal" },
     };
-
     try {
       const res  = await fetch("/api/submit-lead", {
         method:  "POST",
@@ -993,29 +965,18 @@ export default function Funnel() {
     }
   };
 
-  // ── X button handler ─────────────────────────────────────────────────────
-  // NOTE: X button bypasses the exitTriggered guard intentionally.
-  // triggerExitModal() will no-op if exitTriggered is already true (idle/back
-  // already fired), so we force-show the modal directly here instead.
   const handleClose = () => {
     if (step >= 5) {
-      if (!exitSubmitted && !submitted) {
-        setShowExitModal(true);
-      } else {
-        window.location.href = HOMEPAGE;
-      }
-    } else {
-      window.location.href = HOMEPAGE;
-    }
+      if (!exitSubmitted && !submitted) { setShowExitModal(true); } 
+      else { window.location.href = HOMEPAGE; }
+    } else { window.location.href = HOMEPAGE; }
   };
-
-  // ── Form handlers ────────────────────────────────────────────────────────
 
   const handleZipSubmit = () => {
     const clean = zip.trim();
     if (!/^\d{5}$/.test(clean)) { setZipError("Please enter a valid 5-digit ZIP code."); return; }
     const found = zipToZone[clean];
-    if (!found) { setZipError("We may not service that area right now. If you're nearby, contact us and we'll confirm."); return; }
+    if (!found) { setZipError("We may not service that area right now."); return; }
     setZipError(""); setZoneKey(found); setZoneFee(zones[found].fee);
     setForm(prev => ({ ...prev, zip: clean }));
     setStep(1);
@@ -1115,105 +1076,85 @@ export default function Funnel() {
     setStep(6);
   };
 
-  // ── Safety Net Soft Push ──
   const handlePhoneBlur = async () => {
-    if (capturedLeadId) return; // already pushed, don't spam
+    if (capturedLeadId) return;
     const cleanPhone = form.phone.trim();
-    if (cleanPhone.length < 10) return; // wait for a real phone number
-
+    if (cleanPhone.length < 10) return;
     const payload = {
       zip, areaLabel, zone:zoneKey, deliveryFee:zoneFee, customerType, returningPath,
-      project:        normalizeProjectForOdoo(project),
-      otherText:      project === "Other" ? otherText.trim() : "",
+      project: normalizeProjectForOdoo(project),
+      otherText: project === "Other" ? otherText.trim() : "",
       recommendedSize: size,
-      selectedSize:   effectiveSize,
-      includedTons:   sizeMeta[effectiveSize]?.tons || null,
-      rentalOption:   normalizeRentalOption(duration),
-      rentalPrice:    selectedPrice,
+      selectedSize: effectiveSize,
+      includedTons: sizeMeta[effectiveSize]?.tons || null,
+      rentalOption: normalizeRentalOption(duration),
+      rentalPrice: selectedPrice,
       selectedWindow,
-      funnelSource:   "rent_a_dumpster_funnel_partial",
+      funnelSource: "rent_a_dumpster_funnel_partial",
       leadSourceName: "Website",
-      contact: {
-        name:   form.name.trim(),
-        email:  form.email.trim(),
-        phone:  cleanPhone,
-        mobile: cleanPhone,
-        source: form.source,
-      },
+      contact: { name: form.name.trim(), email: form.email.trim(), phone: cleanPhone, mobile: cleanPhone, source: form.source },
     };
-
     try {
       const res = await fetch("/api/submit-lead", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(payload) });
       const json = await res.json();
-      if (json?.success && json?.leadId) {
-        setCapturedLeadId(json.leadId);
-      }
-    } catch (err) {
-      console.error("Soft push failed silently in background");
-    }
+      if (json?.success && json?.leadId) { setCapturedLeadId(json.leadId); }
+    } catch (err) {}
   };
 
-  // ── Final Checkout Push ──
   const handleSubmit = async () => {
-    if (!form.name.trim() || !form.email.trim() || !form.phone.trim()) return alert("Please enter your name, email, and phone number.");
-    setSubmitting(true); setSubmitError("");
-
+    if (!form.name.trim() || !form.email.trim() || !form.phone.trim()) {
+      return alert("Please enter your name, email, and phone number.");
+    }
+    const token = document.querySelector('input[name="cf-turnstile-response"]')?.value;
+    if (!token) {
+      alert("Please complete the security check.");
+      return;
+    }
+    setSubmitting(true);
+    setSubmitError("");
     const payload = {
-      leadId:         capturedLeadId, // Triggers the upsert if we caught them on blur!
+      leadId: capturedLeadId,
       zip, areaLabel, zone:zoneKey, deliveryFee:zoneFee, customerType, returningPath,
-      project:        normalizeProjectForOdoo(project),
-      otherText:      project === "Other" ? otherText.trim() : "",
+      project: normalizeProjectForOdoo(project),
+      otherText: project === "Other" ? otherText.trim() : "",
       recommendedSize: size,
-      selectedSize:   effectiveSize,
-      includedTons:   sizeMeta[effectiveSize]?.tons || null,
-      rentalOption:   normalizeRentalOption(duration),
-      rentalPrice:    selectedPrice,
+      selectedSize: effectiveSize,
+      includedTons: sizeMeta[effectiveSize]?.tons || null,
+      rentalOption: normalizeRentalOption(duration),
+      rentalPrice: selectedPrice,
       selectedWindow,
-      pricingShown:   calculatedPrices,
-      funnelSource:   "rent_a_dumpster_funnel",
+      pricingShown: calculatedPrices,
+      funnelSource: "rent_a_dumpster_funnel",
       leadSourceName: "Website",
       smsOptIn,
-      smsOptInDate:   smsOptIn ? new Date().toISOString() : null,
-      contact: {
-        name:   form.name.trim(),
-        email:  form.email.trim(),
-        phone:  form.phone.trim(),
-        mobile: form.phone.trim(),
-        source: form.source,
-      },
+      smsOptInDate: smsOptIn ? new Date().toISOString() : null,
+      turnstileToken: token,
+      contact: { name: form.name.trim(), email: form.email.trim(), phone: form.phone.trim(), mobile: form.phone.trim(), source: form.source },
+      deliveryAddress: { street: form.street.trim(), street2: form.street2.trim(), city: form.city.trim(), state: form.state, zip: form.zip },
     };
-
     try {
-      // 1. Send the full payload to Odoo
-      const resOdoo  = await fetch("/api/submit-lead", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(payload) });
+      const resOdoo = await fetch("/api/submit-lead", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const odooJson = await resOdoo.json();
       if (!resOdoo.ok || !odooJson?.success) throw new Error(odooJson?.error || "Lead Submission failed.");
-
       const finalLeadId = odooJson.leadId || capturedLeadId;
-
-      // 2. Prep the Stripe Checkout Payload
       const stripePayload = {
-        leadId:        finalLeadId,
+        leadId: finalLeadId,
         customerEmail: form.email.trim(),
-        customerName:  form.name.trim(),
-        dumpsterSize:  effectiveSize,
-        rentalOption:  getRentalDisplayLabel(duration),
-        basePrice:     selectedPrice - zoneFee, // separate out the base price for the receipt
-        deliveryFee:   zoneFee,
-        zone:          zoneKey,
+        customerName: form.name.trim(),
+        dumpsterSize: effectiveSize,
+        rentalOption: getRentalDisplayLabel(duration),
+        basePrice: selectedPrice - zoneFee,
+        deliveryFee: zoneFee,
+        zone: zoneKey,
+        deliveryDate: selectedWindow?.startLabel || "",
       };
-
-      // 3. Request the Checkout Session URL
-      const resStripe = await fetch("/api/create-checkout", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(stripePayload) });
+      const resStripe = await fetch("/api/create-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(stripePayload) });
       const stripeJson = await resStripe.json();
       if (!resStripe.ok || !stripeJson?.url) throw new Error(stripeJson?.error || "Stripe Checkout failed.");
-
-      // 4. Redirect the user to pay
       window.location.href = stripeJson.url;
-
     } catch (err) {
-      setSubmitError("Something went wrong preparing your checkout. Please try again or call us at 470-548-4733.");
-      setSubmitting(false); // Only re-enable the button if it fails
+      setSubmitError("Something went wrong preparing your checkout. Please try again or call 470-548-4733.");
+      setSubmitting(false);
     }
   };
 
@@ -1226,575 +1167,229 @@ export default function Funnel() {
     if (step===1) return setStep(0);
   };
 
-  const phoneHasValue = form.phone.trim().length > 0;
-
-  const inputStyle = {
-    display:"block", width:"100%", padding:"12px 14px",
-    border:`1.5px solid ${C.surfaceBorder}`, borderRadius:10,
-    background:C.white, fontSize:14, color:C.ink,
-    boxSizing:"border-box", fontFamily:F,
-  };
-  const labelStyle = {
-    display:"block", fontSize:10, fontWeight:700, color:C.inkFaint,
-    letterSpacing:"0.8px", textTransform:"uppercase", marginBottom:5, marginTop:14, fontFamily:F,
-  };
+  const inputStyle = { display:"block", width:"100%", padding:"12px 14px", border:`1.5px solid ${C.surfaceBorder}`, borderRadius:10, background:C.white, fontSize:14, color:C.ink, boxSizing:"border-box", fontFamily:F };
+  const labelStyle = { display:"block", fontSize:10, fontWeight:700, color:C.inkFaint, letterSpacing:"0.8px", textTransform:"uppercase", marginBottom:5, marginTop:14, fontFamily:F };
   const firstLabelStyle = { ...labelStyle, marginTop:0 };
 
-  // ── render ───────────────────────────────────────────────────────────────
-
-return (
-  <>
-    <Script
-      src="https://challenges.cloudflare.com/turnstile/v0/api.js"
-      strategy="afterInteractive"
-    />
-
-    <div style={{ minHeight:"100vh", background:C.pageBg, padding:"20px 16px 40px", fontFamily:F }}>
-
-      {/* Exit submitted confirmation toast */}
-      {exitSubmitted && (
-        <div style={{
-          position:"fixed", top:20, left:"50%", transform:"translateX(-50%)",
-          background:C.ink, color:C.white, padding:"12px 24px", borderRadius:12,
-          fontSize:14, fontWeight:700, zIndex:1100, fontFamily:F,
-          boxShadow:"0 4px 16px rgba(0,0,0,0.2)",
-        }}>
-          ✓ We'll text you shortly!
-        </div>
-      )}
-
-      {/* Exit modal */}
-      {showExitModal && (
-        <ExitModal
-          onSubmit={handleExitSubmit}
-          onDismiss={handleExitModalDismiss}
-          submitting={exitSubmitting}
-          error={exitError}
-          capturedSize={effectiveSize || null}
-          capturedPrice={selectedPrice || null}
-        />
-      )}
-
-      <div style={{ maxWidth:800, margin:"0 auto" }}>
-
-        {/* Header */}
-        <header style={{
-          display:"flex", justifyContent:"space-between", alignItems:"center",
-          padding:"12px 0 14px", marginBottom:16,
-          borderBottom:`1px solid ${C.cardBorder}`,
-        }}>
-          <img src="/little-junkers-logo.png" alt="Little Junkers" style={{ maxWidth:130, height:"auto", display:"block" }} />
-          <div style={{ display:"flex", alignItems:"center", gap:16 }}>
-            <div style={{ textAlign:"right" }}>
-              <div style={{ fontSize:10, fontWeight:700, color:C.inkFaint, letterSpacing:"0.8px", textTransform:"uppercase" }}>Peachtree City, GA</div>
-              <a href="tel:4705484733" style={{ fontSize:16, fontWeight:900, color:C.ink, textDecoration:"none", fontFamily:F }}>470-548-4733</a>
-            </div>
-            {/* X close button — prominent, always visible */}
-            <button
-              onClick={handleClose}
-              aria-label="Close"
-              style={{
-                width:40, height:40, borderRadius:"50%",
-                background:C.surfaceBg, border:`1.5px solid ${C.surfaceBorder}`,
-                display:"flex", alignItems:"center", justifyContent:"center",
-                cursor:"pointer", flexShrink:0,
-                fontSize:18, color:C.ink, fontWeight:700, lineHeight:1,
-              }}
-            >
-              ✕
-            </button>
+  return (
+    <>
+      <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="afterInteractive" />
+      <div style={{ minHeight:"100vh", background:C.pageBg, padding:"20px 16px 40px", fontFamily:F }}>
+        {exitSubmitted && (
+          <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:C.ink, color:C.white, padding:"12px 24px", borderRadius:12, fontSize:14, fontWeight:700, zIndex:1100, fontFamily:F, boxShadow:"0 4px 16px rgba(0,0,0,0.2)" }}>
+            ✓ We'll text you shortly!
           </div>
-        </header>
-
-        <main style={{
-          background:C.cardBg, border:`1px solid ${C.cardBorder}`,
-          borderRadius:16, overflow:"hidden",
-          boxShadow:"0 1px 3px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.05)",
-        }}>
-
-          {/* ── Step 0: ZIP ── */}
-          {step === 0 && (
-            <div>
-              <div style={{ background:C.heroBg, padding:"28px 24px 24px", position:"relative" }}>
-                <div style={{ position:"absolute", top:16, right:16, background:C.pink, color:C.heroBg, fontSize:10, fontWeight:800, padding:"4px 11px", borderRadius:99, letterSpacing:"0.4px" }}>
-                  Serving South Atlanta
-                </div>
-                <div style={{ fontSize:10, fontWeight:700, color:C.heroAccent, letterSpacing:"1.4px", textTransform:"uppercase", marginBottom:8 }}>
-                  Dumpster rental
-                </div>
-                <h1 style={{ margin:"0 0 4px", fontSize:28, fontWeight:900, color:C.white, letterSpacing:"-0.7px", lineHeight:1.1, fontFamily:F }}>
-                  Check your<br />service area
-                </h1>
+        )}
+        {showExitModal && (
+          <ExitModal onSubmit={handleExitSubmit} onDismiss={handleExitModalDismiss} submitting={exitSubmitting} error={exitError} capturedSize={effectiveSize || null} capturedPrice={selectedPrice || null} />
+        )}
+        <div style={{ maxWidth:800, margin:"0 auto" }}>
+          <header style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 0 14px", marginBottom:16, borderBottom:`1px solid ${C.cardBorder}` }}>
+            <img src="/little-junkers-logo.png" alt="Little Junkers" style={{ maxWidth:130, height:"auto", display:"block" }} />
+            <div style={{ display:"flex", alignItems:"center", gap:16 }}>
+              <div style={{ textAlign:"right" }}>
+                <div style={{ fontSize:10, fontWeight:700, color:C.inkFaint, letterSpacing:"0.8px", textTransform:"uppercase" }}>Peachtree City, GA</div>
+                <a href="tel:4705484733" style={{ fontSize:16, fontWeight:900, color:C.ink, textDecoration:"none", fontFamily:F }}>470-548-4733</a>
               </div>
-              <div style={{ padding:"20px 24px 4px" }}>
-                <p style={{ margin:"0 0 18px", fontSize:14, color:C.inkMid, lineHeight:1.55, fontFamily:F }}>
-                  Enter your ZIP and we'll verify coverage and show exact pricing for your location.
-                </p>
-                <div style={{ display:"flex", gap:10 }}>
-                  <input
-                    placeholder="5-digit ZIP" value={zip}
-                    onChange={e => setZip(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && handleZipSubmit()}
-                    maxLength={5}
-                    style={{ ...inputStyle, flex:1, marginTop:0 }}
-                  />
-                  <button onClick={handleZipSubmit} style={{ padding:"12px 20px", background:C.ink, color:C.white, border:"none", borderRadius:10, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:F, whiteSpace:"nowrap" }}>
-                    Verify →
-                  </button>
-                </div>
-                {zipError && <div style={{ marginTop:8, color:"#b3261e", fontSize:13, lineHeight:1.4, fontFamily:F }}>{zipError}</div>}
-                <div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:14, marginBottom:20 }}>
-                  {["Delivery included in pricing","Peachtree City & South Atlanta","¡Se habla español!"].map(t => (
-                    <span key={t} style={{ fontSize:11, color:C.inkMuted, fontWeight:600, background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:99, padding:"4px 10px", fontFamily:F }}>{t}</span>
-                  ))}
-                </div>
-              </div>
-              <CardFooter />
+              <button onClick={handleClose} aria-label="Close" style={{ width:40, height:40, borderRadius:"50%", background:C.surfaceBg, border:`1.5px solid ${C.surfaceBorder}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", flexShrink:0, fontSize:18, color:C.ink, fontWeight:700, lineHeight:1 }}>✕</button>
             </div>
-          )}
-
-          {/* ── Steps 1-6 ── */}
-          {step > 0 && (
-            <div>
-              <ProgressChrome
-                currentVisualStep={currentVisualStep}
-                visibleTotalSteps={visibleTotalSteps}
-                stepLabel={stepLabel}
-                progressPercent={progressPercent}
-                onBack={goBack}
-                showBack={true}
-              />
-
-              <CardBody>
-
-                {/* Step 1 */}
-                {step === 1 && (
-                  <div>
-                    <StepHeading
-                      eyebrow="Coverage confirmed"
-                      title="How can we help?"
-                      text={`${areaLabel} is in our ${zones[zoneKey]?.label?.toLowerCase() || ""}. Delivery pricing will be built into the options we show you next.`}
-                    />
-                    <div style={{ display:"grid", gap:10 }}>
-                      {[
-                        { label:"New Customer",        sub:"First time renting with us"        },
-                        { label:"Returning",           sub:"You've rented from us before"       },
-                        { label:"Contractor / Roofer", sub:"Business or repeat jobsite use"     },
-                      ].map(item => (
-                        <OptionCard key={item.label} title={item.label} sub={item.sub} selected={customerType===item.label} onClick={() => handleCustomerType(item.label)} />
-                      ))}
-                    </div>
+          </header>
+          <main style={{ background:C.cardBg, border:`1px solid ${C.cardBorder}`, borderRadius:16, overflow:"hidden", boxShadow:"0 1px 3px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.05)" }}>
+            {step === 0 && (
+              <div>
+                <div style={{ background:C.heroBg, padding:"28px 24px 24px", position:"relative" }}>
+                  <div style={{ position:"absolute", top:16, right:16, background:C.pink, color:C.heroBg, fontSize:10, fontWeight:800, padding:"4px 11px", borderRadius:99, letterSpacing:"0.4px" }}>Serving South Atlanta</div>
+                  <div style={{ fontSize:10, fontWeight:700, color:C.heroAccent, letterSpacing:"1.4px", textTransform:"uppercase", marginBottom:8 }}>Dumpster rental</div>
+                  <h1 style={{ margin:"0 0 4px", fontSize:28, fontWeight:900, color:C.white, letterSpacing:"-0.7px", lineHeight:1.1, fontFamily:F }}>Check your<br />service area</h1>
+                </div>
+                <div style={{ padding:"20px 24px 4px" }}>
+                  <p style={{ margin:"0 0 18px", fontSize:14, color:C.inkMid, lineHeight:1.55, fontFamily:F }}>Enter your ZIP and we'll verify coverage and show exact pricing for your location.</p>
+                  <div style={{ display:"flex", gap:10 }}>
+                    <input placeholder="5-digit ZIP" value={zip} onChange={e => setZip(e.target.value)} onKeyDown={e => e.key === "Enter" && handleZipSubmit()} maxLength={5} style={{ ...inputStyle, flex:1, marginTop:0 }} />
+                    <button onClick={handleZipSubmit} style={{ padding:"12px 20px", background:C.ink, color:C.white, border:"none", borderRadius:10, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:F, whiteSpace:"nowrap" }}>Verify →</button>
                   </div>
-                )}
-
-                {/* Step 2 */}
-                {step === 2 && customerType === "Returning" && (
-                  <div>
-                    <StepHeading eyebrow="Welcome back" title="How do you want to proceed?" text="Move fast if you already know your size, or let us help match the best fit for this job." />
-                    <div style={{ display:"grid", gap:10 }}>
-                      <OptionCard title="Quick Select" sub="I know my size already"           selected={returningPath==="quick"}     onClick={() => handleReturningPath("quick")}     />
-                      <OptionCard title="Guide Me"     sub="Help me size it for this project" selected={returningPath==="recommend"} onClick={() => handleReturningPath("recommend")} />
-                    </div>
+                  {zipError && <div style={{ marginTop:8, color:"#b3261e", fontSize:13, lineHeight:1.4, fontFamily:F }}>{zipError}</div>}
+                  <div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:14, marginBottom:20 }}>
+                    {["Delivery included in pricing","Peachtree City & South Atlanta","¡Se habla español!"].map(t => (
+                      <span key={t} style={{ fontSize:11, color:C.inkMuted, fontWeight:600, background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:99, padding:"4px 10px", fontFamily:F }}>{t}</span>
+                    ))}
                   </div>
-                )}
-
-                {/* Step 3 */}
-                {step === 3 && (
-                  <div>
-                    <StepHeading
-                      eyebrow="Step 3"
-                      title={(customerType==="Contractor" || customerType==="Contractor / Roofer") ? "What type of debris are you dealing with?" : customerType==="Returning" ? "What are you tossing this time?" : "What kind of cleanup are you tackling?"}
-                      text={(customerType==="Contractor" || customerType==="Contractor / Roofer") ? "We'll filter out unsupported material and match the best container for the job." : "Choose the option closest to your current project so we can size it correctly."}
-                    />
-                    <div style={{ display:"grid", gap:10 }}>
-                      {((customerType==="Contractor" || customerType==="Contractor / Roofer")
-                        ? ["General Cleanup","Renovation / demo","Roofing","Concrete","Other"]
-                        : ["Cleaning the garage / basement","Moving / decluttering","Renovation / demo","Other"]
-                      ).map(type => (
-                        <OptionCard key={type} title={type} selected={project===type} onClick={() => type==="Other" ? setProject("Other") : handleProject(type)} />
-                      ))}
-                    </div>
-                    {project === "Other" && (
-                      <div style={{ marginTop:16 }}>
-                        <label style={firstLabelStyle}>Tell us a little more</label>
-                        <textarea value={otherText} onChange={e => setOtherText(e.target.value)} placeholder="Describe your project..." style={{ ...inputStyle, minHeight:90, resize:"vertical" }} />
-                        <PrimaryButton onClick={handleOtherContinue}>Continue</PrimaryButton>
-                      </div>
-                    )}
-                    {showConcreteNotice && (
-                      <div style={{ marginTop:16, background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:12, padding:16, fontFamily:F }}>
-                        <div style={{ fontWeight:800, color:C.ink, marginBottom:6 }}>Concrete isn't something we haul right now</div>
-                        <p style={{ margin:0, color:C.inkMid, lineHeight:1.5, fontSize:14 }}>We can still help with general cleanup, renovation debris, roofing, and other non-concrete projects.</p>
-                        <button onClick={() => setShowConcreteNotice(false)} style={{ marginTop:12, padding:"9px 16px", background:C.ink, color:C.white, border:"none", borderRadius:10, cursor:"pointer", fontWeight:700, fontFamily:F, fontSize:13 }}>Got it</button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Step 4 */}
-                {step === 4 && (
-                  <div>
-                    <StepHeading
-                      eyebrow={isReturningQuick ? "Quick select" : "Based on your project"}
-                      title={isReturningQuick ? "Choose your rental size" : "Best fit for your project"}
-                      text={isReturningQuick ? "Select the size you want and we'll show rental options and pricing next." : "This is the strongest fit based on what you described."}
-                    />
-
-                    {!isReturningQuick && effectiveSize && (
-                      <div style={{ display:"flex", gap:14, alignItems:"stretch", marginBottom:18, flexWrap:"wrap" }}>
-                        <div
-                          onClick={handleContinueFromStep4} role="button" tabIndex={0}
-                          onKeyDown={e => e.key === "Enter" && handleContinueFromStep4()}
-                          style={{ flex:"1 1 300px", background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:20, cursor:"pointer", transition:"border-color 150ms, box-shadow 150ms" }}
-                          onMouseEnter={e => { e.currentTarget.style.borderColor = C.ink; e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.06)"; }}
-                          onMouseLeave={e => { e.currentTarget.style.borderColor = C.surfaceBorder; e.currentTarget.style.boxShadow = "none"; }}
-                        >
-                          <div style={{ fontSize:36, fontWeight:900, color:C.ink, letterSpacing:"-1.5px", lineHeight:1, marginBottom:8, fontFamily:F }}>{effectiveSize}</div>
-                          <div style={{ marginBottom:14 }}><TonnagePill label={sizeMeta[effectiveSize]?.label || ""} /></div>
-                          <div style={{ fontSize:10, fontWeight:700, color:C.inkFaint, letterSpacing:"0.6px", textTransform:"uppercase", marginBottom:6, fontFamily:F }}>What this size holds</div>
-                          <ul style={{ margin:"0 0 16px", paddingLeft:18, lineHeight:1.75, color:C.inkMid, fontSize:13, fontFamily:F }}>
-                            {recommendation.holds.map(item => <li key={item}>{item}</li>)}
-                          </ul>
-                          <div style={{ background:C.white, border:`1px solid ${C.surfaceBorder}`, borderRadius:10, padding:"12px 14px" }}>
-                            <div style={{ fontSize:10, fontWeight:800, color:C.inkFaint, letterSpacing:"0.7px", textTransform:"uppercase", marginBottom:6, fontFamily:F }}>Why this size</div>
-                            <p style={{ margin:"0 0 6px", fontSize:13, lineHeight:1.55, color:C.ink, fontFamily:F }}>{recommendation.reason}</p>
-                            <div style={{ fontSize:12, color:C.inkMuted, lineHeight:1.45, fontFamily:F }}>{recommendation.note}</div>
-                          </div>
-                          <div style={{ marginTop:14, fontSize:12, fontWeight:700, color:C.pinkText, fontFamily:F, textAlign:"center" }}>Tap to continue with {effectiveSize} →</div>
-                        </div>
-                        <div style={{ flex:"1 1 200px", display:"flex", flexDirection:"column", gap:12 }}>
-                          <div style={{ background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:14, flex:1, display:"flex", alignItems:"center", justifyContent:"center", minHeight:160 }}>
-                            <img src={DUMPSTER_IMAGES[effectiveSize]} alt={`${effectiveSize} dumpster`} style={{ width:"100%", maxWidth:260, height:"auto", objectFit:"contain", display:"block" }} />
-                          </div>
-                          <div style={{ background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:12, padding:"10px 14px" }}>
-                            <div style={{ fontSize:10, fontWeight:700, color:C.inkFaint, letterSpacing:"0.5px", textTransform:"uppercase", marginBottom:5, fontFamily:F }}>Container Footprint</div>
-                            <div style={{ fontSize:13, color:C.ink, fontWeight:600, lineHeight:1.6, fontFamily:F }}>12' L × 7.5' W</div>
-                            <div style={{ fontSize:13, color:C.ink, fontWeight:600, lineHeight:1.6, fontFamily:F }}>Height: {sizeMeta[effectiveSize]?.height || "-"}</div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {(customerType==="Contractor" || customerType==="Contractor / Roofer") && project==="Roofing" && (
-                      <div style={{ background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:12, padding:"12px 14px", color:C.ink, lineHeight:1.5, fontSize:13, marginBottom:16, fontFamily:F }}>
-                        <strong>Roofing note:</strong> Roofing debris gets heavy quickly, so we bias smaller here to reduce overweight risk.
-                      </div>
-                    )}
-
-                    {!isReturningQuick && effectiveSize && (
-                      <PrimaryButton onClick={handleContinueFromStep4} style={{ marginTop:0, marginBottom:14 }}>
-                        Continue with {effectiveSize}
-                      </PrimaryButton>
-                    )}
-
-                    {!isReturningQuick && effectiveSize && (
-                      <div style={{ marginBottom:8 }}>
-                        <button
-                          onClick={() => setShowComparison(v => !v)}
-                          style={{ width:"100%", background:"none", border:`1px solid ${C.surfaceBorder}`, borderRadius:10, padding:"10px 16px", cursor:"pointer", fontFamily:F, display:"flex", justifyContent:"space-between", alignItems:"center" }}
-                        >
-                          <span style={{ fontSize:13, fontWeight:700, color:C.inkMid }}>{showComparison ? "Hide size comparison" : "Compare other sizes"}</span>
-                          <span style={{ fontSize:14, color:C.inkMuted, lineHeight:1 }}>{showComparison ? "▲" : "▼"}</span>
-                        </button>
-                        {showComparison && (
-                          <div style={{ background:C.white, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:18, marginTop:10 }}>
-                            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:10 }}>
-                              {allSizes.map(sizeKey => {
-                                const isMatch    = sizeKey === size;
-                                const isSelected = effectiveSize === sizeKey;
-                                return (
-                                  <div key={sizeKey} style={{ textAlign:"left", background: isSelected ? C.white : C.surfaceBg, border: isSelected ? `1.5px solid ${C.ink}` : `1px solid ${C.surfaceBorder}`, borderRadius:12, padding:14, fontFamily:F, boxShadow: isSelected ? "0 0 0 1px rgba(26,26,26,0.06)" : "none" }}>
-                                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, marginBottom:10 }}>
-                                      <div style={{ fontSize:17, fontWeight:900, color:C.ink, letterSpacing:"-0.4px", fontFamily:F }}>{sizeKey}</div>
-                                      {isMatch && <span style={{ background:C.pinkBg, color:C.pinkText, border:`1px solid ${C.pinkBorder}`, fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:99, fontFamily:F }}>Best Fit</span>}
-                                    </div>
-                                    <div style={{ marginBottom:6 }}>
-                                      <div style={{ fontSize:10, color:C.inkFaint, textTransform:"uppercase", letterSpacing:"0.4px", fontWeight:700, marginBottom:2 }}>Project Scale</div>
-                                      <div style={{ fontSize:13, fontWeight:700, color:C.ink }}>{comparisonMeta[sizeKey].projectScale}</div>
-                                    </div>
-                                    <div style={{ marginBottom:6 }}>
-                                      <div style={{ fontSize:10, color:C.inkFaint, textTransform:"uppercase", letterSpacing:"0.4px", fontWeight:700, marginBottom:2 }}>Truck Loads</div>
-                                      <div style={{ fontSize:13, fontWeight:700, color:C.ink }}>{comparisonMeta[sizeKey].truckLoads}</div>
-                                    </div>
-                                    <div style={{ marginBottom:8 }}>
-                                      <div style={{ fontSize:10, color:C.inkFaint, textTransform:"uppercase", letterSpacing:"0.4px", fontWeight:700, marginBottom:2 }}>Included Weight</div>
-                                      <div style={{ fontSize:13, fontWeight:700, color:C.ink }}>{sizeMeta[sizeKey].label}</div>
-                                    </div>
-                                    <div style={{ fontSize:12, color:C.inkMuted, lineHeight:1.4, marginBottom:10 }}>{comparisonMeta[sizeKey].bestUse}</div>
-                                    {isSelected
-                                      ? <div style={{ fontSize:12, fontWeight:800, color:C.ink }}>Selected</div>
-                                      : <button onClick={() => handleSizeSelect(sizeKey)} style={{ width:"100%", padding:"9px", background:C.white, color:C.ink, border:`1px solid ${C.surfaceBorder}`, borderRadius:10, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:F }}>Select</button>
-                                    }
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            <PrimaryButton onClick={handleContinueFromStep4} style={{ marginTop:16 }}>Continue with {effectiveSize}</PrimaryButton>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {(isReturningQuick || !effectiveSize) && (
+                </div>
+                <CardFooter />
+              </div>
+            )}
+            {step > 0 && (
+              <div>
+                <ProgressChrome currentVisualStep={currentVisualStep} visibleTotalSteps={visibleTotalSteps} stepLabel={stepLabel} progressPercent={progressPercent} onBack={goBack} showBack={true} />
+                <CardBody>
+                  {step === 1 && (
+                    <div>
+                      <StepHeading eyebrow="Coverage confirmed" title="How can we help?" text={`${areaLabel} is in our ${zones[zoneKey]?.label?.toLowerCase() || ""}.`} />
                       <div style={{ display:"grid", gap:10 }}>
-                        {allSizes.map(sizeKey => {
-                          const isSelected = effectiveSize === sizeKey;
-                          return (
-                            <button key={sizeKey} onClick={() => handleSizeSelect(sizeKey)} style={{ width:"100%", textAlign:"left", padding:"16px 18px", borderRadius:12, border: isSelected ? `1.5px solid ${C.ink}` : `1px solid ${C.surfaceBorder}`, background: isSelected ? C.white : C.surfaceBg, cursor:"pointer", fontFamily:F }}>
-                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10 }}>
-                                <div>
-                                  <div style={{ fontSize:16, fontWeight:800, color:C.ink }}>{sizeKey}</div>
-                                  <div style={{ marginTop:3, fontSize:13, color:C.inkMuted, lineHeight:1.4 }}>{sizeMeta[sizeKey].short}</div>
-                                </div>
-                              </div>
-                              <div style={{ marginTop:10, marginBottom:8 }}><TonnagePill label={sizeMeta[sizeKey].label} /></div>
-                              <div style={{ fontSize:13, color:C.inkMuted, lineHeight:1.45 }}><strong style={{ color:C.ink }}>Best for:</strong> {sizeMeta[sizeKey].bestFor}</div>
-                            </button>
-                          );
-                        })}
+                        {[{ label:"New Customer", sub:"First time renting with us" }, { label:"Returning", sub:"You've rented from us before" }, { label:"Contractor / Roofer", sub:"Business or repeat jobsite use" }].map(item => (
+                          <OptionCard key={item.label} title={item.label} sub={item.sub} selected={customerType===item.label} onClick={() => handleCustomerType(item.label)} />
+                        ))}
                       </div>
-                    )}
-                    {(isReturningQuick || !effectiveSize) && <PrimaryButton onClick={handleContinueFromStep4}>Continue</PrimaryButton>}
-                  </div>
-                )}
-
-                {/* Step 5 */}
-                {step === 5 && (
-                  <Step5DatePicker
-                    effectiveSize={effectiveSize}
-                    availabilityLoading={availabilityLoading}
-                    isAvailabilityDegraded={isAvailabilityDegraded}
-                    availableOptions={availableOptions}
-                    calculatedPrices={calculatedPrices}
-                    selectedWindow={selectedWindow}
-                    duration={duration}
-                    showMoreDates={showMoreDates}
-                    setShowMoreDates={setShowMoreDates}
-                    handleWindowSelect={handleWindowSelect}
-                    handleFallbackOptionSelect={handleFallbackOptionSelect}
-                    sizeMeta={sizeMeta}
-                    rentalOptions={rentalOptions}
-                  />
-                )}
-
-                {/* Step 6 — success (Fallback only, normally redirects to Stripe) */}
-               {step === 6 && !submitted && (
-  <div>
-    <StepHeading
-      eyebrow="Almost done"
-      title="Complete your booking"
-      text="Enter your service address and contact details, then continue to secure checkout."
-    />
-
-    <div style={{ marginBottom: 18, border: `1px solid ${C.surfaceBorder}`, borderRadius: 14, overflow: "hidden" }}>
-      <div
-        style={{
-          background: C.surfaceBg,
-          padding: "9px 16px",
-          fontSize: 10,
-          fontWeight: 800,
-          color: C.inkFaint,
-          letterSpacing: "0.8px",
-          textTransform: "uppercase",
-          fontFamily: F,
-          borderBottom: `1px solid ${C.surfaceBorder}`,
-        }}
-      >
-        Rental Summary
-      </div>
-
-      {[
-        { label: "Service Area", value: areaLabel },
-        { label: "Delivery", value: `${zones[zoneKey]?.label || ""} ${zoneFee > 0 ? `(+$${zoneFee})` : "— Included"}` },
-        { label: "Dumpster", value: effectiveSize || "-" },
-        { label: "Weight included", value: sizeMeta[effectiveSize]?.label || "-" },
-        { label: "Rental", value: getRentalDisplayLabel(duration) },
-        {
-          label: "Delivery date",
-          value: selectedWindow
-            ? `${selectedWindow.startLabel} – ${selectedWindow.endLabel}`
-            : isAvailabilityDegraded
-              ? "Subject to confirmation"
-              : "-",
-        },
-      ].map((row) => (
-        <div
-          key={row.label}
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            padding: "10px 16px",
-            borderBottom: `1px solid ${C.surfaceBorder}`,
-            fontFamily: F,
-          }}
-        >
-          <span style={{ fontSize: 13, color: C.inkMuted }}>{row.label}</span>
-          <span style={{ fontSize: 13, fontWeight: 700, color: C.ink, textAlign: "right" }}>{row.value}</span>
-        </div>
-      ))}
-
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "12px 16px",
-          background: C.surfaceBg,
-          fontFamily: F,
-        }}
-      >
-        <span style={{ fontSize: 13, color: C.inkMuted }}>Total</span>
-        <span style={{ fontSize: 20, fontWeight: 900, color: C.ink, letterSpacing: "-0.4px" }}>
-          {selectedPrice != null ? `$${selectedPrice}` : "-"}
-        </span>
-      </div>
-    </div>
-
-    <div
-      style={{
-        background: C.surfaceBg,
-        border: `1px solid ${C.surfaceBorder}`,
-        borderRadius: 14,
-        padding: "18px 18px 6px",
-      }}
-    >
-      <label style={firstLabelStyle}>Name *</label>
-      <input
-        placeholder="Your name"
-        value={form.name}
-        onChange={(e) => setForm({ ...form, name: e.target.value })}
-        style={inputStyle}
-      />
-
-      <label style={labelStyle}>Email *</label>
-      <input
-        placeholder="you@example.com"
-        value={form.email}
-        onChange={(e) => setForm({ ...form, email: e.target.value })}
-        style={inputStyle}
-      />
-
-      <label style={labelStyle}>Phone *</label>
-      <input
-        placeholder="For faster scheduling"
-        value={form.phone}
-        onChange={(e) => setForm({ ...form, phone: e.target.value })}
-        onBlur={handlePhoneBlur}
-        type="tel"
-        style={inputStyle}
-      />
-
-      {form.phone.trim().length > 0 && (
-        <label style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 14, marginBottom: 6, fontFamily: F }}>
-          <input
-            type="checkbox"
-            checked={smsOptIn}
-            onChange={(e) => setSmsOptIn(e.target.checked)}
-            style={{ marginTop: 3 }}
-          />
-          <span style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.45 }}>
-            I agree to receive text messages from Little Junkers about my quote and rental.
-          </span>
-        </label>
-      )}
-
-      <label style={labelStyle}>Service address *</label>
-      <input
-        placeholder="Street address"
-        value={form.street}
-        onChange={(e) => setForm({ ...form, street: e.target.value })}
-        style={inputStyle}
-      />
-
-      <label style={labelStyle}>Apt / Suite</label>
-      <input
-        placeholder="Apartment, suite, gate code, etc. (optional)"
-        value={form.street2}
-        onChange={(e) => setForm({ ...form, street2: e.target.value })}
-        style={inputStyle}
-      />
-
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 0.8fr 0.8fr", gap: 10, marginTop: 14 }}>
-        <div>
-          <label style={firstLabelStyle}>City *</label>
-          <input
-            placeholder="City"
-            value={form.city}
-            onChange={(e) => setForm({ ...form, city: e.target.value })}
-            style={inputStyle}
-          />
-        </div>
-
-        <div>
-          <label style={firstLabelStyle}>State *</label>
-          <select
-            value={form.state}
-            onChange={(e) => setForm({ ...form, state: e.target.value })}
-            style={inputStyle}
-          >
-            <option value="GA">GA</option>
-          </select>
-        </div>
-
-        <div>
-          <label style={firstLabelStyle}>ZIP *</label>
-          <input
-            placeholder="ZIP"
-            value={form.zip}
-            readOnly
-            style={{ ...inputStyle, background: C.surfaceBg, color: C.inkMuted, cursor: "not-allowed" }}
-          />
+                    </div>
+                  )}
+                  {step === 2 && customerType === "Returning" && (
+                    <div>
+                      <StepHeading eyebrow="Welcome back" title="How do you want to proceed?" text="Move fast if you already know your size, or let us help match the best fit." />
+                      <div style={{ display:"grid", gap:10 }}>
+                        <OptionCard title="Quick Select" sub="I know my size already" selected={returningPath==="quick"} onClick={() => handleReturningPath("quick")} />
+                        <OptionCard title="Guide Me" sub="Help me size it for this project" selected={returningPath==="recommend"} onClick={() => handleReturningPath("recommend")} />
+                      </div>
+                    </div>
+                  )}
+                  {step === 3 && (
+                    <div>
+                      <StepHeading eyebrow="Step 3" title={(customerType==="Contractor" || customerType==="Contractor / Roofer") ? "What type of debris are you dealing with?" : "What kind of cleanup are you tackling?"} text="Choose the option closest to your current project." />
+                      <div style={{ display:"grid", gap:10 }}>
+                        {((customerType==="Contractor" || customerType==="Contractor / Roofer") ? ["General Cleanup","Renovation / demo","Roofing","Concrete","Other"] : ["Cleaning the garage / basement","Moving / decluttering","Renovation / demo","Other"]).map(type => (
+                          <OptionCard key={type} title={type} selected={project===type} onClick={() => type==="Other" ? setProject("Other") : handleProject(type)} />
+                        ))}
+                      </div>
+                      {project === "Other" && (
+                        <div style={{ marginTop:16 }}>
+                          <label style={firstLabelStyle}>Tell us a little more</label>
+                          <textarea value={otherText} onChange={e => setOtherText(e.target.value)} placeholder="Describe your project..." style={{ ...inputStyle, minHeight:90, resize:"vertical" }} />
+                          <PrimaryButton onClick={handleOtherContinue}>Continue</PrimaryButton>
+                        </div>
+                      )}
+                      {showConcreteNotice && (
+                        <div style={{ marginTop:16, background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:12, padding:16, fontFamily:F }}>
+                          <div style={{ fontWeight:800, color:C.ink, marginBottom:6 }}>Concrete isn't something we haul right now</div>
+                          <p style={{ margin:0, color:C.inkMid, lineHeight:1.5, fontSize:14 }}>We can still help with general cleanup, renovation debris, and roofing.</p>
+                          <button onClick={() => setShowConcreteNotice(false)} style={{ marginTop:12, padding:"9px 16px", background:C.ink, color:C.white, border:"none", borderRadius:10, cursor:"pointer", fontWeight:700, fontFamily:F, fontSize:13 }}>Got it</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {step === 4 && (
+                    <div>
+                      <StepHeading eyebrow={isReturningQuick ? "Quick select" : "Based on your project"} title={isReturningQuick ? "Choose your rental size" : "Best fit for your project"} text={isReturningQuick ? "Select the size you want." : "This is the strongest fit based on what you described."} />
+                      {!isReturningQuick && effectiveSize && (
+                        <div style={{ display:"flex", gap:14, alignItems:"stretch", marginBottom:18, flexWrap:"wrap" }}>
+                          <div onClick={handleContinueFromStep4} role="button" tabIndex={0} onKeyDown={e => e.key === "Enter" && handleContinueFromStep4()} style={{ flex:"1 1 300px", background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:20, cursor:"pointer" }}>
+                            <div style={{ fontSize:36, fontWeight:900, color:C.ink, letterSpacing:"-1.5px", lineHeight:1, marginBottom:8 }}>{effectiveSize}</div>
+                            <div style={{ marginBottom:14 }}><TonnagePill label={sizeMeta[effectiveSize]?.label || ""} /></div>
+                            <ul style={{ margin:"0 0 16px", paddingLeft:18, lineHeight:1.75, color:C.inkMid, fontSize:13 }}>{recommendation.holds.map(item => <li key={item}>{item}</li>)}</ul>
+                            <div style={{ background:C.white, border:`1px solid ${C.surfaceBorder}`, borderRadius:10, padding:"12px 14px" }}>
+                              <p style={{ margin:"0 0 6px", fontSize:13, lineHeight:1.55, color:C.ink }}>{recommendation.reason}</p>
+                              <div style={{ fontSize:12, color:C.inkMuted }}>{recommendation.note}</div>
+                            </div>
+                            <div style={{ marginTop:14, fontSize:12, fontWeight:700, color:C.pinkText, textAlign:"center" }}>Tap to continue →</div>
+                          </div>
+                          <div style={{ flex:"1 1 200px", display:"flex", flexDirection:"column", gap:12 }}>
+                            <div style={{ background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:14, flex:1, display:"flex", alignItems:"center", justifyContent:"center", minHeight:160 }}>
+                              <img src={DUMPSTER_IMAGES[effectiveSize]} alt={`${effectiveSize} dumpster`} style={{ width:"100%", maxWidth:260, height:"auto", objectFit:"contain" }} />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {!isReturningQuick && effectiveSize && (
+                        <div style={{ marginBottom:8 }}>
+                          <button onClick={() => setShowComparison(v => !v)} style={{ width:"100%", background:"none", border:`1px solid ${C.surfaceBorder}`, borderRadius:10, padding:"10px 16px", cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                            <span style={{ fontSize:13, fontWeight:700, color:C.inkMid }}>{showComparison ? "Hide size comparison" : "Compare other sizes"}</span>
+                            <span style={{ fontSize:14, color:C.inkMuted }}>{showComparison ? "▲" : "▼"}</span>
+                          </button>
+                          {showComparison && (
+                            <div style={{ background:C.white, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:18, marginTop:10 }}>
+                              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:10 }}>
+                                {allSizes.map(sizeKey => {
+                                  const isMatch = sizeKey === size;
+                                  const isSelected = effectiveSize === sizeKey;
+                                  return (
+                                    <div key={sizeKey} style={{ background: isSelected ? C.white : C.surfaceBg, border: isSelected ? `1.5px solid ${C.ink}` : `1px solid ${C.surfaceBorder}`, borderRadius:12, padding:14 }}>
+                                      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
+                                        <div style={{ fontSize:17, fontWeight:900 }}>{sizeKey}</div>
+                                        {isMatch && <span style={{ background:C.pinkBg, color:C.pinkText, fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:99 }}>Best Fit</span>}
+                                      </div>
+                                      <div style={{ fontSize:13, fontWeight:700, marginBottom:8 }}>{sizeMeta[sizeKey].label}</div>
+                                      {isSelected ? <div style={{ fontSize:12, fontWeight:800 }}>Selected</div> : <button onClick={() => handleSizeSelect(sizeKey)} style={{ width:"100%", padding:"9px", background:C.white, border:`1px solid ${C.surfaceBorder}`, borderRadius:10, fontSize:12, fontWeight:800 }}>Select</button>}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                          <PrimaryButton onClick={handleContinueFromStep4}>Continue with {effectiveSize}</PrimaryButton>
+                        </div>
+                      )}
+                      {(isReturningQuick || !effectiveSize) && (
+                        <div style={{ display:"grid", gap:10 }}>
+                          {allSizes.map(sizeKey => (
+                            <button key={sizeKey} onClick={() => handleSizeSelect(sizeKey)} style={{ width:"100%", textAlign:"left", padding:"16px 18px", borderRadius:12, border: (effectiveSize === sizeKey) ? `1.5px solid ${C.ink}` : `1px solid ${C.surfaceBorder}`, background: (effectiveSize === sizeKey) ? C.white : C.surfaceBg }}>
+                              <div style={{ fontSize:16, fontWeight:800 }}>{sizeKey}</div>
+                              <div style={{ fontSize:13, color:C.inkMuted }}>{sizeMeta[sizeKey].short}</div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {(isReturningQuick || !effectiveSize) && <PrimaryButton onClick={handleContinueFromStep4}>Continue</PrimaryButton>}
+                    </div>
+                  )}
+                  {step === 5 && (
+                    <Step5DatePicker
+                      effectiveSize={effectiveSize} availabilityLoading={availabilityLoading} isAvailabilityDegraded={isAvailabilityDegraded}
+                      availableOptions={availableOptions} calculatedPrices={calculatedPrices} selectedWindow={selectedWindow}
+                      duration={duration} showMoreDates={showMoreDates} setShowMoreDates={setShowMoreDates}
+                      handleWindowSelect={handleWindowSelect} handleFallbackOptionSelect={handleFallbackOptionSelect}
+                      sizeMeta={sizeMeta} rentalOptions={rentalOptions}
+                    />
+                  )}
+                  {step === 6 && !submitted && (
+                    <div>
+                      <StepHeading eyebrow="Almost done" title="Complete your booking" text="Enter your service address and contact details." />
+                      <div style={{ marginBottom: 18, border: `1px solid ${C.surfaceBorder}`, borderRadius: 14, overflow: "hidden" }}>
+                        <div style={{ background: C.surfaceBg, padding: "9px 16px", fontSize: 10, fontWeight: 800, color: C.inkFaint, borderBottom: `1px solid ${C.surfaceBorder}` }}>Rental Summary</div>
+                        {[
+                          { label: "Service Area", value: areaLabel },
+                          { label: "Dumpster", value: effectiveSize },
+                          { label: "Rental", value: getRentalDisplayLabel(duration) },
+                          { label: "Delivery date", value: selectedWindow ? `${selectedWindow.startLabel}` : "Subject to confirmation" },
+                        ].map((row) => (
+                          <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "10px 16px", borderBottom: `1px solid ${C.surfaceBorder}` }}>
+                            <span style={{ fontSize: 13, color: C.inkMuted }}>{row.label}</span>
+                            <span style={{ fontSize: 13, fontWeight: 700 }}>{row.value}</span>
+                          </div>
+                        ))}
+                        <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 16px", background: C.surfaceBg }}>
+                          <span style={{ fontSize: 13, color: C.inkMuted }}>Total</span>
+                          <span style={{ fontSize: 20, fontWeight: 900 }}>${selectedPrice}</span>
+                        </div>
+                      </div>
+                      <div style={{ background: C.surfaceBg, border: `1px solid ${C.surfaceBorder}`, borderRadius: 14, padding: "18px" }}>
+                        <label style={firstLabelStyle}>Name *</label>
+                        <input placeholder="Your name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={inputStyle} />
+                        <label style={labelStyle}>Email *</label>
+                        <input placeholder="you@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} style={inputStyle} />
+                        <label style={labelStyle}>Phone *</label>
+                        <input placeholder="Phone number" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} onBlur={handlePhoneBlur} type="tel" style={inputStyle} />
+                        <label style={labelStyle}>Service address *</label>
+                        <input placeholder="Street address" value={form.street} onChange={(e) => setForm({ ...form, street: e.target.value })} style={inputStyle} />
+                        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 0.8fr 0.8fr", gap: 10, marginTop: 14 }}>
+                          <input placeholder="City" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} style={inputStyle} />
+                          <select value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} style={inputStyle}><option value="GA">GA</option></select>
+                          <input value={form.zip} readOnly style={{ ...inputStyle, background: C.surfaceBg, color: C.inkMuted }} />
+                        </div>
+                        <label style={labelStyle}>How did you hear about us?</label>
+                        <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} style={inputStyle}>
+                          <option value="">Select one</option><option>Google</option><option>Facebook</option><option>Repeat Customer</option><option>Other</option>
+                        </select>
+                      </div>
+                      <div className="cf-turnstile" data-sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} data-theme="light" style={{ marginTop: 16 }}></div>
+                      {submitError && <div style={{ marginTop: 12, background: C.warningBg, border: `1px solid ${C.warningBorder}`, borderRadius: 10, padding: "12px 14px", fontSize: 13, color: C.ink }}>{submitError}</div>}
+                      <PrimaryButton onClick={handleSubmit} disabled={submitting}>{submitting ? "Preparing Checkout..." : "Proceed to Checkout"}</PrimaryButton>
+                    </div>
+                  )}
+                </CardBody>
+                <CardFooter />
+              </div>
+            )}
+          </main>
         </div>
       </div>
-
-      <label style={labelStyle}>How did you hear about us?</label>
-      <select
-        value={form.source}
-        onChange={(e) => setForm({ ...form, source: e.target.value })}
-        style={{ ...inputStyle, marginBottom: 18 }}
-      >
-        <option value="">Select one</option>
-        <option>Google</option>
-        <option>Facebook</option>
-        <option>Referral</option>
-        <option>Repeat Customer</option>
-        <option>Yard Sign</option>
-        <option>Saw a Dumpster / Truck</option>
-        <option>Other</option>
-      </select>
-    </div>
-
-    {submitError && (
-      <div
-        style={{
-          marginTop: 12,
-          background: C.warningBg,
-          border: `1px solid ${C.warningBorder}`,
-          borderRadius: 10,
-          padding: "12px 14px",
-          fontSize: 13,
-          color: C.ink,
-          fontFamily: F,
-        }}
-      >
-        {submitError}
-      </div>
-    )}
-
-    <PrimaryButton onClick={handleSubmit} disabled={submitting}>
-      {submitting ? "Preparing Checkout..." : "Proceed to Checkout"}
-    </PrimaryButton>
-  </div>
-)}
-
-              </CardBody>
-              <CardFooter />
-            </div>
-          )}
-
-        </main>
-      </div>
-    </div>
+    </>
   );
 }
