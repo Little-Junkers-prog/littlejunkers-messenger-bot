@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Script from "next/script";
 
 const C = {
   pageBg:        "#edeae4",
