@@ -1242,7 +1242,13 @@ export default function Funnel() {
 
   // ── render ───────────────────────────────────────────────────────────────
 
-  return (
+return (
+  <>
+    <Script
+      src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+      strategy="afterInteractive"
+    />
+
     <div style={{ minHeight:"100vh", background:C.pageBg, padding:"20px 16px 40px", fontFamily:F }}>
 
       {/* Exit submitted confirmation toast */}
