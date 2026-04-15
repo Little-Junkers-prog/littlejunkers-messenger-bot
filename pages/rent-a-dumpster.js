@@ -779,8 +779,14 @@ function Step5DatePicker({
 // ─── main component ───────────────────────────────────────────────────────────
 
 export default function Funnel() {
-  const [step,                setStep]                = useState(0);
-  const [zip,                 setZip]                 = useState("");
+  // Read optional ?zip= param from URL to allow pre-population from landing pages
+  const _urlZip = (() => {
+    try { const p = new URLSearchParams(window.location.search).get("zip"); return (p && /^\d{5}$/.test(p.trim())) ? p.trim() : ""; } catch { return ""; }
+  })();
+  const _urlZipValid = _urlZip && !!zipToZone[_urlZip];
+
+  const [step,                setStep]                = useState(_urlZipValid ? 1 : 0);
+  const [zip,                 setZip]                 = useState(_urlZip || "");
   const [zipError,            setZipError]            = useState("");
   const [zoneKey,             setZoneKey]             = useState("");
   const [zoneFee,             setZoneFee]             = useState(0);
@@ -831,6 +837,17 @@ export default function Funnel() {
 
   // Keep stepRef in sync
   useEffect(() => { stepRef.current = step; }, [step]);
+
+  // If zip was pre-populated from URL param, hydrate zone state on mount
+  useEffect(() => {
+    if (_urlZipValid) {
+      const found = zipToZone[_urlZip];
+      setZoneKey(found);
+      setZoneFee(zones[found].fee);
+      setForm(prev => ({ ...prev, zip: _urlZip }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const areaLabel        = getAreaLabel(zip);
   const effectiveSize    = overrideSize || size;
@@ -1163,13 +1180,6 @@ export default function Funnel() {
         mobile: form.phone.trim(),
         source: form.source,
       },
-      deliveryAddress: {
-        street:  form.street.trim(),
-        street2: form.street2.trim(),
-        city:    form.city.trim(),
-        state:   form.state,
-        zip:     form.zip,
-      },
     };
 
     try {
@@ -1190,7 +1200,6 @@ export default function Funnel() {
         basePrice:     selectedPrice - zoneFee, // separate out the base price for the receipt
         deliveryFee:   zoneFee,
         zone:          zoneKey,
-deliveryDate:  selectedWindow?.startLabel || "",
       };
 
       // 3. Request the Checkout Session URL
