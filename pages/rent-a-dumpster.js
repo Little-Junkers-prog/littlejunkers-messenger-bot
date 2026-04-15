@@ -829,6 +829,8 @@ export default function Funnel() {
   const stepRef          = useRef(step);
   const idleTimerRef     = useRef(null);
   const historyPushedRef = useRef(false);
+  const turnstileWidgetIdRef = useRef(null);
+  const turnstileRenderedRef = useRef(false);
 
   useEffect(() => { stepRef.current = step; }, [step]);
 
@@ -840,6 +842,25 @@ export default function Funnel() {
       setForm(prev => ({ ...prev, zip: _urlZip }));
     }
   }, []);
+
+  useEffect(() => {
+    if (step !== 6) return;
+    if (typeof window === "undefined") return;
+    if (!window.turnstile) return;
+    if (turnstileRenderedRef.current) return;
+
+    const container = document.getElementById("turnstile-widget");
+    if (!container) return;
+
+    container.innerHTML = "";
+
+    turnstileWidgetIdRef.current = window.turnstile.render("#turnstile-widget", {
+      sitekey: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+      theme: "light",
+    });
+
+    turnstileRenderedRef.current = true;
+  }, [step]);
 
   const areaLabel        = getAreaLabel(zip);
   const effectiveSize    = overrideSize || size;
@@ -1105,7 +1126,10 @@ export default function Funnel() {
     if (!form.name.trim() || !form.email.trim() || !form.phone.trim()) {
       return alert("Please enter your name, email, and phone number.");
     }
-    const token = document.querySelector('input[name="cf-turnstile-response"]')?.value;
+    const token =
+      window.turnstile && turnstileWidgetIdRef.current
+        ? window.turnstile.getResponse(turnstileWidgetIdRef.current)
+        : "";
     if (!token) {
       alert("Please complete the security check.");
       return;
@@ -1159,7 +1183,10 @@ export default function Funnel() {
   };
 
   const goBack = () => {
-    if (step===6) return setStep(5);
+    if (step===6) {
+      turnstileRenderedRef.current = false; // Reset rendering ref when going back
+      return setStep(5);
+    }
     if (step===5) return setStep(4);
     if (step===4) return isReturningQuick ? setStep(2) : setStep(3);
     if (step===3) return customerType === "Returning" ? setStep(2) : setStep(1);
@@ -1173,7 +1200,7 @@ export default function Funnel() {
 
   return (
     <>
-      <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="afterInteractive" />
+      <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" strategy="afterInteractive" />
       <div style={{ minHeight:"100vh", background:C.pageBg, padding:"20px 16px 40px", fontFamily:F }}>
         {exitSubmitted && (
           <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:C.ink, color:C.white, padding:"12px 24px", borderRadius:12, fontSize:14, fontWeight:700, zIndex:1100, fontFamily:F, boxShadow:"0 4px 16px rgba(0,0,0,0.2)" }}>
@@ -1378,7 +1405,7 @@ export default function Funnel() {
                           <option value="">Select one</option><option>Google</option><option>Facebook</option><option>Repeat Customer</option><option>Other</option>
                         </select>
                       </div>
-                      <div className="cf-turnstile" data-sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} data-theme="light" style={{ marginTop: 16 }}></div>
+                      <div id="turnstile-widget" style={{ marginTop: 16 }}></div>
                       {submitError && <div style={{ marginTop: 12, background: C.warningBg, border: `1px solid ${C.warningBorder}`, borderRadius: 10, padding: "12px 14px", fontSize: 13, color: C.ink }}>{submitError}</div>}
                       <PrimaryButton onClick={handleSubmit} disabled={submitting}>{submitting ? "Preparing Checkout..." : "Proceed to Checkout"}</PrimaryButton>
                     </div>
