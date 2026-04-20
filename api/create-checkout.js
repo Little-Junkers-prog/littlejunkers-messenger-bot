@@ -31,11 +31,24 @@ function asMoneyCents(value) {
   return Math.round(n * 100);
 }
 
+function asString(value) {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
+
 function getBaseUrl(req) {
   if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
   if (process.env.SITE_URL) return process.env.SITE_URL;
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return req.headers.origin || "https://book.littlejunkersllc.com";
+}
+
+function parseOptionalDate(value) {
+  const raw = asString(value);
+  if (!raw) return "";
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString();
 }
 
 export default async function handler(req, res) {
@@ -58,6 +71,8 @@ export default async function handler(req, res) {
   try {
     const {
       leadId,
+      bookingHoldId,
+      holdId,
       customerEmail,
       customerName,
       dumpsterSize,
@@ -66,14 +81,28 @@ export default async function handler(req, res) {
       deliveryFee,
       zone,
       deliveryDate,
+      selectedWindow,
+      requestedStartAt,
+      requestedEndAt,
     } = req.body || {};
 
     if (!leadId) {
-      return res.status(400).json({ error: "Missing Odoo leadId. Cannot process payment." });
+      return res.status(400).json({
+        error: "Missing Odoo leadId. Cannot process payment.",
+      });
+    }
+
+    const resolvedHoldId = asString(bookingHoldId || holdId);
+    if (!resolvedHoldId) {
+      return res.status(400).json({
+        error: "Missing bookingHoldId. Create a Supabase hold before checkout.",
+      });
     }
 
     if (!dumpsterSize || !rentalOption) {
-      return res.status(400).json({ error: "Missing dumpster size or rental option." });
+      return res.status(400).json({
+        error: "Missing dumpster size or rental option.",
+      });
     }
 
     const basePriceCents = asMoneyCents(basePrice);
@@ -82,6 +111,18 @@ export default async function handler(req, res) {
     if (basePriceCents === null) {
       return res.status(400).json({ error: "Invalid base price." });
     }
+
+    const selectedWindowStart =
+      parseOptionalDate(selectedWindow?.start) ||
+      parseOptionalDate(selectedWindow?.startIso) ||
+      parseOptionalDate(selectedWindow?.startDateTime) ||
+      parseOptionalDate(requestedStartAt);
+
+    const selectedWindowEnd =
+      parseOptionalDate(selectedWindow?.end) ||
+      parseOptionalDate(selectedWindow?.endIso) ||
+      parseOptionalDate(selectedWindow?.endDateTime) ||
+      parseOptionalDate(requestedEndAt);
 
     const lineItems = [
       {
@@ -114,11 +155,15 @@ export default async function handler(req, res) {
 
     const metadata = {
       odoo_lead_id: String(leadId),
+      booking_hold_id: resolvedHoldId,
+      hold_id: resolvedHoldId,
       customer_name: String(customerName || ""),
       dumpster_size: String(dumpsterSize),
       rental_option: String(rentalOption),
       zone: String(zone || ""),
       delivery_date: String(deliveryDate || ""),
+      selected_window_start: String(selectedWindowStart || ""),
+      selected_window_end: String(selectedWindowEnd || ""),
     };
 
     const session = await stripe.checkout.sessions.create({
@@ -134,9 +179,14 @@ export default async function handler(req, res) {
       cancel_url: `${baseUrl}/rent-a-dumpster`,
     });
 
-    return res.status(200).json({ url: session.url });
+    return res.status(200).json({
+      url: session.url,
+      sessionId: session.id,
+      bookingHoldId: resolvedHoldId,
+    });
   } catch (error) {
     console.error("[Stripe Checkout Error]:", error);
+
     return res.status(500).json({
       error: error.message || "Failed to create checkout session",
     });
