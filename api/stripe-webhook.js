@@ -96,6 +96,14 @@ function asString(value) {
   return String(value).trim();
 }
 
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const s = asString(value);
+    if (s) return s;
+  }
+  return "";
+}
+
 function parseOptionalDate(value) {
   const raw = asString(value);
   if (!raw) return null;
@@ -258,6 +266,27 @@ async function insertBookingFromHold(supabase, { hold, session, odooLeadId }) {
     asString(session.metadata?.rental_option) ||
     null;
 
+  const saleOrderName = firstNonEmpty(
+    session.metadata?.sale_order_name,
+    session.metadata?.saleOrderName,
+    hold.metadata?.saleOrderName,
+    hold.metadata?.sale_order_name,
+    hold.metadata?.odooOrderName,
+    hold.metadata?.odoo_order_name
+  );
+
+  const odooOrderId = firstNonEmpty(
+    session.metadata?.odoo_order_id,
+    hold.metadata?.odooOrderId,
+    hold.metadata?.odoo_order_id
+  );
+
+  const odooRentalOrderId = firstNonEmpty(
+    session.metadata?.odoo_rental_order_id,
+    hold.metadata?.odooRentalOrderId,
+    hold.metadata?.odoo_rental_order_id
+  );
+
   const metadataPatch = {
     source: "stripe_webhook",
     stripePaymentStatus: session.payment_status || null,
@@ -266,6 +295,9 @@ async function insertBookingFromHold(supabase, { hold, session, odooLeadId }) {
     stripeSessionId: session.id,
     amountTotal: session.amount_total ?? null,
     currency: session.currency || null,
+    saleOrderName,
+    odooOrderId,
+    odooRentalOrderId,
   };
 
   const insertPayload = {
