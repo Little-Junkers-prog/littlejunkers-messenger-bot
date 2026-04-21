@@ -84,6 +84,10 @@ export default async function handler(req, res) {
       selectedWindow,
       requestedStartAt,
       requestedEndAt,
+      saleOrderName,
+      orderName,
+      odooOrderId,
+      odooRentalOrderId,
     } = req.body || {};
 
     if (!leadId) {
@@ -126,6 +130,8 @@ export default async function handler(req, res) {
       parseOptionalDate(selectedWindow?.end) ||
       parseOptionalDate(requestedEndAt);
 
+    const resolvedSaleOrderName = asString(saleOrderName || orderName);
+
     const lineItems = [
       {
         price_data: {
@@ -166,6 +172,9 @@ export default async function handler(req, res) {
       delivery_date: String(deliveryDate || ""),
       selected_window_start: String(selectedWindowStart || ""),
       selected_window_end: String(selectedWindowEnd || ""),
+      sale_order_name: String(resolvedSaleOrderName || ""),
+      odoo_order_id: String(odooOrderId || ""),
+      odoo_rental_order_id: String(odooRentalOrderId || ""),
     };
 
     const session = await stripe.checkout.sessions.create({
