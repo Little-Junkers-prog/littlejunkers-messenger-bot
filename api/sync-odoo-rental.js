@@ -82,6 +82,7 @@ function buildMetadataPatch(body) {
     odooStatusRaw: asString(body?.odooStatus || body?.status),
     odooOrderId: asString(body?.odooOrderId),
     odooRentalOrderId: asString(body?.odooRentalOrderId),
+    saleOrderName: asString(body?.saleOrderName || body?.orderName),
     syncNotes: asString(body?.syncNotes),
   };
 }
@@ -111,6 +112,10 @@ async function findUnitByCode(supabase, dumpsterUnitCode) {
 }
 
 async function findBookingByLeadId(supabase, odooLeadId) {
+  if (!Number.isFinite(odooLeadId)) {
+    return null;
+  }
+
   const { data, error } = await supabase
     .from("rental_bookings")
     .select("*")
@@ -124,6 +129,41 @@ async function findBookingByLeadId(supabase, odooLeadId) {
   }
 
   return data || null;
+}
+
+async function findBookingBySaleOrderName(supabase, saleOrderName) {
+  const orderName = asString(saleOrderName);
+  if (!orderName) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("rental_bookings")
+    .select("*")
+    .or([
+      `metadata->>saleOrderName.eq.${orderName}`,
+      `metadata->>odooSaleOrderName.eq.${orderName}`,
+      `metadata->>sale_order_name.eq.${orderName}`,
+      `metadata->>odoo_order_name.eq.${orderName}`,
+    ].join(","))
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data || null;
+}
+
+async function findBooking(supabase, { odooLeadId, saleOrderName }) {
+  const bookingByLeadId = await findBookingByLeadId(supabase, odooLeadId);
+  if (bookingByLeadId) {
+    return bookingByLeadId;
+  }
+
+  return findBookingBySaleOrderName(supabase, saleOrderName);
 }
 
 export default async function handler(req, res) {
@@ -157,7 +197,10 @@ export default async function handler(req, res) {
       throw new Error("Missing ODOO_SYNC_KEY");
     }
 
-    const providedSyncKey = req.headers["x-odoo-sync-key"];
+    const body = req.body || {};
+    const providedSyncKey =
+      asString(req.headers["x-odoo-sync-key"]) || asString(body?.syncToken);
+
     if (providedSyncKey !== expectedSyncKey) {
       return res.status(401).json({
         success: false,
@@ -165,21 +208,21 @@ export default async function handler(req, res) {
       });
     }
 
-    const body = req.body || {};
-
     const leadIdRaw = asString(body?.odooLeadId || body?.leadId);
-    if (!leadIdRaw) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing odooLeadId",
-      });
-    }
+    const saleOrderName = asString(body?.saleOrderName || body?.orderName);
 
-    const odooLeadId = Number(leadIdRaw);
-    if (!Number.isFinite(odooLeadId)) {
+    const odooLeadId = leadIdRaw ? Number(leadIdRaw) : null;
+    if (leadIdRaw && !Number.isFinite(odooLeadId)) {
       return res.status(400).json({
         success: false,
         error: "Invalid odooLeadId",
+      });
+    }
+
+    if (!Number.isFinite(odooLeadId) && !saleOrderName) {
+      return res.status(400).json({
+        success: false,
+        error: "Provide odooLeadId or saleOrderName",
       });
     }
 
@@ -205,11 +248,13 @@ export default async function handler(req, res) {
 
     const supabase = getSupabaseAdmin();
 
-    const booking = await findBookingByLeadId(supabase, odooLeadId);
+    const booking = await findBooking(supabase, { odooLeadId, saleOrderName });
     if (!booking) {
       return res.status(404).json({
         success: false,
-        error: `No rental_bookings row found for odooLeadId ${odooLeadId}`,
+        error: Number.isFinite(odooLeadId)
+          ? `No rental_bookings row found for odooLeadId ${odooLeadId} or saleOrderName ${saleOrderName || "(none)"}`
+          : `No rental_bookings row found for saleOrderName ${saleOrderName}`,
       });
     }
 
@@ -278,6 +323,11 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       message: "Odoo rental sync applied successfully.",
+      lookupUsed: {
+        odooLeadId: Number.isFinite(odooLeadId) ? odooLeadId : null,
+        saleOrderName: saleOrderName || null,
+        matchedBookingId: booking.id,
+      },
       booking: updatedBooking,
       unit: updatedUnit,
     });
