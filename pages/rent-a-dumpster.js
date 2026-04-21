@@ -27,6 +27,12 @@ const F = "system-ui, -apple-system, sans-serif";
 const HOMEPAGE = "https://www.littlejunkersllc.com";
 const ECOM_FALLBACK = "https://www.littlejunkersllc.com/shop";
 const IDLE_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
+const AVAILABILITY_ENDPOINT = "/api/availability-v2";
+const SIZE_CODE_MAP = {
+  "11 Yard": "11YD",
+  "16 Yard": "16YD",
+  "21 Yard": "21YD",
+};
 
 // ─── data ─────────────────────────────────────────────────────────────────────
 
@@ -757,8 +763,7 @@ function Step5DatePicker({
             <div style={{ marginTop:14 }}>
               <button
                 onClick={() => setShowMoreDates(prev => ({ ...prev, extended: !prev.extended }))}
-                style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, fontWeight:700, color:C.inkMuted, fontFamily:F, padding:"4px 0", display:"flex", alignItems:"center", gap:6 }}
-              >
+                style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, fontWeight:700, color:C.inkMuted, fontFamily:F, padding:"4px 0", display:"flex", alignItems:"center", gap:6 }}>
                 <span>{showMoreDates.extended ? "▲" : "▼"}</span>
                 <span>{showMoreDates.extended ? "Hide other options" : "More dates and rental lengths"}</span>
               </button>
@@ -1047,7 +1052,7 @@ export default function Funnel() {
         setDuration(""); setSelectedPrice(null); setSelectedWindow(null);
         setAvailabilityData(null); setAvailabilityError(""); setAvailabilityLoading(true);
         setStep(5);
-        fetch("/api/availability", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ size:sel }) })
+        fetch(AVAILABILITY_ENDPOINT, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ size:sel }) })
           .then(r => r.json())
           .then(json => { setAvailabilityData(json); })
           .catch(err => {
@@ -1070,7 +1075,7 @@ export default function Funnel() {
     setAvailabilityData(null); setAvailabilityError(""); setAvailabilityLoading(true);
     setStep(5);
     try {
-      const res  = await fetch("/api/availability", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ size:effectiveSize }) });
+      const res  = await fetch(AVAILABILITY_ENDPOINT, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ size:effectiveSize }) });
       const json = await res.json();
       if (!res.ok || json?.error) throw new Error(json?.error || "Unable to load availability.");
       setAvailabilityData(json);
@@ -1124,21 +1129,36 @@ export default function Funnel() {
 
   const handleSubmit = async () => {
     if (!form.name.trim() || !form.email.trim() || !form.phone.trim()) {
-      return alert("Please enter your name, email, and phone number.");
+      alert("Please enter your name, email, and phone number.");
+      return;
     }
+
+    if (!selectedWindow?.startIso || !selectedWindow?.endIso) {
+      setSubmitError("Please choose a delivery date before checkout.");
+      return;
+    }
+
     const token =
       window.turnstile && turnstileWidgetIdRef.current
         ? window.turnstile.getResponse(turnstileWidgetIdRef.current)
         : "";
+
     if (!token) {
       alert("Please complete the security check.");
       return;
     }
+
     setSubmitting(true);
     setSubmitError("");
+
     const payload = {
       leadId: capturedLeadId,
-      zip, areaLabel, zone:zoneKey, deliveryFee:zoneFee, customerType, returningPath,
+      zip,
+      areaLabel,
+      zone: zoneKey,
+      deliveryFee: zoneFee,
+      customerType,
+      returningPath,
       project: normalizeProjectForOdoo(project),
       otherText: project === "Other" ? otherText.trim() : "",
       recommendedSize: size,
@@ -1153,16 +1173,60 @@ export default function Funnel() {
       smsOptIn,
       smsOptInDate: smsOptIn ? new Date().toISOString() : null,
       turnstileToken: token,
-      contact: { name: form.name.trim(), email: form.email.trim(), phone: form.phone.trim(), mobile: form.phone.trim(), source: form.source },
-      deliveryAddress: { street: form.street.trim(), street2: form.street2.trim(), city: form.city.trim(), state: form.state, zip: form.zip },
+      contact: {
+        name: form.name.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim(),
+        mobile: form.phone.trim(),
+        source: form.source,
+      },
+      deliveryAddress: {
+        street: form.street.trim(),
+        street2: form.street2.trim(),
+        city: form.city.trim(),
+        state: form.state,
+        zip: form.zip,
+      },
     };
+
     try {
-      const resOdoo = await fetch("/api/submit-lead", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const resOdoo = await fetch("/api/submit-lead", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
       const odooJson = await resOdoo.json();
-      if (!resOdoo.ok || !odooJson?.success) throw new Error(odooJson?.error || "Lead Submission failed.");
+
+      if (!resOdoo.ok || !odooJson?.success) {
+        throw new Error(odooJson?.error || "Lead submission failed.");
+      }
+
       const finalLeadId = odooJson.leadId || capturedLeadId;
+
+      const holdPayload = {
+        ...payload,
+        leadId: finalLeadId,
+        customerName: form.name.trim(),
+        customerEmail: form.email.trim(),
+        sizeCode: SIZE_CODE_MAP[effectiveSize],
+        requestedStartAt: selectedWindow.startIso,
+        requestedEndAt: selectedWindow.endIso,
+      };
+
+      const resHold = await fetch("/api/create-booking-hold", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(holdPayload),
+      });
+      const holdJson = await resHold.json();
+
+      if (!resHold.ok || !holdJson?.success || !holdJson?.hold?.id) {
+        throw new Error(holdJson?.error || "Unable to create booking hold.");
+      }
+
       const stripePayload = {
         leadId: finalLeadId,
+        bookingHoldId: holdJson.hold.id,
         customerEmail: form.email.trim(),
         customerName: form.name.trim(),
         dumpsterSize: effectiveSize,
@@ -1170,14 +1234,28 @@ export default function Funnel() {
         basePrice: selectedPrice - zoneFee,
         deliveryFee: zoneFee,
         zone: zoneKey,
-        deliveryDate: selectedWindow?.startLabel || "",
+        deliveryDate: selectedWindow.start,
+        selectedWindow,
+        requestedStartAt: selectedWindow.startIso,
+        requestedEndAt: selectedWindow.endIso,
       };
-      const resStripe = await fetch("/api/create-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(stripePayload) });
+
+      const resStripe = await fetch("/api/create-checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(stripePayload),
+      });
       const stripeJson = await resStripe.json();
-      if (!resStripe.ok || !stripeJson?.url) throw new Error(stripeJson?.error || "Stripe Checkout failed.");
+
+      if (!resStripe.ok || !stripeJson?.url) {
+        throw new Error(stripeJson?.error || "Stripe Checkout failed.");
+      }
+
       window.location.href = stripeJson.url;
     } catch (err) {
-      setSubmitError("Something went wrong preparing your checkout. Please try again or call 470-548-4733.");
+      setSubmitError(
+        err.message || "Something went wrong preparing your checkout. Please try again or call 470-548-4733."
+      );
       setSubmitting(false);
     }
   };
