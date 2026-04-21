@@ -19,6 +19,8 @@ const VALID_READINESS_STATUSES = new Set([
   "needs_emptying",
 ]);
 
+const VALID_SIZE_CODES = new Set(["11YD", "16YD", "21YD"]);
+
 function applyCors(req, res) {
   const origin = req.headers.origin;
 
@@ -49,6 +51,20 @@ function normalizeBookingStatus(value) {
 function normalizeReadinessStatus(value) {
   const raw = asString(value).toLowerCase();
   return VALID_READINESS_STATUSES.has(raw) ? raw : null;
+}
+
+function normalizeSizeCode(value) {
+  const raw = asString(value).toUpperCase();
+  if (!raw) return null;
+
+  const aliases = {
+    "11 YARD": "11YD",
+    "16 YARD": "16YD",
+    "21 YARD": "21YD",
+  };
+
+  const normalized = aliases[raw] || raw;
+  return VALID_SIZE_CODES.has(normalized) ? normalized : null;
 }
 
 function parseOptionalDate(value, fieldName) {
@@ -83,6 +99,7 @@ function buildMetadataPatch(body) {
     odooOrderId: asString(body?.odooOrderId),
     odooRentalOrderId: asString(body?.odooRentalOrderId),
     saleOrderName: asString(body?.saleOrderName || body?.orderName),
+    odooSizeCode: asString(body?.sizeCode || body?.dumpsterSizeCode || body?.selectedSize),
     syncNotes: asString(body?.syncNotes),
   };
 }
@@ -228,14 +245,9 @@ export default async function handler(req, res) {
 
     const bookingStatus = normalizeBookingStatus(body?.status);
     const readinessStatus = normalizeReadinessStatus(body?.readinessStatus);
-
-    if (!bookingStatus && !readinessStatus) {
-      return res.status(400).json({
-        success: false,
-        error:
-          "At least one of status or readinessStatus must be provided.",
-      });
-    }
+    const sizeCode = normalizeSizeCode(
+      body?.sizeCode || body?.dumpsterSizeCode || body?.selectedSize
+    );
 
     const scheduledStartAt = parseOptionalDate(body?.scheduledStartAt, "scheduledStartAt");
     const scheduledEndAt = parseOptionalDate(body?.scheduledEndAt, "scheduledEndAt");
@@ -245,6 +257,28 @@ export default async function handler(req, res) {
       body?.expectedReturnDate,
       "expectedReturnDate"
     );
+
+    const hasBookingPatch = Boolean(
+      bookingStatus ||
+      sizeCode ||
+      scheduledStartAt ||
+      scheduledEndAt ||
+      actualDeliveredAt ||
+      actualPickedUpAt ||
+      expectedReturnDate ||
+      saleOrderName ||
+      asString(body?.odooOrderId) ||
+      asString(body?.odooRentalOrderId) ||
+      asString(body?.syncNotes) ||
+      asString(body?.dumpsterUnitCode)
+    );
+
+    if (!hasBookingPatch && !readinessStatus) {
+      return res.status(400).json({
+        success: false,
+        error: "Provide at least one booking update field or readinessStatus.",
+      });
+    }
 
     const supabase = getSupabaseAdmin();
 
@@ -264,6 +298,9 @@ export default async function handler(req, res) {
     if (bookingStatus) {
       bookingPatch.status = bookingStatus;
     }
+    if (sizeCode) {
+      bookingPatch.size_code = sizeCode;
+    }
     if (scheduledStartAt) {
       bookingPatch.scheduled_start_at = scheduledStartAt;
     }
@@ -281,6 +318,13 @@ export default async function handler(req, res) {
     }
     if (unit?.id) {
       bookingPatch.dumpster_unit_id = unit.id;
+      if (!sizeCode && unit?.size_code) {
+        bookingPatch.size_code = unit.size_code;
+      }
+    }
+
+    if (Number.isFinite(odooLeadId) && booking.odoo_lead_id !== odooLeadId) {
+      bookingPatch.odoo_lead_id = odooLeadId;
     }
 
     bookingPatch.metadata = mergeMetadata(
