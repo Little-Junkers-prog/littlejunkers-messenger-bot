@@ -98,6 +98,9 @@ function buildMetadata(body, normalizedSizeCode, requestedStartAtIso, requestedE
     leadId: body?.leadId ?? null,
     sizeCode: normalizedSizeCode,
     rentalOption: firstNonEmpty(body?.rentalOption),
+    saleOrderName: firstNonEmpty(body?.saleOrderName, body?.orderName),
+    odooOrderId: firstNonEmpty(body?.odooOrderId),
+    odooRentalOrderId: firstNonEmpty(body?.odooRentalOrderId),
     selectedWindow: {
       start: firstNonEmpty(body?.selectedWindow?.start, body?.selectedWindow?.startDateTime, body?.requestedStartAt),
       end: firstNonEmpty(body?.selectedWindow?.end, body?.selectedWindow?.endDateTime, body?.requestedEndAt),
