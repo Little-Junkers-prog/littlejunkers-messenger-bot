@@ -113,15 +113,17 @@ export default async function handler(req, res) {
     }
 
     const selectedWindowStart =
-      parseOptionalDate(selectedWindow?.start) ||
       parseOptionalDate(selectedWindow?.startIso) ||
       parseOptionalDate(selectedWindow?.startDateTime) ||
+      parseOptionalDate(selectedWindow?.start_at) ||
+      parseOptionalDate(selectedWindow?.start) ||
       parseOptionalDate(requestedStartAt);
 
     const selectedWindowEnd =
-      parseOptionalDate(selectedWindow?.end) ||
       parseOptionalDate(selectedWindow?.endIso) ||
       parseOptionalDate(selectedWindow?.endDateTime) ||
+      parseOptionalDate(selectedWindow?.end_at) ||
+      parseOptionalDate(selectedWindow?.end) ||
       parseOptionalDate(requestedEndAt);
 
     const lineItems = [
