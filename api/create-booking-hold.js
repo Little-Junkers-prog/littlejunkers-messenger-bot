@@ -99,8 +99,10 @@ function buildMetadata(body, normalizedSizeCode, requestedStartAtIso, requestedE
     sizeCode: normalizedSizeCode,
     rentalOption: firstNonEmpty(body?.rentalOption),
     selectedWindow: {
-      start: requestedStartAtIso,
-      end: requestedEndAtIso,
+      start: firstNonEmpty(body?.selectedWindow?.start, body?.selectedWindow?.startDateTime, body?.requestedStartAt),
+      end: firstNonEmpty(body?.selectedWindow?.end, body?.selectedWindow?.endDateTime, body?.requestedEndAt),
+      startIso: requestedStartAtIso,
+      endIso: requestedEndAtIso,
     },
     deliveryAddress: body?.deliveryAddress || null,
     areaLabel: firstNonEmpty(body?.areaLabel),
@@ -150,10 +152,10 @@ export default async function handler(req, res) {
 
     const requestedStartAt = parseDateInput(
       firstNonEmpty(
-        body?.selectedWindow?.start,
         body?.selectedWindow?.startIso,
         body?.selectedWindow?.startDateTime,
         body?.selectedWindow?.start_at,
+        body?.selectedWindow?.start,
         body?.requestedStartAt,
         body?.rentalStart
       ),
@@ -162,10 +164,10 @@ export default async function handler(req, res) {
 
     const requestedEndAt = parseDateInput(
       firstNonEmpty(
-        body?.selectedWindow?.end,
         body?.selectedWindow?.endIso,
         body?.selectedWindow?.endDateTime,
         body?.selectedWindow?.end_at,
+        body?.selectedWindow?.end,
         body?.requestedEndAt,
         body?.rentalEnd
       ),
