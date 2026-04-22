@@ -53,6 +53,15 @@ function normalizeReadinessStatus(value) {
   return VALID_READINESS_STATUSES.has(raw) ? raw : null;
 }
 
+function inferSizeCodeFromText(value) {
+  const raw = asString(value).toUpperCase();
+  if (!raw) return null;
+  if (raw.includes("11YD") || raw.includes("11 YARD") || raw.includes("11Y")) return "11YD";
+  if (raw.includes("16YD") || raw.includes("16 YARD") || raw.includes("16Y")) return "16YD";
+  if (raw.includes("21YD") || raw.includes("21 YARD") || raw.includes("21Y")) return "21YD";
+  return null;
+}
+
 function normalizeSizeCode(value) {
   const raw = asString(value).toUpperCase();
   if (!raw) return null;
@@ -64,7 +73,7 @@ function normalizeSizeCode(value) {
   };
 
   const normalized = aliases[raw] || raw;
-  return VALID_SIZE_CODES.has(normalized) ? normalized : null;
+  return VALID_SIZE_CODES.has(normalized) ? normalized : inferSizeCodeFromText(normalized);
 }
 
 function parseOptionalDate(value, fieldName) {
@@ -91,16 +100,128 @@ function parseOptionalDateOnly(value, fieldName) {
   return date.toISOString().slice(0, 10);
 }
 
-function buildMetadataPatch(body) {
+function extractRelationId(value) {
+  if (Number.isFinite(value)) return value;
+
+  const raw = asString(value);
+  if (raw && /^\d+$/.test(raw)) {
+    return Number(raw);
+  }
+
+  if (Array.isArray(value) && value.length > 0) {
+    const first = value[0];
+    if (Number.isFinite(first)) return first;
+    if (typeof first === "string" && /^\d+$/.test(first)) return Number(first);
+  }
+
+  if (value && typeof value === "object") {
+    if (Number.isFinite(value.id)) return value.id;
+    if (typeof value.id === "string" && /^\d+$/.test(value.id)) return Number(value.id);
+  }
+
+  return null;
+}
+
+function extractRelationName(value) {
+  if (Array.isArray(value) && value.length > 1) {
+    return asString(value[1]);
+  }
+
+  if (value && typeof value === "object") {
+    return asString(value.display_name || value.name);
+  }
+
+  return asString(value);
+}
+
+function deriveEvent(body, req) {
+  return asString(body?.event || req.query?.event || body?._event).toLowerCase();
+}
+
+function deriveSaleOrderName(body) {
+  return asString(
+    body?.saleOrderName ||
+    body?.orderName ||
+    body?.name ||
+    body?.order_reference ||
+    extractRelationName(body?.order_id) ||
+    extractRelationName(body?.sale_order_id)
+  );
+}
+
+function deriveOdooLeadId(body) {
+  return extractRelationId(
+    body?.odooLeadId ??
+    body?.leadId ??
+    body?.opportunity_id ??
+    body?.opportunityId
+  );
+}
+
+function deriveOdooOrderId(body) {
+  return extractRelationId(
+    body?.odooOrderId ??
+    body?.id ??
+    body?._id ??
+    body?.order_id ??
+    body?.sale_order_id
+  );
+}
+
+function deriveSizeCode(body) {
+  return normalizeSizeCode(
+    body?.sizeCode ||
+    body?.dumpsterSizeCode ||
+    body?.selectedSize ||
+    body?.product_size ||
+    extractRelationName(body?.product_id) ||
+    body?.product_name
+  );
+}
+
+function deriveBookingStatus(body, event) {
+  const explicitStatus = normalizeBookingStatus(body?.status);
+  if (explicitStatus) return explicitStatus;
+
+  if (["confirmation", "confirm", "enrichment", "reservation"].includes(event)) {
+    return "reserved";
+  }
+
+  if (["pickup", "delivered", "on_rent"].includes(event)) {
+    return "on_rent";
+  }
+
+  if (["return", "returned", "complete", "completed"].includes(event)) {
+    return "completed";
+  }
+
+  return null;
+}
+
+function deriveReadinessStatus(body, event) {
+  const explicitReadiness = normalizeReadinessStatus(body?.readinessStatus);
+  if (explicitReadiness) return explicitReadiness;
+
+  if (["return", "returned", "complete", "completed"].includes(event)) {
+    return "ready";
+  }
+
+  return null;
+}
+
+function buildMetadataPatch(body, normalized) {
   return {
     lastOdooSyncAt: new Date().toISOString(),
-    odooSyncSource: asString(body?.syncSource || "odoo"),
-    odooStatusRaw: asString(body?.odooStatus || body?.status),
-    odooOrderId: asString(body?.odooOrderId),
+    odooSyncSource: asString(body?.syncSource || "odoo_webhook"),
+    odooEvent: normalized.event || null,
+    odooStatusRaw: asString(body?.odooStatus || body?.status || normalized.bookingStatus),
+    odooOrderId: asString(body?.odooOrderId || normalized.odooOrderId),
     odooRentalOrderId: asString(body?.odooRentalOrderId),
-    saleOrderName: asString(body?.saleOrderName || body?.orderName),
-    odooSizeCode: asString(body?.sizeCode || body?.dumpsterSizeCode || body?.selectedSize),
+    saleOrderName: normalized.saleOrderName,
+    odooSizeCode: normalized.sizeCode,
     syncNotes: asString(body?.syncNotes),
+    rawOdooModel: asString(body?._model),
+    rawOdooId: asString(body?._id || body?.id),
   };
 }
 
@@ -216,7 +337,9 @@ export default async function handler(req, res) {
 
     const body = req.body || {};
     const providedSyncKey =
-      asString(req.headers["x-odoo-sync-key"]) || asString(body?.syncToken);
+      asString(req.headers["x-odoo-sync-key"]) ||
+      asString(body?.syncToken) ||
+      asString(req.query?.syncToken);
 
     if (providedSyncKey !== expectedSyncKey) {
       return res.status(401).json({
@@ -225,36 +348,39 @@ export default async function handler(req, res) {
       });
     }
 
-    const leadIdRaw = asString(body?.odooLeadId || body?.leadId);
-    const saleOrderName = asString(body?.saleOrderName || body?.orderName);
-
-    const odooLeadId = leadIdRaw ? Number(leadIdRaw) : null;
-    if (leadIdRaw && !Number.isFinite(odooLeadId)) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid odooLeadId",
-      });
-    }
+    const event = deriveEvent(body, req);
+    const saleOrderName = deriveSaleOrderName(body);
+    const odooLeadId = deriveOdooLeadId(body);
+    const odooOrderId = deriveOdooOrderId(body);
+    const bookingStatus = deriveBookingStatus(body, event);
+    const readinessStatus = deriveReadinessStatus(body, event);
+    const sizeCode = deriveSizeCode(body);
 
     if (!Number.isFinite(odooLeadId) && !saleOrderName) {
       return res.status(400).json({
         success: false,
-        error: "Provide odooLeadId or saleOrderName",
+        error: "Provide odooLeadId/opportunity_id or saleOrderName/name/order_id.",
       });
     }
 
-    const bookingStatus = normalizeBookingStatus(body?.status);
-    const readinessStatus = normalizeReadinessStatus(body?.readinessStatus);
-    const sizeCode = normalizeSizeCode(
-      body?.sizeCode || body?.dumpsterSizeCode || body?.selectedSize
+    const scheduledStartAt = parseOptionalDate(
+      body?.scheduledStartAt || body?.rental_start_date,
+      "scheduledStartAt"
     );
-
-    const scheduledStartAt = parseOptionalDate(body?.scheduledStartAt, "scheduledStartAt");
-    const scheduledEndAt = parseOptionalDate(body?.scheduledEndAt, "scheduledEndAt");
-    const actualDeliveredAt = parseOptionalDate(body?.actualDeliveredAt, "actualDeliveredAt");
-    const actualPickedUpAt = parseOptionalDate(body?.actualPickedUpAt, "actualPickedUpAt");
+    const scheduledEndAt = parseOptionalDate(
+      body?.scheduledEndAt || body?.rental_return_date,
+      "scheduledEndAt"
+    );
+    const actualDeliveredAt = parseOptionalDate(
+      body?.actualDeliveredAt || (["pickup", "delivered", "on_rent"].includes(event) ? new Date().toISOString() : null),
+      "actualDeliveredAt"
+    );
+    const actualPickedUpAt = parseOptionalDate(
+      body?.actualPickedUpAt || (["return", "returned", "complete", "completed"].includes(event) ? new Date().toISOString() : null),
+      "actualPickedUpAt"
+    );
     const expectedReturnDate = parseOptionalDateOnly(
-      body?.expectedReturnDate,
+      body?.expectedReturnDate || body?.rental_return_date,
       "expectedReturnDate"
     );
 
@@ -267,7 +393,7 @@ export default async function handler(req, res) {
       actualPickedUpAt ||
       expectedReturnDate ||
       saleOrderName ||
-      asString(body?.odooOrderId) ||
+      asString(odooOrderId) ||
       asString(body?.odooRentalOrderId) ||
       asString(body?.syncNotes) ||
       asString(body?.dumpsterUnitCode)
@@ -329,7 +455,13 @@ export default async function handler(req, res) {
 
     bookingPatch.metadata = mergeMetadata(
       booking.metadata,
-      buildMetadataPatch(body)
+      buildMetadataPatch(body, {
+        event,
+        bookingStatus,
+        saleOrderName,
+        sizeCode,
+        odooOrderId,
+      })
     );
 
     const { data: updatedBooking, error: bookingError } = await supabase
