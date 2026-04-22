@@ -75,11 +75,14 @@ export default async function handler(req, res) {
       holdId,
       customerEmail,
       customerName,
+      customerPhone,
       dumpsterSize,
       rentalOption,
       basePrice,
       deliveryFee,
       zone,
+      zip,
+      areaLabel,
       deliveryDate,
       selectedWindow,
       requestedStartAt,
@@ -89,12 +92,6 @@ export default async function handler(req, res) {
       odooOrderId,
       odooRentalOrderId,
     } = req.body || {};
-
-    if (!leadId) {
-      return res.status(400).json({
-        error: "Missing Odoo leadId. Cannot process payment.",
-      });
-    }
 
     const resolvedHoldId = asString(bookingHoldId || holdId);
     if (!resolvedHoldId) {
@@ -131,6 +128,7 @@ export default async function handler(req, res) {
       parseOptionalDate(requestedEndAt);
 
     const resolvedSaleOrderName = asString(saleOrderName || orderName);
+    const resolvedLeadId = asString(leadId);
 
     const lineItems = [
       {
@@ -162,13 +160,17 @@ export default async function handler(req, res) {
     const baseUrl = getBaseUrl(req);
 
     const metadata = {
-      odoo_lead_id: String(leadId),
+      odoo_lead_id: resolvedLeadId,
       booking_hold_id: resolvedHoldId,
       hold_id: resolvedHoldId,
       customer_name: String(customerName || ""),
+      customer_phone: String(customerPhone || ""),
+      customer_email: String(customerEmail || ""),
       dumpster_size: String(dumpsterSize),
       rental_option: String(rentalOption),
       zone: String(zone || ""),
+      zip: String(zip || ""),
+      area_label: String(areaLabel || ""),
       delivery_date: String(deliveryDate || ""),
       selected_window_start: String(selectedWindowStart || ""),
       selected_window_end: String(selectedWindowEnd || ""),
@@ -181,13 +183,17 @@ export default async function handler(req, res) {
       mode: "payment",
       payment_method_types: ["card"],
       customer_email: customerEmail || undefined,
+      phone_number_collection: {
+        enabled: true,
+      },
+      billing_address_collection: "required",
       line_items: lineItems,
       metadata,
       payment_intent_data: {
         metadata,
       },
       success_url: `${baseUrl}/book?status=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${baseUrl}/rent-a-dumpster`,
+      cancel_url: `${baseUrl}/complete-booking?holdId=${encodeURIComponent(resolvedHoldId)}`,
     });
 
     return res.status(200).json({
