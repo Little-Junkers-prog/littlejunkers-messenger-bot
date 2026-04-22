@@ -303,7 +303,7 @@ async function insertBookingFromHold(supabase, { hold, session, odooLeadId }) {
   const insertPayload = {
     size_code: sizeCode,
     booking_hold_id: hold.id,
-    status: "paid_pending_review",
+    status: "reserved",
     scheduled_start_at: scheduledStartAt,
     scheduled_end_at: scheduledEndAt,
     delivery_date: deliveryDate,
