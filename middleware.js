@@ -1,3 +1,5 @@
+import { NextResponse } from "next/server";
+
 const RATE_LIMITS = {
   "/api/submit-lead": { limit: 8, windowMs: 60 * 60 * 1000 },
   "/api/create-checkout": { limit: 12, windowMs: 60 * 60 * 1000 },
@@ -57,9 +59,15 @@ function applyRateLimit(req) {
   };
 }
 
-import { NextResponse } from "next/server";
-
 export function middleware(req) {
+  const pathname = req.nextUrl.pathname;
+
+  if (pathname === "/csr-quick-book") {
+    const url = req.nextUrl.clone();
+    url.pathname = "/csr-quick-book-compact-v2";
+    return NextResponse.redirect(url, 307);
+  }
+
   if (req.method === "OPTIONS") {
     return NextResponse.next();
   }
@@ -104,6 +112,7 @@ export function middleware(req) {
 
 export const config = {
   matcher: [
+    "/csr-quick-book",
     "/api/submit-lead",
     "/api/create-checkout",
     "/api/checkout-session",
