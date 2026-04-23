@@ -125,8 +125,24 @@ export default function CsrQuickBookPage() {
   const [selectedRentalOption, setSelectedRentalOption] = useState("");
   const [selectedWindow, setSelectedWindow] = useState(null);
   const [customerLink, setCustomerLink] = useState("");
-  const [generateError, setGenerateError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [actionSuccess, setActionSuccess] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [manualSubmitting, setManualSubmitting] = useState(false);
+  const [manualResult, setManualResult] = useState(null);
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    street1: "",
+    street2: "",
+    city: "",
+    state: "GA",
+    zip: "",
+    paymentMethod: "cash",
+    manualPaymentReference: "",
+    notes: "",
+  });
 
   useEffect(() => {
     let active = true;
@@ -140,20 +156,18 @@ export default function CsrQuickBookPage() {
           setInventoryCounts(json.counts);
         }
       } catch (error) {
-        if (active) {
-          setInventoryCounts(null);
-        }
+        if (active) setInventoryCounts(null);
       } finally {
-        if (active) {
-          setCountsLoading(false);
-        }
+        if (active) setCountsLoading(false);
       }
     }
     loadCounts();
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    setForm((prev) => ({ ...prev, zip }));
+  }, [zip]);
 
   useEffect(() => {
     if (!zoneKey) {
@@ -164,7 +178,6 @@ export default function CsrQuickBookPage() {
     }
 
     let active = true;
-
     async function loadAvailability() {
       try {
         setAvailabilityLoading(true);
@@ -182,10 +195,8 @@ export default function CsrQuickBookPage() {
         );
 
         if (!active) return;
-
         const next = Object.fromEntries(entries);
         setAvailabilityBySize(next);
-
         const selectedSoonest = getSoonestCandidate(next[selectedSize]);
         if (selectedSoonest) {
           setSelectedRentalOption(selectedSoonest.rentalOption);
@@ -198,32 +209,13 @@ export default function CsrQuickBookPage() {
         if (!active) return;
         setAvailabilityError("Unable to pull live availability right now.");
       } finally {
-        if (active) {
-          setAvailabilityLoading(false);
-        }
+        if (active) setAvailabilityLoading(false);
       }
     }
 
     loadAvailability();
-    return () => {
-      active = false;
-    };
-  }, [zoneKey]);
-
-  useEffect(() => {
-    const selectedSoonest = getSoonestCandidate(availabilityBySize[selectedSize]);
-    if (!selectedSoonest) return;
-
-    const matchesCurrent =
-      selectedWindow &&
-      selectedRentalOption === selectedSoonest.rentalOption &&
-      selectedWindow.startIso === selectedSoonest.window.startIso;
-
-    if (!selectedWindow || !selectedRentalOption || matchesCurrent) {
-      setSelectedRentalOption(selectedSoonest.rentalOption);
-      setSelectedWindow(selectedSoonest.window);
-    }
-  }, [selectedSize, availabilityBySize]);
+    return () => { active = false; };
+  }, [zoneKey, selectedSize]);
 
   const areaLabel = useMemo(() => getAreaLabel(zip), [zip]);
   const zone = zones[zoneKey] || null;
@@ -239,9 +231,7 @@ export default function CsrQuickBookPage() {
 
   const summaryBySize = useMemo(() => {
     const next = {};
-    for (const size of allSizes) {
-      next[size] = getSoonestCandidate(availabilityBySize[size]);
-    }
+    for (const size of allSizes) next[size] = getSoonestCandidate(availabilityBySize[size]);
     return next;
   }, [availabilityBySize]);
 
@@ -249,17 +239,23 @@ export default function CsrQuickBookPage() {
     const options = allSizes
       .map((size) => ({ size, candidate: summaryBySize[size] }))
       .filter((entry) => entry.candidate);
-
     options.sort((a, b) => new Date(a.candidate.window.startIso).getTime() - new Date(b.candidate.window.startIso).getTime());
     return options[0] || null;
   }, [summaryBySize]);
 
   const selectedSoonest = summaryBySize[selectedSize];
+  const customerTotal = (basePricing[selectedSize]?.[selectedRentalOption] || 0) + (zone?.fee || 0);
+
+  function resetMessages() {
+    setActionError("");
+    setActionSuccess("");
+    setManualResult(null);
+  }
 
   function handleZipLookup() {
     const clean = String(zip || "").replace(/\D/g, "").slice(0, 5);
     setCustomerLink("");
-    setGenerateError("");
+    resetMessages();
     setZip(clean);
 
     if (clean.length !== 5) {
@@ -282,6 +278,7 @@ export default function CsrQuickBookPage() {
   function handleSelectSize(size) {
     setSelectedSize(size);
     setCustomerLink("");
+    resetMessages();
     const candidate = getSoonestCandidate(availabilityBySize[size]);
     if (candidate) {
       setSelectedRentalOption(candidate.rentalOption);
@@ -293,50 +290,68 @@ export default function CsrQuickBookPage() {
     setSelectedRentalOption(optionKey);
     setSelectedWindow(window);
     setCustomerLink("");
+    resetMessages();
+  }
+
+  function updateForm(key, value) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function validateManualDetails() {
+    if (!zoneKey) return "Enter a service ZIP first.";
+    if (!selectedRentalOption || !selectedWindow) return "Choose a live delivery window first.";
+    if (!form.name.trim() || !form.phone.trim() || !form.street1.trim() || !form.city.trim() || !form.zip.trim()) {
+      return "For manual paid bookings, name, phone, street, city, and ZIP are required.";
+    }
+    return "";
+  }
+
+  async function createHold() {
+    const response = await fetch("/api/create-booking-hold", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        selectedSize,
+        rentalOption: selectedRentalOption,
+        selectedWindow: {
+          startIso: selectedWindow.startIso,
+          endIso: selectedWindow.endIso,
+          start: selectedWindow.start,
+          end: selectedWindow.end,
+        },
+        zone: zoneKey,
+        areaLabel,
+        zip,
+        holdMinutes: 60,
+        funnelSource: "csr_quick_book",
+      }),
+    });
+
+    const json = await response.json();
+    if (!response.ok || !json.success || !json.hold?.id) {
+      throw new Error(json.error || "Unable to create the booking hold.");
+    }
+    return json.hold.id;
   }
 
   async function handleGenerateLink() {
     if (!zoneKey) {
-      setGenerateError("Enter a service ZIP first.");
+      setActionError("Enter a service ZIP first.");
       return;
     }
     if (!selectedRentalOption || !selectedWindow) {
-      setGenerateError("Choose a live delivery window before generating the customer link.");
+      setActionError("Choose a live delivery window before generating the customer link.");
       return;
     }
 
     setGenerating(true);
-    setGenerateError("");
+    resetMessages();
     setCustomerLink("");
 
     try {
-      const response = await fetch("/api/create-booking-hold", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          selectedSize,
-          rentalOption: selectedRentalOption,
-          selectedWindow: {
-            startIso: selectedWindow.startIso,
-            endIso: selectedWindow.endIso,
-            start: selectedWindow.start,
-            end: selectedWindow.end,
-          },
-          zone: zoneKey,
-          areaLabel,
-          zip,
-          holdMinutes: 60,
-          funnelSource: "csr_quick_book",
-        }),
-      });
-
-      const json = await response.json();
-      if (!response.ok || !json.success || !json.hold?.id) {
-        throw new Error(json.error || "Unable to create the booking hold.");
-      }
-
+      const holdId = await createHold();
       const qs = encodeLinkState({
-        holdId: json.hold.id,
+        holdId,
         size: selectedSize,
         rentalOption: selectedRentalOption,
         basePrice: basePricing[selectedSize]?.[selectedRentalOption] || 0,
@@ -350,12 +365,65 @@ export default function CsrQuickBookPage() {
         startIso: selectedWindow.startIso,
         endIso: selectedWindow.endIso,
       });
-
       setCustomerLink(`${window.location.origin}/complete-booking?${qs}`);
+      setActionSuccess("Customer completion link generated.");
     } catch (error) {
-      setGenerateError(error.message || "Unable to generate the customer link.");
+      setActionError(error.message || "Unable to generate the customer link.");
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function handleManualPaidBooking() {
+    const validationError = validateManualDetails();
+    if (validationError) {
+      setActionError(validationError);
+      return;
+    }
+
+    setManualSubmitting(true);
+    resetMessages();
+    setCustomerLink("");
+
+    try {
+      const holdId = await createHold();
+      const response = await fetch("/api/complete-manual-booking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          holdId,
+          paymentMethod: form.paymentMethod,
+          manualPaymentReference: form.manualPaymentReference,
+          areaLabel,
+          zone: zoneKey,
+          zip: form.zip.trim(),
+          notes: form.notes,
+          contact: {
+            name: form.name,
+            email: form.email,
+            phone: form.phone,
+          },
+          deliveryAddress: {
+            street1: form.street1,
+            street2: form.street2,
+            city: form.city,
+            state: form.state,
+            zip: form.zip,
+          },
+        }),
+      });
+
+      const json = await response.json();
+      if (!response.ok || !json.success || !json.booking?.id) {
+        throw new Error(json.error || "Unable to create the manual paid booking.");
+      }
+
+      setManualResult(json.booking);
+      setActionSuccess(`Manual ${form.paymentMethod} booking created and marked reserved.`);
+    } catch (error) {
+      setActionError(error.message || "Unable to create the manual paid booking.");
+    } finally {
+      setManualSubmitting(false);
     }
   }
 
@@ -365,8 +433,8 @@ export default function CsrQuickBookPage() {
         <div style={{ marginBottom: 18 }}>
           <div style={{ fontSize: 12, fontWeight: 800, color: C.pinkText, textTransform: "uppercase", letterSpacing: "1.2px" }}>Little Junkers office</div>
           <h1 style={{ margin: "8px 0 10px", fontSize: 36, lineHeight: 1.04, color: C.ink }}>CSR Quick Book</h1>
-          <p style={{ margin: 0, maxWidth: 760, color: C.inkMid, fontSize: 15, lineHeight: 1.65 }}>
-            Build a hold-backed booking link inside the existing reservation engine. Check ready-now counts, validate ZIP, compare sizes, review live windows, then hand the customer a completion link.
+          <p style={{ margin: 0, maxWidth: 820, color: C.inkMid, fontSize: 15, lineHeight: 1.65 }}>
+            Build a hold-backed booking inside the existing reservation engine. Use Stripe-link mode for normal online checkout, or finalize cash and Zelle payments directly from the office while still creating the same backend reservation record.
           </p>
         </div>
 
@@ -386,10 +454,10 @@ export default function CsrQuickBookPage() {
           </div>
         </SectionCard>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1.15fr 0.85fr", gap: 18, marginTop: 18 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1.12fr 0.88fr", gap: 18, marginTop: 18 }}>
           <div style={{ display: "grid", gap: 18 }}>
             <SectionCard title="Service ZIP" subtitle="Validate the delivery zone before building pricing or availability.">
-              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
                 <input value={zip} onChange={(e) => setZip(e.target.value)} placeholder="30269" style={inputStyle({ maxWidth: 180 })} />
                 <button onClick={handleZipLookup} style={primaryButtonStyle(false)}>Check ZIP</button>
               </div>
@@ -421,7 +489,7 @@ export default function CsrQuickBookPage() {
               </div>
             </SectionCard>
 
-            <SectionCard title="Live availability" subtitle="Pick the exact window you want to send to the customer.">
+            <SectionCard title="Live availability" subtitle="Pick the exact window you want to send or finalize.">
               {availabilityLoading ? <div style={{ color: C.inkMuted, fontSize: 14 }}>Pulling live availability across all sizes...</div> : null}
               {availabilityError ? <Banner tone="warning">{availabilityError}</Banner> : null}
 
@@ -450,9 +518,7 @@ export default function CsrQuickBookPage() {
                             return (
                               <button key={`${option.key}-${windowOption.startIso}`} onClick={() => handleSelectWindow(option.key, windowOption)} style={{ ...windowButtonStyle, border: isSelected ? `1.5px solid ${C.pinkText}` : `1px solid ${C.surfaceBorder}`, background: isSelected ? C.pinkBg : C.white }}>
                                 <div>
-                                  <div style={{ fontSize: 12, color: isSelected ? C.pinkText : C.inkMuted, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.6px" }}>
-                                    {option.key}
-                                  </div>
+                                  <div style={{ fontSize: 12, color: isSelected ? C.pinkText : C.inkMuted, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.6px" }}>{option.key}</div>
                                   <div style={{ marginTop: 5, fontSize: 15, fontWeight: 800, color: C.ink }}>{windowOption.startLabel}</div>
                                   <div style={{ marginTop: 3, fontSize: 12, color: C.inkMuted }}>Through {windowOption.endLabel}</div>
                                 </div>
@@ -469,8 +535,23 @@ export default function CsrQuickBookPage() {
             </SectionCard>
           </div>
 
-          <div>
-            <SectionCard title="Generate customer link" subtitle="Create a hold-backed completion link that stays in the same Supabase → Stripe flow.">
+          <div style={{ display: "grid", gap: 18 }}>
+            <SectionCard title="Customer details" subtitle="Used for both completion-link bookings and office-collected cash/Zelle bookings.">
+              <div style={{ display: "grid", gap: 12 }}>
+                <Field label="Customer name *"><input value={form.name} onChange={(e) => updateForm("name", e.target.value)} style={inputStyle()} /></Field>
+                <Field label="Email"><input value={form.email} onChange={(e) => updateForm("email", e.target.value)} style={inputStyle()} /></Field>
+                <Field label="Phone *"><input value={form.phone} onChange={(e) => updateForm("phone", e.target.value)} style={inputStyle()} /></Field>
+                <Field label="Street address *"><input value={form.street1} onChange={(e) => updateForm("street1", e.target.value)} style={inputStyle()} /></Field>
+                <Field label="Address line 2"><input value={form.street2} onChange={(e) => updateForm("street2", e.target.value)} style={inputStyle()} /></Field>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 110px 120px", gap: 12 }}>
+                  <Field label="City *"><input value={form.city} onChange={(e) => updateForm("city", e.target.value)} style={inputStyle()} /></Field>
+                  <Field label="State"><input value={form.state} onChange={(e) => updateForm("state", e.target.value)} style={inputStyle()} /></Field>
+                  <Field label="ZIP *"><input value={form.zip} onChange={(e) => updateForm("zip", e.target.value)} style={inputStyle()} /></Field>
+                </div>
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Book and collect payment" subtitle="Use the Stripe link for standard checkout, or finalize a paid cash/Zelle booking from the office.">
               <div style={summaryCardStyle}>
                 <SummaryRow label="ZIP / Area" value={zone ? `${zip} · ${areaLabel}` : "Not set"} />
                 <SummaryRow label="Size" value={selectedSize} />
@@ -479,21 +560,57 @@ export default function CsrQuickBookPage() {
                 <SummaryRow label="Base rental" value={formatMoney(basePricing[selectedSize]?.[selectedRentalOption] || 0)} />
                 <SummaryRow label="Delivery fee" value={zone ? (zone.fee > 0 ? formatMoney(zone.fee) : "Included") : "-"} />
                 <div style={{ height: 1, background: C.surfaceBorder, margin: "10px 0" }} />
-                <SummaryRow label="Customer total" value={formatMoney((basePricing[selectedSize]?.[selectedRentalOption] || 0) + (zone?.fee || 0))} strong />
+                <SummaryRow label="Customer total" value={formatMoney(customerTotal)} strong />
               </div>
 
-              <button onClick={handleGenerateLink} disabled={generating || !zoneKey || !selectedWindow || !selectedRentalOption} style={primaryButtonStyle(generating || !zoneKey || !selectedWindow || !selectedRentalOption)}>
-                {generating ? "Generating link..." : "Create customer completion link"}
-              </button>
+              <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <Field label="Manual payment type">
+                    <select value={form.paymentMethod} onChange={(e) => updateForm("paymentMethod", e.target.value)} style={inputStyle()}>
+                      <option value="cash">Cash</option>
+                      <option value="zelle">Zelle</option>
+                    </select>
+                  </Field>
+                  <Field label="Reference / confirmation">
+                    <input value={form.manualPaymentReference} onChange={(e) => updateForm("manualPaymentReference", e.target.value)} placeholder="Optional" style={inputStyle()} />
+                  </Field>
+                </div>
+                <Field label="Office notes">
+                  <textarea value={form.notes} onChange={(e) => updateForm("notes", e.target.value)} style={inputStyle({ minHeight: 92, resize: "vertical" })} />
+                </Field>
+              </div>
 
-              {generateError ? <Banner tone="warning">{generateError}</Banner> : null}
+              <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
+                <button onClick={handleGenerateLink} disabled={generating || !zoneKey || !selectedWindow || !selectedRentalOption} style={primaryButtonStyle(generating || !zoneKey || !selectedWindow || !selectedRentalOption)}>
+                  {generating ? "Generating link..." : "Create customer completion link"}
+                </button>
+
+                <button onClick={handleManualPaidBooking} disabled={manualSubmitting || !zoneKey || !selectedWindow || !selectedRentalOption} style={manualButtonStyle(manualSubmitting || !zoneKey || !selectedWindow || !selectedRentalOption)}>
+                  {manualSubmitting ? `Finalizing ${form.paymentMethod} booking...` : `Mark ${form.paymentMethod === "zelle" ? "Zelle" : "Cash"} paid and create booking`}
+                </button>
+              </div>
+
+              {actionError ? <Banner tone="warning">{actionError}</Banner> : null}
+              {actionSuccess ? <Banner tone="success">{actionSuccess}</Banner> : null}
+
               {customerLink ? (
                 <div style={{ marginTop: 14 }}>
                   <Banner tone="success">Link generated. The customer will complete contact info, address, and Stripe checkout from this URL.</Banner>
                   <textarea readOnly value={customerLink} style={inputStyle({ minHeight: 120, marginTop: 10, resize: "vertical" })} />
-                  <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+                  <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
                     <button onClick={() => navigator.clipboard.writeText(customerLink)} style={secondaryButtonStyle}>Copy link</button>
                     <a href={customerLink} target="_blank" rel="noreferrer" style={{ ...secondaryButtonStyle, textDecoration: "none", textAlign: "center" }}>Open link</a>
+                  </div>
+                </div>
+              ) : null}
+
+              {manualResult ? (
+                <div style={{ marginTop: 14 }}>
+                  <Banner tone="success">Manual booking created. Hold was converted and reservation was created without Stripe.</Banner>
+                  <div style={summaryCardStyle}>
+                    <SummaryRow label="Booking ID" value={manualResult.id || "—"} />
+                    <SummaryRow label="Status" value={manualResult.status || "reserved"} />
+                    <SummaryRow label="Payment path" value={form.paymentMethod === "zelle" ? "Zelle" : "Cash"} />
                   </div>
                 </div>
               ) : null}
@@ -514,6 +631,15 @@ function SectionCard({ title, subtitle, children }) {
       </div>
       {children}
     </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <label style={{ display: "block" }}>
+      <div style={{ marginBottom: 6, fontSize: 12, fontWeight: 700, color: C.ink }}>{label}</div>
+      {children}
+    </label>
   );
 }
 
@@ -595,6 +721,20 @@ function primaryButtonStyle(disabled) {
     border: "none",
     background: disabled ? C.inkFaint : C.ink,
     color: C.white,
+    fontFamily: F,
+    fontWeight: 800,
+    fontSize: 14,
+    cursor: disabled ? "not-allowed" : "pointer",
+  };
+}
+
+function manualButtonStyle(disabled) {
+  return {
+    padding: "14px 16px",
+    borderRadius: 12,
+    border: `1px solid ${C.pinkBorder}`,
+    background: disabled ? C.surfaceBorder : C.pinkBg,
+    color: disabled ? C.inkMuted : C.pinkText,
     fontFamily: F,
     fontWeight: 800,
     fontSize: 14,
