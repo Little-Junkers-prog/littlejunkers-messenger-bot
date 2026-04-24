@@ -19,6 +19,14 @@ const C = {
 
 const F = "system-ui, -apple-system, sans-serif";
 
+const basePricing = {
+  "11 Yard": { "Early Bird": 225, "Weekend Warrior": 285, "Base Rental": 275, "Full Reset": 345 },
+  "16 Yard": { "Early Bird": 275, "Weekend Warrior": 385, "Base Rental": 325, "Full Reset": 445 },
+  "21 Yard": { "Early Bird": 385, "Weekend Warrior": 445, "Base Rental": 385, "Full Reset": 495 },
+};
+
+const zoneFees = { A: 0, B: 49, C: 89 };
+
 function asText(value, fallback = "") {
   if (value === null || value === undefined) return fallback;
   const s = String(value).trim();
@@ -49,6 +57,22 @@ function sizeCodeToLabel(sizeCode) {
   return map[String(sizeCode || "").toUpperCase()] || asText(sizeCode);
 }
 
+function normalizeZone(zone) {
+  return String(zone || "").trim().toUpperCase();
+}
+
+function getBasePrice(size, rentalOption, fallback = 0) {
+  const fromFallback = parseMoney(fallback);
+  if (fromFallback > 0) return fromFallback;
+  return parseMoney(basePricing[size]?.[rentalOption]);
+}
+
+function getDeliveryFee(zone, fallback = 0) {
+  const fromFallback = parseMoney(fallback);
+  if (fromFallback > 0) return fromFallback;
+  return parseMoney(zoneFees[normalizeZone(zone)]);
+}
+
 function formatDateLabel(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -57,16 +81,19 @@ function formatDateLabel(value) {
 }
 
 function buildSummaryFromQuery(query) {
-  const basePrice = parseMoney(query.basePrice);
-  const deliveryFee = parseMoney(query.deliveryFee);
+  const size = asText(query.size);
+  const rentalOption = asText(query.rentalOption);
+  const zone = asText(query.zone);
+  const basePrice = getBasePrice(size, rentalOption, query.basePrice);
+  const deliveryFee = getDeliveryFee(zone, query.deliveryFee);
   return {
     holdId: asText(query.holdId),
-    size: asText(query.size),
-    rentalOption: asText(query.rentalOption),
+    size,
+    rentalOption,
     basePrice,
     deliveryFee,
     total: basePrice + deliveryFee,
-    zone: asText(query.zone),
+    zone,
     areaLabel: asText(query.areaLabel),
     zip: asText(query.zip),
     startLabel: asText(query.startLabel),
@@ -80,19 +107,22 @@ function buildSummaryFromQuery(query) {
 function buildSummaryFromHold(hold) {
   const metadata = hold?.metadata || {};
   const selectedWindow = metadata.selectedWindow || {};
-  const basePrice = parseMoney(metadata.basePrice || metadata.priceBreakdown?.basePrice);
-  const deliveryFee = parseMoney(metadata.deliveryFee || metadata.priceBreakdown?.deliveryFee);
+  const size = sizeCodeToLabel(hold?.size_code);
+  const rentalOption = asText(hold?.rental_option || metadata.rentalOption);
+  const zone = asText(metadata.zone);
+  const basePrice = getBasePrice(size, rentalOption, metadata.basePrice || metadata.priceBreakdown?.basePrice);
+  const deliveryFee = getDeliveryFee(zone, metadata.deliveryFee || metadata.priceBreakdown?.deliveryFee);
   const startIso = asText(hold?.requested_start_at || selectedWindow.startIso);
   const endIso = asText(hold?.requested_end_at || selectedWindow.endIso);
 
   return {
     holdId: asText(hold?.id),
-    size: sizeCodeToLabel(hold?.size_code),
-    rentalOption: asText(hold?.rental_option || metadata.rentalOption),
+    size,
+    rentalOption,
     basePrice,
     deliveryFee,
     total: basePrice + deliveryFee,
-    zone: asText(metadata.zone),
+    zone,
     areaLabel: asText(metadata.areaLabel),
     zip: asText(metadata.zip),
     startLabel: asText(selectedWindow.start, formatDateLabel(startIso)),
@@ -165,6 +195,11 @@ export default function CompleteBookingPage() {
 
     if (!form.name.trim() || !form.email.trim() || !form.phone.trim() || !form.street1.trim() || !form.city.trim() || !form.zip.trim()) {
       setError("Please complete your contact information and delivery address.");
+      return;
+    }
+
+    if (!summary.basePrice || summary.total <= 0) {
+      setError("This booking link is missing pricing details. Please ask the office to generate a new link.");
       return;
     }
 
