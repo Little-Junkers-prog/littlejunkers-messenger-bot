@@ -1,6 +1,9 @@
 // api/stripe-webhook.js
 import Stripe from "stripe";
+import smsModule from "../lib/sms";
 import { getSupabaseAdmin, assertServerOnly } from "../lib/supabaseAdmin";
+
+const { sendSms } = smsModule;
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: "2025-01-27.acacia",
@@ -141,6 +144,42 @@ function normalizeSizeCode(value) {
   return map[raw] || null;
 }
 
+function sizeCodeToLabel(value) {
+  const map = {
+    "11YD": "11 Yard",
+    "16YD": "16 Yard",
+    "21YD": "21 Yard",
+  };
+  return map[normalizeSizeCode(value)] || asString(value) || "dumpster";
+}
+
+function getRentalDisplayLabel(key) {
+  const map = {
+    "Base Rental": "2-Day Basic",
+    "Early Bird": "2-Day Budget",
+    "Weekend Warrior": "4-Day",
+    "Full Reset": "7-Day",
+  };
+  return map[key] || key || "rental";
+}
+
+function formatShortDate(value) {
+  const raw = asString(value);
+  if (!raw) return "";
+
+  const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const date = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : new Date(raw);
+
+  if (Number.isNaN(date.getTime())) return raw;
+
+  return date.toLocaleDateString("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
 function mergeMetadata(existingMetadata, patch) {
   return {
     ...(existingMetadata || {}),
@@ -223,10 +262,13 @@ async function insertBookingFromHold(supabase, { hold, session, odooLeadId }) {
   const customerEmail =
     session.customer_details?.email ||
     hold.customer_email ||
+    asString(session.metadata?.customer_email) ||
     null;
 
   const customerPhone =
     session.customer_details?.phone ||
+    asString(session.metadata?.customer_phone) ||
+    asString(hold.metadata?.customerPhone) ||
     null;
 
   const sizeCode =
@@ -353,6 +395,21 @@ async function markHoldConverted(supabase, holdId, stripeSessionId) {
   return data;
 }
 
+async function sendBookingConfirmationSms(booking) {
+  const phone = asString(booking?.customer_phone);
+  if (!phone) return null;
+
+  const sizeLabel = sizeCodeToLabel(booking.size_code);
+  const rentalLabel = getRentalDisplayLabel(booking.rental_option);
+  const startText = formatShortDate(booking.scheduled_start_at || booking.delivery_date);
+  const endText = formatShortDate(booking.scheduled_end_at || booking.expected_return_date);
+  const windowText = startText && endText ? `${startText} to ${endText}` : startText || "your scheduled delivery window";
+
+  const body = `Little Junkers: Your dumpster booking is confirmed. We have you scheduled for your ${sizeLabel} ${rentalLabel}. Delivery window: ${windowText}. Reply here or call 470-548-4733 with questions.`;
+
+  return sendSms({ to: phone, body });
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -399,13 +456,19 @@ export default async function handler(req, res) {
           holdId,
         });
       } else {
-        await insertBookingFromHold(supabase, {
+        const booking = await insertBookingFromHold(supabase, {
           hold,
           session,
           odooLeadId,
         });
 
         await markHoldConverted(supabase, hold.id, session.id);
+
+        try {
+          await sendBookingConfirmationSms(booking);
+        } catch (smsError) {
+          console.error("[stripe-webhook] confirmation SMS failed", smsError.message);
+        }
       }
     }
 
