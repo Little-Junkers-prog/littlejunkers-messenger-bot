@@ -73,11 +73,23 @@ function getDeliveryFee(zone, fallback = 0) {
   return parseMoney(zoneFees[normalizeZone(zone)]);
 }
 
-function formatDateLabel(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+function parseCustomerDate(value) {
+  const raw = asText(value);
+  if (!raw) return null;
+
+  const isoDateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateOnly) {
+    return new Date(Number(isoDateOnly[1]), Number(isoDateOnly[2]) - 1, Number(isoDateOnly[3]));
+  }
+
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatShortDateLabel(value) {
+  const date = parseCustomerDate(value);
+  if (!date) return asText(value);
+  return date.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" });
 }
 
 function buildSummaryFromQuery(query) {
@@ -86,6 +98,8 @@ function buildSummaryFromQuery(query) {
   const zone = asText(query.zone);
   const basePrice = getBasePrice(size, rentalOption, query.basePrice);
   const deliveryFee = getDeliveryFee(zone, query.deliveryFee);
+  const startIso = asText(query.startIso);
+  const endIso = asText(query.endIso);
   return {
     holdId: asText(query.holdId),
     size,
@@ -96,10 +110,10 @@ function buildSummaryFromQuery(query) {
     zone,
     areaLabel: asText(query.areaLabel),
     zip: asText(query.zip),
-    startLabel: asText(query.startLabel),
-    endLabel: asText(query.endLabel),
-    startIso: asText(query.startIso),
-    endIso: asText(query.endIso),
+    startLabel: formatShortDateLabel(asText(query.startLabel, startIso)),
+    endLabel: formatShortDateLabel(asText(query.endLabel, endIso)),
+    startIso,
+    endIso,
     deliveryDate: asText(query.deliveryDate),
   };
 }
@@ -125,8 +139,8 @@ function buildSummaryFromHold(hold) {
     zone,
     areaLabel: asText(metadata.areaLabel),
     zip: asText(metadata.zip),
-    startLabel: asText(selectedWindow.start, formatDateLabel(startIso)),
-    endLabel: asText(selectedWindow.end, formatDateLabel(endIso)),
+    startLabel: formatShortDateLabel(asText(selectedWindow.start, startIso)),
+    endLabel: formatShortDateLabel(asText(selectedWindow.end, endIso)),
     startIso,
     endIso,
     deliveryDate: asText(hold?.delivery_date || metadata.deliveryDate),
