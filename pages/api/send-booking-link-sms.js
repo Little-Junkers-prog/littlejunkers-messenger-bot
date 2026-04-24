@@ -1,5 +1,7 @@
 const { sendSms } = require("../../lib/sms");
 
+const OPT_IN_BODY = "Little Junkers: We will use this number to send your dumpster quote, booking link, and service updates. Msg & data rates may apply. Reply STOP to opt out.";
+
 function formatMoney(value) {
   const number = Number(value || 0);
   if (!Number.isFinite(number) || number <= 0) return "";
@@ -44,6 +46,7 @@ export default async function handler(req, res) {
       startLabel,
       endLabel,
       total,
+      skipOptIn = false,
     } = req.body || {};
 
     if (!phone) {
@@ -68,6 +71,14 @@ export default async function handler(req, res) {
       totalLine +
       ` Complete your booking here: ${shortLink}`;
 
+    let optInMessage = null;
+    if (!skipOptIn) {
+      optInMessage = await sendSms({
+        to: phone,
+        body: OPT_IN_BODY,
+      });
+    }
+
     const message = await sendSms({
       to: phone,
       body,
@@ -75,6 +86,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
+      optInMessageSid: optInMessage?.sid || null,
       messageSid: message.sid,
       customerLink: shortLink,
     });
