@@ -4,6 +4,10 @@
 //   1) XML-RPC authenticate -> uid
 //   2) JSON-RPC execute_kw -> create/write/search_read calls
 
+import smsModule from "../lib/sms";
+
+const { sendSms } = smsModule;
+
 function xe(v) {
   return String(v)
     .replaceAll("&", "&amp;")
@@ -106,6 +110,8 @@ async function odooCall(uid, model, method, args, kwargs = {}) {
 // Confirmed CRM routing
 const ODOO_TEAM_ID = 2;   // Website
 const ODOO_STAGE_ID = 1;  // New
+const BOOKING_LINK = "https://book.littlejunkersllc.com/rent-a-dumpster";
+const OPT_IN_BODY = "Little Junkers: We will use this number to send your dumpster quote, booking link, and service updates. Msg & data rates may apply. Reply STOP to opt out.";
 
 function asString(v) {
   if (v === null || v === undefined) return "";
@@ -140,6 +146,43 @@ function mapSelection(label, mapObj) {
   const s = asString(label);
   if (!s) return false;
   return mapObj[s] || false;
+}
+
+function formatMoney(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return `$${n.toFixed(0)}`;
+}
+
+function getRentalDisplayLabel(key) {
+  const map = {
+    "Base Rental": "2-Day Basic",
+    "Early Bird": "2-Day Budget",
+    "Weekend Warrior": "4-Day",
+    "Full Reset": "7-Day",
+    "2-Day Rental": "2-Day Rental",
+    "4-Day Rental": "4-Day Rental",
+    "7-Day Rental": "7-Day Rental",
+  };
+  return map[key] || key || "rental";
+}
+
+async function sendExitQuoteSms({ phone, contactName, dumpsterSize, rentalType, quotedPrice, deliveryFeeNum, areaLabel, postalCode }) {
+  if (!phone) return;
+
+  const total = Number(quotedPrice || 0) + Number(deliveryFeeNum || 0);
+  const totalText = formatMoney(total);
+  const rentalLabel = getRentalDisplayLabel(rentalType);
+  const greeting = contactName ? `${contactName}, ` : "";
+  const locationText = areaLabel || postalCode ? ` for ${areaLabel || `ZIP ${postalCode}`}` : "";
+  const quoteDetails = dumpsterSize
+    ? `your ${dumpsterSize} ${rentalLabel}${totalText ? ` quote of ${totalText}` : ""}${locationText}`
+    : `your dumpster quote${totalText ? ` of ${totalText}` : ""}${locationText}`;
+
+  const quoteBody = `Little Junkers: ${greeting}here is ${quoteDetails}. You can finish booking here: ${BOOKING_LINK}`;
+
+  await sendSms({ to: phone, body: OPT_IN_BODY });
+  await sendSms({ to: phone, body: quoteBody });
 }
 
 function toOdooDatetime(val) {
@@ -505,10 +548,30 @@ const postalCode = pickFirstNonEmpty(deliveryAddress?.zip, req.body?.zip, zip);
       resultingLeadId = await odooCall(uid, "crm.lead", "create", [values]);
     }
 
+    let smsSent = false;
+    if (isExitCapture && smsOptInBool && phone) {
+      try {
+        await sendExitQuoteSms({
+          phone,
+          contactName,
+          dumpsterSize,
+          rentalType,
+          quotedPrice,
+          deliveryFeeNum,
+          areaLabel,
+          postalCode,
+        });
+        smsSent = true;
+      } catch (smsError) {
+        console.error("[submit-lead] exit quote SMS failed", smsError.message);
+      }
+    }
+
     return res.status(200).json({
       success: true,
       leadId: resultingLeadId, // <--- Returns the same ID back to the frontend
       action: parsedLeadId ? "updated" : "created",
+      smsSent,
       routed: {
         type: "lead",
         team_id: ODOO_TEAM_ID,
