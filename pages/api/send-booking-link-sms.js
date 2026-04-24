@@ -17,6 +17,19 @@ function getRentalDisplayLabel(key) {
   return map[key] || key || "";
 }
 
+function getShortBookingLink(customerLink) {
+  try {
+    const url = new URL(customerLink);
+    const holdId = url.searchParams.get("holdId");
+
+    if (!holdId) return customerLink;
+
+    return `${url.origin}/complete-booking?holdId=${encodeURIComponent(holdId)}`;
+  } catch {
+    return customerLink;
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ success: false, error: "Method Not Allowed" });
@@ -43,6 +56,7 @@ export default async function handler(req, res) {
 
     const rentalLabel = getRentalDisplayLabel(rentalOption);
     const totalText = formatMoney(total);
+    const shortLink = getShortBookingLink(customerLink);
     const windowText = startLabel
       ? ` Delivery window: ${startLabel}${endLabel ? ` through ${endLabel}` : ""}.`
       : "";
@@ -52,7 +66,7 @@ export default async function handler(req, res) {
       `Little Junkers: Here is your secure booking link for your ${size || "dumpster"}${rentalLabel ? ` ${rentalLabel}` : ""}.` +
       windowText +
       totalLine +
-      ` Complete your booking here: ${customerLink}`;
+      ` Complete your booking here: ${shortLink}`;
 
     const message = await sendSms({
       to: phone,
@@ -62,6 +76,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       messageSid: message.sid,
+      customerLink: shortLink,
     });
   } catch (error) {
     console.error("Booking link SMS error:", error.message);
