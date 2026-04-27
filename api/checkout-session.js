@@ -24,14 +24,17 @@ export default async function handler(req, res) {
       expand: ["payment_intent"],
     });
 
-    // Only return safe display fields — no PII beyond what the customer
-    // already saw on the Stripe checkout page.
+    // Only return safe display and analytics fields — no card data or secrets.
     return res.status(200).json({
       customer_name:  session.metadata?.customer_name || "",
       dumpster_size:  session.metadata?.dumpster_size || "",
       rental_option:  session.metadata?.rental_option || "",
       payment_status: session.payment_status || "",
       delivery_date:  session.metadata?.delivery_date || "",
+      zone:           session.metadata?.zone || "",
+      zip:            session.metadata?.zip || "",
+      value:          typeof session.amount_total === "number" ? session.amount_total / 100 : null,
+      currency:       session.currency ? session.currency.toUpperCase() : "USD",
     });
   } catch (err) {
     console.error("[checkout-session lookup error]:", err.message);

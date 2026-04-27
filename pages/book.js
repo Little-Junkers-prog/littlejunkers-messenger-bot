@@ -1,7 +1,7 @@
 // pages/book.js
 // Handles /book?status=success&session_id=... and /book?status=cancelled
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const C = {
   pageBg:     "#edeae4",
@@ -27,6 +27,41 @@ const C = {
 
 const F = "system-ui, -apple-system, sans-serif";
 const HOMEPAGE = "https://www.littlejunkersllc.com";
+const GTM_BOOKING_CONVERSION_EVENT = "lj_booking_completed";
+
+function fireBookingConversion(sessionId, data = {}) {
+  if (typeof window === "undefined") return;
+  if (!sessionId) return;
+
+  const storageKey = `lj_booking_conversion_fired_${sessionId}`;
+
+  try {
+    if (window.sessionStorage?.getItem(storageKey) === "1") return;
+  } catch (_) {
+    // sessionStorage can be blocked in some browsers. Continue with in-memory guard.
+  }
+
+  window.dataLayer = window.dataLayer || [];
+  window.dataLayer.push({
+    event: GTM_BOOKING_CONVERSION_EVENT,
+    funnel_name: "rent_a_dumpster",
+    booking_source: "book_subdomain",
+    checkout_session_id: sessionId,
+    booking_type: data.dumpster_size || undefined,
+    rental_duration: data.rental_option || undefined,
+    delivery_date: data.delivery_date || undefined,
+    delivery_zip: data.zip || undefined,
+    delivery_zone: data.zone || undefined,
+    value: Number.isFinite(Number(data.value)) ? Number(data.value) : undefined,
+    currency: data.currency || "USD",
+  });
+
+  try {
+    window.sessionStorage?.setItem(storageKey, "1");
+  } catch (_) {
+    // Ignore storage write failures. The dataLayer event has already fired.
+  }
+}
 
 export default function BookPage() {
   const [status, setStatus]       = useState(null); // "success" | "cancelled" | null
@@ -36,6 +71,7 @@ export default function BookPage() {
   const [rentalOption, setRentalOption] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
   const [loading, setLoading]     = useState(true);
+  const conversionFiredRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -46,7 +82,7 @@ export default function BookPage() {
     setSessionId(sid || null);
 
     if (s === "success" && sid) {
-      // Fetch session metadata to personalize the confirmation
+      // Fetch session metadata to personalize the confirmation and fire analytics.
       fetch(`/api/checkout-session?session_id=${sid}`)
         .then(r => r.json())
         .then(data => {
@@ -54,6 +90,11 @@ export default function BookPage() {
           if (data?.dumpster_size) setDumpsterSize(data.dumpster_size);
           if (data?.rental_option) setRentalOption(data.rental_option);
           if (data?.delivery_date) setDeliveryDate(data.delivery_date);
+
+          if (!conversionFiredRef.current && data?.payment_status === "paid") {
+            conversionFiredRef.current = true;
+            fireBookingConversion(sid, data);
+          }
         })
         .catch(() => {})
         .finally(() => setLoading(false));
