@@ -1,9 +1,35 @@
 // pages/_app.js
+import { useEffect } from "react";
 import Script from "next/script";
 
 const GTM_ID = "GTM-KQRXVZ4F";
+const LJ_HOMEPAGE = "https://www.littlejunkersllc.com";
 
 export default function App({ Component, pageProps }) {
+  useEffect(() => {
+    function handleExitModalDismiss(event) {
+      if (window.location.pathname !== "/rent-a-dumpster") return;
+      if (!document.body?.innerText?.includes("Want us to text you this quote?")) return;
+
+      const button = event.target?.closest?.("button");
+      if (!button) return;
+
+      const label = (button.getAttribute("aria-label") || "").trim().toLowerCase();
+      const text = (button.textContent || "").trim().toLowerCase();
+      const isDismissAction = label === "close" || text === "no thanks";
+
+      if (!isDismissAction) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      window.location.href = LJ_HOMEPAGE;
+    }
+
+    document.addEventListener("click", handleExitModalDismiss, true);
+    return () => document.removeEventListener("click", handleExitModalDismiss, true);
+  }, []);
+
   return (
     <>
       <Script id="gtm-loader" strategy="afterInteractive">
