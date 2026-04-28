@@ -30,6 +30,30 @@ export default function App({ Component, pageProps }) {
     return () => document.removeEventListener("click", handleExitModalDismiss, true);
   }, []);
 
+  useEffect(() => {
+    function patchElevenYardFourDayDisplay() {
+      if (window.location.pathname !== "/rent-a-dumpster") return;
+      if (!document.body?.innerText?.includes("11 Yard")) return;
+
+      const priceNodes = Array.from(document.querySelectorAll("body *")).filter((node) => {
+        return node.children.length === 0 && node.textContent?.trim() === "$285";
+      });
+
+      for (const node of priceNodes) {
+        const card = node.closest("button, div");
+        const nearbyText = card?.innerText || node.parentElement?.innerText || "";
+        if (nearbyText.includes("WEEKEND OPTION") || nearbyText.includes("4-Day Rental") || nearbyText.includes("4-day rental")) {
+          node.textContent = "$335";
+        }
+      }
+    }
+
+    patchElevenYardFourDayDisplay();
+    const observer = new MutationObserver(patchElevenYardFourDayDisplay);
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <>
       <Script id="gtm-loader" strategy="afterInteractive">
