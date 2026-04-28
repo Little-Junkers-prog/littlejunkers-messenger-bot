@@ -657,7 +657,7 @@ function Step5DatePicker({
             <div style={{ fontSize:26, fontWeight:900, color: isSelected ? C.pinkText : C.ink, letterSpacing:"-0.8px", lineHeight:1, fontFamily:F }}>
               {typeof price === "number" ? `$${price}` : "—"}
             </div>
-            <div style={{ marginTop:4, fontSize:11, color: isSelected ? C.pinkText : C.inkFaint, fontFamily:F, fontWeight:700, textAlign:"right" }}>{rentalTypeLabel(type)}</div>
+            <div style={{ marginTop:4, fontSize:11, color: isSelected ? C.pinkText : C.inkFaint, fontFamily:F, fontWeight:700 }}>{rentalTypeLabel(type)}</div>
             {isSelected && (
               <div style={{ marginTop:6 }}>
                 <span style={{ fontSize:11, fontWeight:800, color:C.pinkText, background:C.white, border:`1px solid ${C.pinkBorder}`, borderRadius:99, padding:"3px 9px", fontFamily:F }}>
