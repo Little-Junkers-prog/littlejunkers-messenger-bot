@@ -6,6 +6,14 @@ const ALLOWED_ORIGINS = new Set([
   "https://www.littlejunkersllc.com",
 ]);
 
+function isAllowedOrigin(origin) {
+  if (!origin) return true; // server-to-server, no origin header
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  // Allow Vercel preview deployments for this project
+  if (/^https:\/\/littlejunkers-messenger-[a-z0-9]+-marcus-projects-[a-z0-9]+\.vercel\.app$/.test(origin)) return true;
+  return false;
+}
+
 const FLEET = {
   "11 Yard": { sizeCode: "11YD" },
   "16 Yard": { sizeCode: "16YD" },
@@ -26,7 +34,7 @@ const TIMEZONE = "America/New_York";
 function applyCors(req, res) {
   const origin = req.headers.origin;
 
-  if (origin && ALLOWED_ORIGINS.has(origin)) {
+  if (origin && isAllowedOrigin(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
 
@@ -37,7 +45,7 @@ function applyCors(req, res) {
 
 function hasAllowedOrigin(req) {
   const origin = req.headers.origin;
-  return !origin || ALLOWED_ORIGINS.has(origin);
+  return isAllowedOrigin(origin);
 }
 
 function addDays(date, count) {

@@ -66,7 +66,7 @@ const zipToArea = {
 };
 
 const basePricing = {
-  "11 Yard": { "Early Bird": 225, "Weekend Warrior": 285, "Base Rental": 275, "Full Reset": 345 },
+  "11 Yard": { "Early Bird": 225, "Weekend Warrior": 335, "Base Rental": 275, "Full Reset": 345 },
   "16 Yard": { "Early Bird": 275, "Weekend Warrior": 385, "Base Rental": 325, "Full Reset": 445 },
   "21 Yard": { "Early Bird": 385, "Weekend Warrior": 445, "Base Rental": 385, "Full Reset": 495 },
 };
