@@ -97,7 +97,7 @@ const DUMPSTER_IMAGES = {
 };
 
 const basePricing = {
-  "11 Yard": { "Early Bird":225, "Weekend Warrior":285, "Base Rental":275, "Full Reset":345 },
+  "11 Yard": { "Early Bird":225, "Weekend Warrior":335, "Base Rental":275, "Full Reset":345 },
   "16 Yard": { "Early Bird":275, "Weekend Warrior":385, "Base Rental":325, "Full Reset":445 },
   "21 Yard": { "Early Bird":385, "Weekend Warrior":445, "Base Rental":385, "Full Reset":495 },
 };
@@ -652,12 +652,12 @@ function Step5DatePicker({
             <div style={{ fontSize:20, fontWeight:900, color: isSelected ? C.pinkText : C.ink, letterSpacing:"-0.5px", lineHeight:1.1, fontFamily:F }}>{w.startLabel}</div>
             <div style={{ marginTop:4, fontSize:13, color: isSelected ? C.pinkText : C.inkMuted, fontFamily:F }}>Through {w.endLabel}</div>
             <div style={{ marginTop:8, fontSize:12, color: isSelected ? C.pinkText : C.inkMuted, fontFamily:F, opacity:0.9 }}>{cardSubLabel}</div>
-            <div style={{ marginTop:8, fontSize:11, color: isSelected ? C.pinkText : C.inkFaint, fontFamily:F, fontWeight:700 }}>{rentalTypeLabel(type)}</div>
           </div>
           <div style={{ textAlign:"right", flexShrink:0 }}>
             <div style={{ fontSize:26, fontWeight:900, color: isSelected ? C.pinkText : C.ink, letterSpacing:"-0.8px", lineHeight:1, fontFamily:F }}>
               {typeof price === "number" ? `$${price}` : "—"}
             </div>
+            <div style={{ marginTop:4, fontSize:11, color: isSelected ? C.pinkText : C.inkFaint, fontFamily:F, fontWeight:700, textAlign:"right" }}>{rentalTypeLabel(type)}</div>
             {isSelected && (
               <div style={{ marginTop:6 }}>
                 <span style={{ fontSize:11, fontWeight:800, color:C.pinkText, background:C.white, border:`1px solid ${C.pinkBorder}`, borderRadius:99, padding:"3px 9px", fontFamily:F }}>
