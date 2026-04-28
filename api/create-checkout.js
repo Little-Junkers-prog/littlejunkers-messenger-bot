@@ -10,6 +10,12 @@ const ALLOWED_ORIGINS = new Set([
   "https://www.littlejunkersllc.com",
 ]);
 
+const CANONICAL_BASE_PRICING = {
+  "11 Yard": { "Early Bird": 225, "Weekend Warrior": 335, "Base Rental": 275, "Full Reset": 345 },
+  "16 Yard": { "Early Bird": 275, "Weekend Warrior": 385, "Base Rental": 325, "Full Reset": 445 },
+  "21 Yard": { "Early Bird": 385, "Weekend Warrior": 445, "Base Rental": 385, "Full Reset": 495 },
+};
+
 function applyCors(req, res) {
   const origin = req.headers.origin;
   if (origin && ALLOWED_ORIGINS.has(origin)) {
@@ -34,6 +40,12 @@ function asMoneyCents(value) {
 function asString(value) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+function getCanonicalBasePrice(size, option, fallback) {
+  const canonical = CANONICAL_BASE_PRICING[asString(size)]?.[asString(option)];
+  if (Number.isFinite(Number(canonical))) return Number(canonical);
+  return fallback;
 }
 
 function getBaseUrl(req) {
@@ -106,7 +118,8 @@ export default async function handler(req, res) {
       });
     }
 
-    const basePriceCents = asMoneyCents(basePrice);
+    const resolvedBasePrice = getCanonicalBasePrice(dumpsterSize, rentalOption, basePrice);
+    const basePriceCents = asMoneyCents(resolvedBasePrice);
     const deliveryFeeCents = asMoneyCents(deliveryFee || 0);
 
     if (basePriceCents === null) {
@@ -168,6 +181,7 @@ export default async function handler(req, res) {
       customer_email: String(customerEmail || ""),
       dumpster_size: String(dumpsterSize),
       rental_option: String(rentalOption),
+      base_price: String(resolvedBasePrice),
       zone: String(zone || ""),
       zip: String(zip || ""),
       area_label: String(areaLabel || ""),
