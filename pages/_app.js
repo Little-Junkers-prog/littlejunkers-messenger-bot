@@ -4,11 +4,74 @@ import Script from "next/script";
 
 const GTM_ID = "GTM-KQRXVZ4F";
 const LJ_HOMEPAGE = "https://www.littlejunkersllc.com";
+const RENTAL_FUNNEL_PATH = "/rent-a-dumpster";
+const EXIT_IDLE_TIMEOUT_MS = 3 * 60 * 1000;
+const SAFER_IDLE_TIMEOUT_MS = 12 * 60 * 1000;
+
+function installRentalExitGuards() {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  if (window.__ljRentalExitGuardsInstalled) return;
+
+  window.__ljRentalExitGuardsInstalled = true;
+  window.__ljCheckoutStarted = false;
+
+  const isRentalFunnel = () => window.location.pathname === RENTAL_FUNNEL_PATH;
+
+  // Hotfix: tab switches / app switches should never count as abandonment.
+  // The rent-a-dumpster page registers a visibilitychange listener that can open
+  // the exit modal when a customer briefly leaves the tab and returns. Block that
+  // listener on the rental funnel only.
+  const originalDocumentAddEventListener = Document.prototype.addEventListener;
+  Document.prototype.addEventListener = function patchedDocumentAddEventListener(type, listener, options) {
+    if (this === document && type === "visibilitychange" && isRentalFunnel()) {
+      return undefined;
+    }
+    return originalDocumentAddEventListener.call(this, type, listener, options);
+  };
+
+  // Hotfix: stretch the current 3-minute idle timer to 12 minutes without touching
+  // unrelated timers. This preserves the recovery modal but makes it less aggressive.
+  const originalSetTimeout = window.setTimeout.bind(window);
+  window.setTimeout = function patchedSetTimeout(handler, timeout, ...args) {
+    const delay = isRentalFunnel() && Number(timeout) === EXIT_IDLE_TIMEOUT_MS
+      ? SAFER_IDLE_TIMEOUT_MS
+      : timeout;
+    return originalSetTimeout(handler, delay, ...args);
+  };
+
+  // Once checkout starts, suppress any late modal overlay while Stripe is loading.
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = function patchedFetch(input, init) {
+    const url = typeof input === "string" ? input : input?.url || "";
+    if (isRentalFunnel() && String(url).includes("/api/create-checkout")) {
+      window.__ljCheckoutStarted = true;
+    }
+    return originalFetch(input, init);
+  };
+
+  // Safety net: if an exit overlay slips through after checkout has started,
+  // remove it from the DOM so it cannot block the redirect/resume path.
+  const removeLateCheckoutExitModal = () => {
+    if (!isRentalFunnel() || !window.__ljCheckoutStarted) return;
+    const modalText = "Want us to text you this quote?";
+    const candidates = Array.from(document.querySelectorAll("body > div"));
+    for (const node of candidates) {
+      if (node.textContent?.includes(modalText)) {
+        node.remove();
+      }
+    }
+  };
+
+  const observer = new MutationObserver(removeLateCheckoutExitModal);
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+}
 
 export default function App({ Component, pageProps }) {
+  installRentalExitGuards();
+
   useEffect(() => {
     function handleExitModalDismiss(event) {
-      if (window.location.pathname !== "/rent-a-dumpster") return;
+      if (window.location.pathname !== RENTAL_FUNNEL_PATH) return;
       if (!document.body?.innerText?.includes("Want us to text you this quote?")) return;
 
       const button = event.target?.closest?.("button");
