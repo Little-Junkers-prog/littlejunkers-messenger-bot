@@ -575,18 +575,23 @@ function Step5DatePicker({
     },
   ];
 
-  const [selectedTierKey, setSelectedTierKey] = useState(duration || null);
-  const [calendarMonth, setCalendarMonth]     = useState(() => {
-    const d = new Date(); d.setHours(0,0,0,0);
-    return { year: d.getFullYear(), month: d.getMonth() };
-  });
-
   const today = useMemo(() => {
     const d = new Date(); d.setHours(0,0,0,0); return d;
   }, []);
-  const windowEnd = useMemo(() => {
-    const d = new Date(today); d.setDate(d.getDate() + 28); return d;
+  const tomorrow = useMemo(() => {
+    const d = new Date(today); d.setDate(d.getDate() + 1); return d;
   }, [today]);
+  const windowEnd = useMemo(() => {
+    const d = new Date(today); d.setDate(d.getDate() + 90); return d;
+  }, [today]);
+
+  const [selectedTierKey, setSelectedTierKey] = useState(duration || null);
+  // Open to the month containing the first bookable date (tomorrow), not today,
+  // so the calendar never opens showing an entirely greyed-out month.
+  const [calendarMonth, setCalendarMonth] = useState(() => ({
+    year:  tomorrow.getFullYear(),
+    month: tomorrow.getMonth(),
+  }));
 
   const blocked = useMemo(() => {
     if (!blockedDates || !Array.isArray(blockedDates)) return new Set();
@@ -687,19 +692,20 @@ function Step5DatePicker({
           {cells.map((d, i) => {
             if (!d) return <div key={`pad-${i}`} />;
             const dateStr    = toDateStr(d);
+            // Don't render past dates at all — empty cell keeps grid alignment
+            if (d <= today) return <div key={dateStr} />;
             const selectable = isDateSelectableForTier(d, tier);
-            const isPast     = d <= today;
             const isOutside  = d > windowEnd;
             const isWrongDay = tier.validDays && !tier.validDays.includes(d.getDay());
-            const isFull     = !isPast && !isOutside && !isWrongDay && !isDateAvailable(d);
+            const isFull     = !isOutside && !isWrongDay && !isDateAvailable(d);
             const isSelected = dateStr === selectedStart && duration === tier.key;
 
             let bg = "transparent", color = C.ink, opacity = 1, cursor = "pointer", textDeco = "none";
-            if (isSelected)                              { bg = C.pinkText; color = C.white; }
-            else if (isPast || isOutside)                { color = C.inkFaint; opacity = 0.3; cursor = "default"; }
-            else if (isWrongDay)                         { color = C.inkFaint; opacity = 0.25; cursor = "default"; }
-            else if (isFull)                             { color = C.inkFaint; opacity = 0.4; cursor = "not-allowed"; textDeco = "line-through"; }
-            else if (selectable)                         { color = C.ink; }
+            if (isSelected)      { bg = C.pinkText; color = C.white; }
+            else if (isOutside)  { color = C.inkFaint; opacity = 0.3; cursor = "default"; }
+            else if (isWrongDay) { color = C.inkFaint; opacity = 0.25; cursor = "default"; }
+            else if (isFull)     { color = C.inkFaint; opacity = 0.4; cursor = "not-allowed"; textDeco = "line-through"; }
+            else if (selectable) { color = C.ink; }
 
             return (
               <button
