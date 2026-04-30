@@ -575,20 +575,20 @@ function Step5DatePicker({
     },
   ];
 
-  const [selectedTierKey, setSelectedTierKey] = React.useState(duration || null);
-  const [calendarMonth, setCalendarMonth]     = React.useState(() => {
+  const [selectedTierKey, setSelectedTierKey] = useState(duration || null);
+  const [calendarMonth, setCalendarMonth]     = useState(() => {
     const d = new Date(); d.setHours(0,0,0,0);
     return { year: d.getFullYear(), month: d.getMonth() };
   });
 
-  const today = React.useMemo(() => {
+  const today = useMemo(() => {
     const d = new Date(); d.setHours(0,0,0,0); return d;
   }, []);
-  const windowEnd = React.useMemo(() => {
+  const windowEnd = useMemo(() => {
     const d = new Date(today); d.setDate(d.getDate() + 28); return d;
   }, [today]);
 
-  const blocked = React.useMemo(() => {
+  const blocked = useMemo(() => {
     if (!blockedDates || !Array.isArray(blockedDates)) return new Set();
     return new Set(blockedDates);
   }, [blockedDates]);
