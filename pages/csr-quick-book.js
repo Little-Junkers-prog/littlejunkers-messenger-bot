@@ -55,15 +55,7 @@ function encodeLinkState(params) {
   return next.toString();
 }
 
-function getSoonestCandidate(available = {}) {
-  const ranked = [];
-  for (const option of rentalOptions) {
-    const windows = available[option.key] || [];
-    if (windows[0]) ranked.push({ rentalOption: option.key, window: windows[0] });
-  }
-  ranked.sort((a, b) => new Date(a.window.startIso || a.window.start).getTime() - new Date(b.window.startIso || b.window.start).getTime());
-  return ranked[0] || null;
-}
+
 
 export default function CsrQuickBookPage() {
   const [zip, setZip] = useState("");
@@ -72,12 +64,10 @@ export default function CsrQuickBookPage() {
   const [selectedSize, setSelectedSize] = useState("16 Yard");
   const [inventoryCounts, setInventoryCounts] = useState(null);
   const [countsLoading, setCountsLoading] = useState(true);
-  const [availabilityBySize, setAvailabilityBySize] = useState({});
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityError, setAvailabilityError] = useState("");
   const [selectedRentalOption, setSelectedRentalOption] = useState("");
   const [selectedWindow, setSelectedWindow] = useState(null);
-  const [expandedOption, setExpandedOption] = useState("Base Rental");
   const [customerLink, setCustomerLink] = useState("");
   const [actionError, setActionError] = useState("");
   const [actionSuccess, setActionSuccess] = useState("");
@@ -109,9 +99,13 @@ export default function CsrQuickBookPage() {
     setForm((prev) => ({ ...prev, zip }));
   }, [zip]);
 
+  const [blockedDates, setBlockedDates] = useState([]);
+  const [isAvailabilityDegraded, setIsAvailabilityDegraded] = useState(false);
+
   useEffect(() => {
     if (!zoneKey) {
-      setAvailabilityBySize({});
+      setBlockedDates([]);
+      setIsAvailabilityDegraded(false);
       setSelectedRentalOption("");
       setSelectedWindow(null);
       return;
@@ -122,29 +116,26 @@ export default function CsrQuickBookPage() {
       try {
         setAvailabilityLoading(true);
         setAvailabilityError("");
-        const entries = await Promise.all(allSizes.map(async (size) => {
-          const response = await fetch("/api/availability-v2", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ size }),
-          });
-          const json = await response.json();
-          return [size, json.available || {}];
-        }));
+        const response = await fetch("/api/availability", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ size: selectedSize }),
+        });
+        const json = await response.json();
         if (!active) return;
-        const next = Object.fromEntries(entries);
-        setAvailabilityBySize(next);
-        const selectedSoonest = getSoonestCandidate(next[selectedSize]);
-        if (selectedSoonest) {
-          setSelectedRentalOption(selectedSoonest.rentalOption);
-          setSelectedWindow(selectedSoonest.window);
-          setExpandedOption(selectedSoonest.rentalOption);
+        if (response.ok && json.available) {
+          setBlockedDates(json.blockedDates || []);
+          setIsAvailabilityDegraded(false);
         } else {
-          setSelectedRentalOption("");
-          setSelectedWindow(null);
+          setBlockedDates([]);
+          setIsAvailabilityDegraded(true);
         }
       } catch {
-        if (active) setAvailabilityError("Unable to pull live availability right now.");
+        if (active) {
+          setAvailabilityError("Unable to pull live availability right now.");
+          setBlockedDates([]);
+          setIsAvailabilityDegraded(true);
+        }
       } finally {
         if (active) setAvailabilityLoading(false);
       }
@@ -154,22 +145,11 @@ export default function CsrQuickBookPage() {
 
   const areaLabel = useMemo(() => getAreaLabel(zip), [zip]);
   const zone = zones[zoneKey] || null;
-  const selectedAvailability = availabilityBySize[selectedSize] || {};
   const selectedPriceMap = useMemo(() => {
     const prices = {};
     for (const option of rentalOptions) prices[option.key] = (basePricing[selectedSize]?.[option.key] || 0) + (zone?.fee || 0);
     return prices;
   }, [selectedSize, zone]);
-  const summaryBySize = useMemo(() => {
-    const next = {};
-    for (const size of allSizes) next[size] = getSoonestCandidate(availabilityBySize[size]);
-    return next;
-  }, [availabilityBySize]);
-  const overallSoonest = useMemo(() => {
-    const options = allSizes.map((size) => ({ size, candidate: summaryBySize[size] })).filter((entry) => entry.candidate);
-    options.sort((a, b) => new Date(a.candidate.window.startIso).getTime() - new Date(b.candidate.window.startIso).getTime());
-    return options[0] || null;
-  }, [summaryBySize]);
   const customerTotal = (basePricing[selectedSize]?.[selectedRentalOption] || 0) + (zone?.fee || 0);
 
   const resetMessages = () => {
@@ -201,20 +181,8 @@ export default function CsrQuickBookPage() {
 
   function handleSelectSize(size) {
     setSelectedSize(size);
-    setCustomerLink("");
-    resetMessages();
-    const candidate = getSoonestCandidate(availabilityBySize[size]);
-    if (candidate) {
-      setSelectedRentalOption(candidate.rentalOption);
-      setSelectedWindow(candidate.window);
-      setExpandedOption(candidate.rentalOption);
-    }
-  }
-
-  function handleSelectWindow(optionKey, windowOption) {
-    setSelectedRentalOption(optionKey);
-    setSelectedWindow(windowOption);
-    setExpandedOption(optionKey);
+    setSelectedRentalOption("");
+    setSelectedWindow(null);
     setCustomerLink("");
     resetMessages();
   }
@@ -404,7 +372,6 @@ export default function CsrQuickBookPage() {
               <div className="sizes-grid">
                 {allSizes.map((size) => {
                   const active = size === selectedSize;
-                  const soonest = summaryBySize[size];
                   return (
                     <button key={size} onClick={() => handleSelectSize(size)} style={{ ...sizeCardStyle, border: active ? `1.5px solid ${C.ink}` : `1px solid ${C.surfaceBorder}`, background: active ? C.white : C.surfaceBg }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
@@ -412,55 +379,30 @@ export default function CsrQuickBookPage() {
                         <div style={pillStyle(active ? "dark" : "light")}>{active ? "Selected" : "Select"}</div>
                       </div>
                       <div style={{ marginTop: 8, fontSize: 14, color: C.ink }}>{formatMoney((basePricing[size]?.["Base Rental"] || 0) + (zone?.fee || 0))}</div>
-                      <div style={{ marginTop: 6, fontSize: 11, color: C.inkMuted, lineHeight: 1.4 }}>{soonest ? `Soonest ${soonest.window.startLabel}` : "No current windows"}</div>
                     </button>
                   );
                 })}
               </div>
             </SectionCard>
 
-            <SectionCard title="Live availability">
+            <SectionCard title="Select rental type and date">
               {availabilityLoading ? <div style={{ color: C.inkMuted, fontSize: 14 }}>Pulling live availability...</div> : null}
               {availabilityError ? <Banner tone="warning">{availabilityError}</Banner> : null}
-              {overallSoonest && overallSoonest.size !== selectedSize ? <Banner tone="warning">{overallSoonest.size} opens sooner on {overallSoonest.candidate.window.startLabel}.</Banner> : null}
-              {!availabilityLoading && !availabilityError && zone ? (
-                <div style={{ display: "grid", gap: 10 }}>
-                  {rentalOptions.map((option) => {
-                    const windows = selectedAvailability[option.key] || [];
-                    const isOpen = expandedOption === option.key;
-                    const firstWindow = windows[0];
-                    return (
-                      <div key={option.key} style={{ border: `1px solid ${C.surfaceBorder}`, borderRadius: 14, background: C.surfaceBg, overflow: "hidden" }}>
-                        <button onClick={() => setExpandedOption(isOpen ? "" : option.key)} style={{ width: "100%", background: C.surfaceBg, border: "none", padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
-                          <div style={{ textAlign: "left" }}>
-                            <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>{option.label}</div>
-                            <div style={{ fontSize: 12, color: C.inkMuted, marginTop: 4 }}>{firstWindow ? firstWindow.startLabel : "No current windows"}</div>
-                          </div>
-                          <div style={{ textAlign: "right" }}>
-                            <div style={{ fontSize: 18, fontWeight: 900, color: C.ink }}>{formatMoney(selectedPriceMap[option.key])}</div>
-                            <div style={{ fontSize: 12, color: C.inkMuted, marginTop: 4 }}>{isOpen ? "Hide" : "Show"}</div>
-                          </div>
-                        </button>
-                        {isOpen ? (
-                          <div style={{ padding: "0 12px 12px", display: "grid", gap: 8 }}>
-                            {windows.length ? windows.map((windowOption) => {
-                              const isSelected = selectedRentalOption === option.key && selectedWindow?.startIso === windowOption.startIso;
-                              return (
-                                <button key={`${option.key}-${windowOption.startIso}`} onClick={() => handleSelectWindow(option.key, windowOption)} style={{ ...windowButtonStyle, border: isSelected ? `1.5px solid ${C.pinkText}` : `1px solid ${C.surfaceBorder}`, background: isSelected ? C.pinkBg : C.white }}>
-                                  <div style={{ textAlign: "left" }}>
-                                    <div style={{ fontSize: 14, fontWeight: 800, color: C.ink }}>{windowOption.startLabel}</div>
-                                    <div style={{ fontSize: 12, color: C.inkMuted, marginTop: 3 }}>Through {windowOption.endLabel}</div>
-                                  </div>
-                                  <div style={pillStyle(isSelected ? "dark" : "light")}>{isSelected ? "Selected" : "Choose"}</div>
-                                </button>
-                              );
-                            }) : <div style={{ fontSize: 13, color: C.inkMuted, padding: "6px 4px" }}>No current windows surfaced for this option.</div>}
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
+              {!availabilityLoading && zone ? (
+                <CsrCalendarPicker
+                  selectedSize={selectedSize}
+                  calculatedPrices={selectedPriceMap}
+                  blockedDates={blockedDates}
+                  isAvailabilityDegraded={isAvailabilityDegraded}
+                  selectedRentalOption={selectedRentalOption}
+                  selectedWindow={selectedWindow}
+                  onSelect={(tierKey, windowObj) => {
+                    setSelectedRentalOption(tierKey);
+                    setSelectedWindow(windowObj);
+                    setCustomerLink("");
+                    resetMessages();
+                  }}
+                />
               ) : null}
             </SectionCard>
           </div>
@@ -544,7 +486,182 @@ export default function CsrQuickBookPage() {
   );
 }
 
-function SectionCard({ title, children }) {
+// ─── CSR Calendar Picker ──────────────────────────────────────────────────────
+
+function CsrCalendarPicker({ selectedSize, calculatedPrices, blockedDates, isAvailabilityDegraded, selectedRentalOption, selectedWindow, onSelect }) {
+  const TIERS = [
+    { key: "Early Bird",      label: "Discounted 2-Day", sublabel: "Mon or Tue delivery only", tag: null,             validDays: [1, 2],          duration: 2 },
+    { key: "Base Rental",     label: "Standard 2-Day",   sublabel: "Any day except Mon/Tue",   tag: null,             validDays: [0, 3, 4, 5, 6], duration: 2 },
+    { key: "Weekend Warrior", label: "4-Day",             sublabel: "Any start date",            tag: "Most Flexible", validDays: null,             duration: 4 },
+    { key: "Full Reset",      label: "7-Day",             sublabel: "Any start date",            tag: null,             validDays: null,             duration: 7 },
+  ];
+
+  const today = useMemo(() => { const d = new Date(); d.setHours(0,0,0,0); return d; }, []);
+  const tomorrow = useMemo(() => { const d = new Date(today); d.setDate(d.getDate() + 1); return d; }, [today]);
+  const windowEnd = useMemo(() => { const d = new Date(today); d.setDate(d.getDate() + 90); return d; }, [today]);
+
+  const [selectedTierKey, setSelectedTierKey] = useState(selectedRentalOption || null);
+  const [calendarMonth, setCalendarMonth] = useState(() => ({ year: tomorrow.getFullYear(), month: tomorrow.getMonth() }));
+
+  const blocked = useMemo(() => {
+    if (!blockedDates || !Array.isArray(blockedDates)) return new Set();
+    return new Set(blockedDates);
+  }, [blockedDates]);
+
+  const toDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  const addDays   = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
+  const formatDisplay = (d) => d.toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric" });
+  const formatShort   = (d) => d.toLocaleDateString("en-US", { month:"short", day:"numeric" });
+
+  const isDateAvailable = (d) => {
+    if (d <= today || d > windowEnd) return false;
+    if (isAvailabilityDegraded) return true;
+    return !blocked.has(toDateStr(d));
+  };
+
+  const isDateSelectableForTier = (d, tier) => {
+    if (!isDateAvailable(d)) return false;
+    if (tier.validDays && !tier.validDays.includes(d.getDay())) return false;
+    if (!isAvailabilityDegraded) {
+      for (let i = 0; i < tier.duration; i++) {
+        if (blocked.has(toDateStr(addDays(d, i)))) return false;
+      }
+    }
+    return true;
+  };
+
+  const handleDateSelect = (d, tier) => {
+    if (!isDateSelectableForTier(d, tier)) return;
+    const endDate = addDays(d, tier.duration);
+    const windowObj = {
+      start:      toDateStr(d),
+      end:        toDateStr(endDate),
+      startLabel: formatDisplay(d),
+      endLabel:   formatDisplay(endDate),
+      startIso:   d.toISOString(),
+      endIso:     endDate.toISOString(),
+    };
+    onSelect(tier.key, windowObj);
+  };
+
+  const CalendarWidget = ({ tier }) => {
+    const { year, month } = calendarMonth;
+    const firstDay   = new Date(year, month, 1);
+    const lastDay    = new Date(year, month + 1, 0);
+    const startPad   = firstDay.getDay();
+    const monthLabel = firstDay.toLocaleDateString("en-US", { month:"long", year:"numeric" });
+    const dayHeaders = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+
+    const prevMonth = () => setCalendarMonth(prev => { let m = prev.month-1, y=prev.year; if(m<0){m=11;y--;} return {year:y,month:m}; });
+    const nextMonth = () => setCalendarMonth(prev => { let m = prev.month+1, y=prev.year; if(m>11){m=0;y++;} return {year:y,month:m}; });
+
+    const cells = [];
+    for (let i = 0; i < startPad; i++) cells.push(null);
+    for (let d = 1; d <= lastDay.getDate(); d++) cells.push(new Date(year, month, d));
+
+    const selectedStart = selectedWindow?.start;
+    const isThisTierSelected = selectedRentalOption === tier.key;
+
+    return (
+      <div style={{ background: C.white }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px", borderBottom:`1px solid ${C.surfaceBorder}` }}>
+          <button onClick={prevMonth} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, color:C.ink, padding:"0 8px", lineHeight:1 }}>‹</button>
+          <span style={{ fontSize:14, fontWeight:800, color:C.ink, fontFamily:F }}>{monthLabel}</span>
+          <button onClick={nextMonth} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, color:C.ink, padding:"0 8px", lineHeight:1 }}>›</button>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", padding:"8px 8px 2px" }}>
+          {dayHeaders.map(h => <div key={h} style={{ textAlign:"center", fontSize:10, fontWeight:700, color:C.inkFaint, fontFamily:F, paddingBottom:2 }}>{h}</div>)}
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", padding:"0 8px 10px", gap:2 }}>
+          {cells.map((d, i) => {
+            if (!d) return <div key={`pad-${i}`} />;
+            const dateStr    = toDateStr(d);
+            if (d <= today) return <div key={dateStr} />;
+            const selectable = isDateSelectableForTier(d, tier);
+            const isOutside  = d > windowEnd;
+            const isWrongDay = tier.validDays && !tier.validDays.includes(d.getDay());
+            const isFull     = !isOutside && !isWrongDay && !isDateAvailable(d);
+            const isSelected = isThisTierSelected && dateStr === selectedStart;
+
+            let bg = "transparent", color = C.ink, opacity = 1, cursor = "pointer", textDeco = "none";
+            if (isSelected)      { bg = C.pinkText; color = C.white; }
+            else if (isOutside)  { color = C.inkFaint; opacity = 0.3; cursor = "default"; }
+            else if (isWrongDay) { color = C.inkFaint; opacity = 0.25; cursor = "default"; }
+            else if (isFull)     { color = C.inkFaint; opacity = 0.4; cursor = "not-allowed"; textDeco = "line-through"; }
+
+            return (
+              <button key={dateStr} onClick={() => selectable && handleDateSelect(d, tier)} style={{ padding:"7px 0", borderRadius:8, fontSize:13, fontWeight: isSelected ? 800 : 500, textAlign:"center", fontFamily:F, background:bg, color, opacity, cursor, border:"none", textDecoration:textDeco, transition:"background 100ms" }}>
+                {d.getDate()}
+              </button>
+            );
+          })}
+        </div>
+        {isThisTierSelected && selectedWindow?.start && (
+          <div style={{ padding:"10px 16px 14px", borderTop:`1px solid ${C.surfaceBorder}`, textAlign:"center" }}>
+            <span style={{ fontSize:13, fontWeight:700, color:C.pinkText, fontFamily:F }}>
+              Drop off {formatShort(new Date(selectedWindow.start + "T12:00:00"))} · Pick up {formatShort(new Date(selectedWindow.end + "T12:00:00"))}
+            </span>
+          </div>
+        )}
+        {isAvailabilityDegraded && (
+          <div style={{ padding:"8px 16px", background:"#fffbe6", borderTop:`1px solid #ffe58f`, textAlign:"center" }}>
+            <span style={{ fontSize:11, color:"#8a6300", fontFamily:F }}>Live availability temporarily unavailable — all dates shown as open</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+      {TIERS.map(tier => {
+        const price    = calculatedPrices[tier.key];
+        const isActive = selectedTierKey === tier.key;
+        return (
+          <div key={tier.key}>
+            <button
+              onClick={() => setSelectedTierKey(isActive ? null : tier.key)}
+              style={{
+                width:"100%", textAlign:"left", padding:"14px 16px",
+                borderRadius: isActive ? "12px 12px 0 0" : 12,
+                cursor:"pointer", fontFamily:F,
+                display:"flex", justifyContent:"space-between", alignItems:"center",
+                border: isActive ? `2px solid ${C.pinkText}` : `1px solid ${C.surfaceBorder}`,
+                borderBottom: isActive ? "none" : undefined,
+                background: isActive ? C.pinkBg : C.white,
+                boxShadow: isActive ? `0 0 0 3px ${C.pinkBorder}` : "0 1px 3px rgba(0,0,0,0.04)",
+                transition:"border-color 150ms, background 150ms",
+              }}
+            >
+              <div>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                  <span style={{ fontSize:14, fontWeight:900, color: isActive ? C.pinkText : C.ink, fontFamily:F }}>{tier.label}</span>
+                  {tier.tag && <span style={{ fontSize:10, fontWeight:800, color:C.pinkText, background: isActive ? C.white : C.pinkBg, border:`1px solid ${C.pinkBorder}`, borderRadius:99, padding:"2px 8px", fontFamily:F }}>{tier.tag}</span>}
+                </div>
+                <div style={{ fontSize:11, color: isActive ? C.pinkText : C.inkMuted, fontFamily:F }}>{tier.sublabel}</div>
+              </div>
+              <div style={{ textAlign:"right", flexShrink:0, marginLeft:12 }}>
+                <div style={{ fontSize:20, fontWeight:900, color: isActive ? C.pinkText : C.ink, letterSpacing:"-0.5px", fontFamily:F }}>
+                  {typeof price === "number" ? `$${price}` : "—"}
+                </div>
+                <div style={{ fontSize:11, color: isActive ? C.pinkText : C.inkFaint, fontFamily:F, marginTop:2 }}>
+                  {isActive ? "select a date ↓" : "tap to select"}
+                </div>
+              </div>
+            </button>
+            {isActive && (
+              <div style={{ border:`2px solid ${C.pinkText}`, borderTop:"none", borderRadius:"0 0 12px 12px", overflow:"hidden", boxShadow:`0 0 0 3px ${C.pinkBorder}`, marginBottom:2 }}>
+                <CalendarWidget tier={tier} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
   return <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderRadius: 22, padding: 16 }}><div style={{ marginBottom: 12, fontSize: 18, fontWeight: 900, color: C.ink, lineHeight: 1.1 }}>{title}</div>{children}</div>;
 }
 function Field({ label, children }) {
@@ -561,7 +678,6 @@ function SummaryRow({ label, value, strong = false }) {
 const summaryCardStyle = { background: C.surfaceBg, border: `1px solid ${C.surfaceBorder}`, borderRadius: 14, padding: "12px 14px" };
 const statCardStyle = { background: C.surfaceBg, border: `1px solid ${C.surfaceBorder}`, borderRadius: 16, padding: 14, minHeight: 96 };
 const sizeCardStyle = { width: "100%", textAlign: "left", borderRadius: 16, padding: 14, cursor: "pointer" };
-const windowButtonStyle = { width: "100%", textAlign: "left", borderRadius: 12, padding: "12px 12px", display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", cursor: "pointer" };
 function inputStyle(extra = {}) { return { display: "block", width: "100%", padding: "12px 13px", borderRadius: 10, border: `1px solid ${C.surfaceBorder}`, background: C.white, fontFamily: F, fontSize: 14, boxSizing: "border-box", ...extra }; }
 function primaryButtonStyle(disabled) { return { padding: "14px 16px", borderRadius: 12, border: "none", background: disabled ? C.inkFaint : C.darkBtn, color: C.white, fontFamily: F, fontWeight: 800, fontSize: 14, cursor: disabled ? "not-allowed" : "pointer", width: "100%" }; }
 function manualButtonStyle(disabled) { return { padding: "14px 16px", borderRadius: 12, border: `1px solid ${C.pinkBorder}`, background: disabled ? C.surfaceBorder : C.pinkBg, color: disabled ? C.inkMuted : C.pinkText, fontFamily: F, fontWeight: 800, fontSize: 14, cursor: disabled ? "not-allowed" : "pointer", width: "100%" }; }
