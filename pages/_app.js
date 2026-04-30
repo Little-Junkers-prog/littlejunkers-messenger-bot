@@ -39,14 +39,31 @@ function installRentalExitGuards() {
     return originalSetTimeout(handler, delay, ...args);
   };
 
-  // Once checkout starts, suppress any late modal overlay while Stripe is loading.
+  // Checkout/availability guardrails for the customer funnel.
   const originalFetch = window.fetch.bind(window);
   window.fetch = function patchedFetch(input, init) {
     const url = typeof input === "string" ? input : input?.url || "";
+    let nextInput = input;
+
     if (isRentalFunnel() && String(url).includes("/api/create-checkout")) {
       window.__ljCheckoutStarted = true;
     }
-    return originalFetch(input, init);
+
+    // Emergency fallback: the customer page currently points at /api/availability-v2,
+    // which depends on the newer Supabase inventory snapshot. If that snapshot fails
+    // or returns empty windows, checkout can stall. Route customer availability calls
+    // to the older /api/availability endpoint for now; that endpoint already has a
+    // permissive degraded fallback and keeps checkout moving.
+    if (isRentalFunnel() && String(url).includes("/api/availability-v2")) {
+      if (typeof input === "string") {
+        nextInput = input.replace("/api/availability-v2", "/api/availability");
+      } else if (input instanceof Request) {
+        const nextUrl = input.url.replace("/api/availability-v2", "/api/availability");
+        nextInput = new Request(nextUrl, input);
+      }
+    }
+
+    return originalFetch(nextInput, init);
   };
 
   // Safety net: if an exit overlay slips through after checkout has started,
