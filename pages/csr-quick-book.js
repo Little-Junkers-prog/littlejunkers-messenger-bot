@@ -662,6 +662,7 @@ function CsrCalendarPicker({ selectedSize, calculatedPrices, blockedDates, isAva
 }
 
 
+function SectionCard({ title, children }) {
   return <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderRadius: 22, padding: 16 }}><div style={{ marginBottom: 12, fontSize: 18, fontWeight: 900, color: C.ink, lineHeight: 1.1 }}>{title}</div>{children}</div>;
 }
 function Field({ label, children }) {
