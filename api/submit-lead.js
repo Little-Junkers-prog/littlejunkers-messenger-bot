@@ -455,7 +455,18 @@ const postalCode = pickFirstNonEmpty(deliveryAddress?.zip, req.body?.zip, zip);
       ? `Exit Lead: ${contactName || phone} — ${dumpsterSize || "No Size Selected"}`
       : `Funnel Lead: ${contactName || phone} — ${dumpsterSize || "Unknown Size"}`;
 
+    const exitCaptureWarning = isExitCapture
+      ? [
+          "⚠️  EXIT CAPTURE LEAD — INCOMPLETE BOOKING",
+          "This lead was captured when the customer abandoned the funnel.",
+          "No delivery date, pricing, or booking hold exists for this lead.",
+          "Do NOT treat as a confirmed booking. Follow up by phone/text before taking action.",
+          "---",
+        ]
+      : [];
+
     const debugNotes = [
+      ...exitCaptureWarning,
       `Funnel source: ${pickFirstNonEmpty(funnelSource, "website_checkout")}`,
       `ZIP: ${postalCode || "—"}`,
       `Area: ${asString(areaLabel) || "—"}`,
@@ -518,7 +529,7 @@ const postalCode = pickFirstNonEmpty(deliveryAddress?.zip, req.body?.zip, zip);
       x_studio_rental_end: rentalEnd || false,
       x_studio_payment_status:
         mapSelection(
-          pickFirstNonEmpty(req.body?.paymentStatus, "Pending"),
+          isExitCapture ? "Incomplete" : pickFirstNonEmpty(req.body?.paymentStatus, "Pending"),
           MAP_PAYMENT_STATUS
         ),
       x_studio_hold_expires_at: holdExpiresAt || false,

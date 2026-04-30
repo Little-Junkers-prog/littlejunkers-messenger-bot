@@ -5,7 +5,6 @@ const RATE_LIMITS = {
   "/api/create-checkout": { limit: 12, windowMs: 60 * 60 * 1000 },
   "/api/checkout-session": { limit: 30, windowMs: 15 * 60 * 1000 },
   "/api/availability": { limit: 60, windowMs: 15 * 60 * 1000 },
-  "/api/availability-v2": { limit: 60, windowMs: 15 * 60 * 1000 },
 };
 
 const buckets = globalThis.__ljRateLimitBuckets || new Map();
@@ -69,12 +68,6 @@ export function middleware(req) {
     return NextResponse.redirect(url, 307);
   }
 
-  if (pathname === "/csr-quick-book") {
-    const url = req.nextUrl.clone();
-    url.pathname = "/csr-quick-book-compact-v2";
-    return NextResponse.redirect(url, 307);
-  }
-
   if (req.method === "OPTIONS") {
     return NextResponse.next();
   }
@@ -125,6 +118,5 @@ export const config = {
     "/api/create-checkout",
     "/api/checkout-session",
     "/api/availability",
-    "/api/availability-v2",
   ],
 };
