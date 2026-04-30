@@ -26,8 +26,8 @@ const C = {
 const F = "system-ui, -apple-system, sans-serif";
 const HOMEPAGE = "https://www.littlejunkersllc.com";
 const ECOM_FALLBACK = "https://www.littlejunkersllc.com/shop";
-const IDLE_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
-const AVAILABILITY_ENDPOINT = "/api/availability-v2";
+const IDLE_TIMEOUT_MS = 12 * 60 * 1000; // 12 minutes
+const AVAILABILITY_ENDPOINT = "/api/availability";
 const SIZE_CODE_MAP = {
   "11 Yard": "11YD",
   "16 Yard": "16YD",
@@ -882,6 +882,7 @@ export default function Funnel() {
   const stepRef          = useRef(step);
   const idleTimerRef     = useRef(null);
   const historyPushedRef = useRef(false);
+  const checkoutStartedRef = useRef(false);
   const turnstileWidgetIdRef = useRef(null);
   const turnstileRenderedRef = useRef(false);
 
@@ -992,7 +993,10 @@ export default function Funnel() {
 
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
+      // Only trigger exit modal if page is hidden AND checkout has not started.
+      // Customers routinely switch tabs to check banking apps, texts, or autofill —
+      // that should never count as abandonment.
+      if (document.visibilityState === "hidden" && !checkoutStartedRef.current) {
         triggerExitModal();
       }
     };
@@ -1288,6 +1292,7 @@ export default function Funnel() {
         requestedEndAt: selectedWindow.endIso,
       };
 
+      checkoutStartedRef.current = true;
       const resStripe = await fetch("/api/create-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
