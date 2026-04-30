@@ -47,7 +47,8 @@ const zipToZone = {
   "30268":"A","30269":"A","30276":"A","30291":"A",
   "30106":"B","30126":"B","30134":"B","30135":"B","30168":"B",
   "30223":"B","30224":"B","30228":"B","30236":"B","30238":"B",
-  "30260":"B","30274":"B","30296":"B","30297":"B","30310":"B",
+  "30248":"B","30252":"B","30253":"B","30260":"B","30274":"B",
+  "30281":"B","30273":"B","30296":"B","30297":"B","30310":"B",
   "30311":"B","30314":"B","30315":"B","30331":"B","30336":"B",
   "30337":"B","30344":"B","30349":"B","30354":"B",
   "30002":"C","30004":"C","30005":"C","30009":"C","30017":"C",
@@ -76,6 +77,8 @@ const zipToArea = {
   "30274":"Riverdale area","30296":"College Park area","30297":"Hapeville / Forest Park area",
   "30349":"South Fulton / Atlanta area","30344":"East Point area",
   "30337":"College Park area","30331":"Atlanta area",
+  "30253":"McDonough area","30252":"McDonough area","30281":"Stockbridge area",
+  "30248":"Locust Grove area","30273":"Rex area","30228":"Hampton area",
 };
 
 const sizeMeta = {
@@ -534,251 +537,296 @@ function Step5DatePicker({
   effectiveSize, availabilityLoading, isAvailabilityDegraded,
   availableOptions, calculatedPrices, selectedWindow, duration,
   showMoreDates, setShowMoreDates, handleWindowSelect,
-  handleFallbackOptionSelect, sizeMeta, rentalOptions,
+  handleFallbackOptionSelect, sizeMeta, rentalOptions, blockedDates,
 }) {
-  const standardWindows = availableOptions["Base Rental"]     || [];
-  const earlyWindows    = availableOptions["Early Bird"]      || [];
-  const weekendWindows  = availableOptions["Weekend Warrior"] || [];
-  const resetWindows    = availableOptions["Full Reset"]      || [];
+  // ── tier definitions ──────────────────────────────────────────────────────
+  const TIERS = [
+    {
+      key:       "Early Bird",
+      label:     "Discounted 2-Day",
+      sublabel:  "Mon or Tue delivery only",
+      tag:       null,
+      validDays: [1, 2],
+      duration:  2,
+    },
+    {
+      key:       "Base Rental",
+      label:     "Standard 2-Day",
+      sublabel:  "Any day except Mon/Tue",
+      tag:       null,
+      validDays: [0, 3, 4, 5, 6],
+      duration:  2,
+    },
+    {
+      key:       "Weekend Warrior",
+      label:     "4-Day",
+      sublabel:  "Any start date",
+      tag:       "Most Flexible",
+      validDays: null,
+      duration:  4,
+    },
+    {
+      key:       "Full Reset",
+      label:     "7-Day",
+      sublabel:  "Any start date",
+      tag:       null,
+      validDays: null,
+      duration:  7,
+    },
+  ];
 
-  const standardOption = rentalOptions.find(o => o.key === "Base Rental");
-  const earlyOption    = rentalOptions.find(o => o.key === "Early Bird");
-  const weekendOption  = rentalOptions.find(o => o.key === "Weekend Warrior");
-  const resetOption    = rentalOptions.find(o => o.key === "Full Reset");
+  const [selectedTierKey, setSelectedTierKey] = React.useState(duration || null);
+  const [calendarMonth, setCalendarMonth]     = React.useState(() => {
+    const d = new Date(); d.setHours(0,0,0,0);
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
 
-  const priceFor = (key) => calculatedPrices[key];
-  const earlyIsDiscounted =
-    typeof priceFor("Early Bird") === "number" &&
-    typeof priceFor("Base Rental") === "number" &&
-    priceFor("Early Bird") < priceFor("Base Rental");
+  const today = React.useMemo(() => {
+    const d = new Date(); d.setHours(0,0,0,0); return d;
+  }, []);
+  const windowEnd = React.useMemo(() => {
+    const d = new Date(today); d.setDate(d.getDate() + 28); return d;
+  }, [today]);
 
-  // Suppress Base Rental windows that share a start date with an Early Bird window.
-  const earlyBirdStartDates = new Set(earlyWindows.map(w => w.start));
-  const filteredStandardWindows = earlyIsDiscounted
-    ? standardWindows.filter(w => !earlyBirdStartDates.has(w.start))
-    : standardWindows;
+  const blocked = React.useMemo(() => {
+    if (!blockedDates || !Array.isArray(blockedDates)) return new Set();
+    return new Set(blockedDates);
+  }, [blockedDates]);
 
-  const allRankedCandidates = [
-    ...filteredStandardWindows.map(w => ({ type:"Base Rental",     option:standardOption, window:w })),
-    ...earlyWindows.map(w =>           ({ type:"Early Bird",       option:earlyOption,    window:w })),
-    ...weekendWindows.map(w =>         ({ type:"Weekend Warrior",  option:weekendOption,  window:w })),
-    ...resetWindows.map(w =>           ({ type:"Full Reset",       option:resetOption,    window:w })),
-  ].sort((a, b) => new Date(a.window.start).getTime() - new Date(b.window.start).getTime());
+  const toDateStr = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${dd}`;
+  };
+  const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
+  const formatDisplay = (d) => d.toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric" });
+  const formatShort   = (d) => d.toLocaleDateString("en-US", { month:"short", day:"numeric" });
 
-  const soonestCard = allRankedCandidates[0] || null;
-  const weekdayCard = earlyWindows.length > 0
-    ? { type:"Early Bird", option:earlyOption, window:earlyWindows[0] }
-    : null;
-  const weekendCard = weekendWindows.length > 0
-    ? { type:"Weekend Warrior", option:weekendOption, window:weekendWindows[0] }
-    : null;
+  const isDateAvailable = (d) => {
+    if (d <= today) return false;
+    if (d > windowEnd) return false;
+    if (isAvailabilityDegraded) return true; // fallback: allow all
+    return !blocked.has(toDateStr(d));
+  };
 
-  const featured = [];
-  const seen = new Set();
+  const isDateSelectableForTier = (d, tier) => {
+    if (!isDateAvailable(d)) return false;
+    if (tier.validDays && !tier.validDays.includes(d.getDay())) return false;
+    // check full range doesn't cross a blocked date
+    if (!isAvailabilityDegraded) {
+      for (let i = 0; i < tier.duration; i++) {
+        const day = addDays(d, i);
+        if (blocked.has(toDateStr(day))) return false;
+      }
+    }
+    return true;
+  };
 
-  function pushUnique(card, label, sublabel, accentTag = null) {
-    if (!card || !card.option || !card.window) return;
-    const id = `${card.type}-${card.window.start}`;
-    if (seen.has(id)) return;
-    seen.add(id);
-    featured.push({ ...card, cardLabel:label, cardSubLabel:sublabel, accentTag });
+  const handleTierSelect = (tierKey) => setSelectedTierKey(tierKey);
+
+  const handleDateSelect = (d, tier) => {
+    if (!isDateSelectableForTier(d, tier)) return;
+    const endDate  = addDays(d, tier.duration);
+    const windowObj = {
+      start:      toDateStr(d),
+      end:        toDateStr(endDate),
+      startLabel: formatDisplay(d),
+      endLabel:   formatDisplay(endDate),
+      startIso:   d.toISOString(),
+      endIso:     endDate.toISOString(),
+    };
+    const option = rentalOptions.find(o => o.key === tier.key) || { key: tier.key };
+    handleWindowSelect(option, windowObj);
+  };
+
+  // ── calendar ──────────────────────────────────────────────────────────────
+  const CalendarWidget = ({ tier }) => {
+    const { year, month } = calendarMonth;
+    const firstDay  = new Date(year, month, 1);
+    const lastDay   = new Date(year, month + 1, 0);
+    const startPad  = firstDay.getDay();
+    const monthLabel = firstDay.toLocaleDateString("en-US", { month:"long", year:"numeric" });
+    const dayHeaders = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+
+    const prevMonth = () => setCalendarMonth(prev => {
+      let m = prev.month - 1, y = prev.year;
+      if (m < 0) { m = 11; y--; }
+      return { year:y, month:m };
+    });
+    const nextMonth = () => setCalendarMonth(prev => {
+      let m = prev.month + 1, y = prev.year;
+      if (m > 11) { m = 0; y++; }
+      return { year:y, month:m };
+    });
+
+    const cells = [];
+    for (let i = 0; i < startPad; i++) cells.push(null);
+    for (let d = 1; d <= lastDay.getDate(); d++) cells.push(new Date(year, month, d));
+
+    const selectedStart = selectedWindow?.start;
+
+    return (
+      <div style={{ background:C.white }}>
+        {/* month nav */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px", borderBottom:`1px solid ${C.surfaceBorder}` }}>
+          <button onClick={prevMonth} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, color:C.ink, padding:"0 8px", lineHeight:1 }}>‹</button>
+          <span style={{ fontSize:14, fontWeight:800, color:C.ink, fontFamily:F }}>{monthLabel}</span>
+          <button onClick={nextMonth} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, color:C.ink, padding:"0 8px", lineHeight:1 }}>›</button>
+        </div>
+
+        {/* day headers */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", padding:"8px 8px 2px" }}>
+          {dayHeaders.map(h => (
+            <div key={h} style={{ textAlign:"center", fontSize:10, fontWeight:700, color:C.inkFaint, fontFamily:F, paddingBottom:2 }}>{h}</div>
+          ))}
+        </div>
+
+        {/* date cells */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", padding:"0 8px 10px", gap:2 }}>
+          {cells.map((d, i) => {
+            if (!d) return <div key={`pad-${i}`} />;
+            const dateStr    = toDateStr(d);
+            const selectable = isDateSelectableForTier(d, tier);
+            const isPast     = d <= today;
+            const isOutside  = d > windowEnd;
+            const isWrongDay = tier.validDays && !tier.validDays.includes(d.getDay());
+            const isFull     = !isPast && !isOutside && !isWrongDay && !isDateAvailable(d);
+            const isSelected = dateStr === selectedStart && duration === tier.key;
+
+            let bg = "transparent", color = C.ink, opacity = 1, cursor = "pointer", textDeco = "none";
+            if (isSelected)                              { bg = C.pinkText; color = C.white; }
+            else if (isPast || isOutside)                { color = C.inkFaint; opacity = 0.3; cursor = "default"; }
+            else if (isWrongDay)                         { color = C.inkFaint; opacity = 0.25; cursor = "default"; }
+            else if (isFull)                             { color = C.inkFaint; opacity = 0.4; cursor = "not-allowed"; textDeco = "line-through"; }
+            else if (selectable)                         { color = C.ink; }
+
+            return (
+              <button
+                key={dateStr}
+                onClick={() => selectable && handleDateSelect(d, tier)}
+                style={{
+                  padding:"7px 0", borderRadius:8, fontSize:13,
+                  fontWeight: isSelected ? 800 : 500,
+                  textAlign:"center", fontFamily:F,
+                  background:bg, color, opacity, cursor,
+                  border: "none",
+                  textDecoration: textDeco,
+                  transition:"background 100ms",
+                }}
+              >
+                {d.getDate()}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* selected confirmation bar */}
+        {selectedWindow?.start && duration === tier.key && (
+          <div style={{ padding:"10px 16px 14px", borderTop:`1px solid ${C.surfaceBorder}`, textAlign:"center" }}>
+            <span style={{ fontSize:13, fontWeight:700, color:C.pinkText, fontFamily:F }}>
+              Drop off {formatShort(new Date(selectedWindow.start + "T12:00:00"))} · Pick up {formatShort(new Date(selectedWindow.end + "T12:00:00"))}
+            </span>
+          </div>
+        )}
+
+        {/* degraded fallback notice */}
+        {isAvailabilityDegraded && (
+          <div style={{ padding:"8px 16px", background:"#fffbe6", borderTop:`1px solid #ffe58f`, textAlign:"center" }}>
+            <span style={{ fontSize:11, color:"#8a6300", fontFamily:F }}>Live availability temporarily unavailable — all dates shown as open</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  if (availabilityLoading) {
+    return (
+      <div style={{ padding:"40px 0", textAlign:"center" }}>
+        <div style={{ fontSize:13, color:C.inkFaint, fontFamily:F }}>Checking availability…</div>
+      </div>
+    );
   }
-
-  pushUnique(
-    soonestCard,
-    "Soonest available",
-    soonestCard?.type === "Base Rental"
-      ? "Standard 2-day rental"
-      : soonestCard?.type === "Early Bird"
-        ? (earlyIsDiscounted ? "Discounted 2-day rental" : "2-day rental · Mon or Tue delivery")
-        : soonestCard?.type === "Weekend Warrior"
-          ? "4-day rental"
-          : "7-day rental"
-  );
-  pushUnique(
-    weekdayCard,
-    earlyIsDiscounted ? "Best weekday price" : "Weekday option",
-    earlyIsDiscounted ? "Discounted 2-day rental · Mon or Tue delivery" : "2-day rental · Mon or Tue delivery"
-  );
-  pushUnique(weekendCard, "Weekend option", "4-day rental · best overall value", "Recommended");
-
-  const featuredIds = new Set(featured.map(f => `${f.type}-${f.window.start}`));
-  const moreCards   = allRankedCandidates.filter(c => !featuredIds.has(`${c.type}-${c.window.start}`));
-  const hasMore     = moreCards.length > 0;
-
-  const isSelectedCard = (optionKey, w) => selectedWindow?.start === w.start && duration === optionKey;
-
-  const rentalTypeLabel = (type) => {
-    if (type === "Base Rental")     return "Standard 2-Day Rental";
-    if (type === "Early Bird")      return earlyIsDiscounted ? "Discounted 2-Day Rental" : "2-Day Rental";
-    if (type === "Weekend Warrior") return "4-Day Rental";
-    return "7-Day Rental";
-  };
-  const rentalTypeSub = (type) => {
-    if (type === "Base Rental")     return "Next available delivery";
-    if (type === "Early Bird")      return "Mon or Tue delivery";
-    if (type === "Weekend Warrior") return "Best overall value";
-    return "Any weekday delivery";
-  };
-
-  const PrimaryCard = ({ card }) => {
-    const { option, window:w, cardLabel, cardSubLabel, type, accentTag } = card;
-    const price      = priceFor(option.key);
-    const isSelected = isSelectedCard(option.key, w);
-    return (
-      <button
-        onClick={() => handleWindowSelect(option, w)}
-        style={{
-          width:"100%", textAlign:"left", padding:"18px 20px", borderRadius:14,
-          cursor:"pointer", fontFamily:F,
-          transition:"border-color 150ms, background 150ms, box-shadow 150ms",
-          border: isSelected ? `2px solid ${C.pinkText}` : accentTag ? `1.5px solid ${C.pinkBorder}` : `1px solid ${C.surfaceBorder}`,
-          background: isSelected ? C.pinkBg : C.white,
-          boxShadow: isSelected ? `0 0 0 3px ${C.pinkBorder}` : accentTag ? "0 1px 4px rgba(194,88,122,0.08)" : "0 1px 3px rgba(0,0,0,0.04)",
-        }}
-      >
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
-          <div style={{ flex:1 }}>
-            <div style={{ marginBottom:8, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-              <span style={{ fontSize:10, fontWeight:800, letterSpacing:"0.6px", textTransform:"uppercase", fontFamily:F, color: isSelected ? C.pinkText : C.inkFaint }}>
-                {cardLabel}
-              </span>
-              {accentTag && (
-                <span style={{ background:C.pinkBg, color:C.pinkText, border:`1px solid ${C.pinkBorder}`, fontSize:10, fontWeight:800, padding:"2px 8px", borderRadius:99, fontFamily:F }}>
-                  {accentTag}
-                </span>
-              )}
-            </div>
-            <div style={{ fontSize:20, fontWeight:900, color: isSelected ? C.pinkText : C.ink, letterSpacing:"-0.5px", lineHeight:1.1, fontFamily:F }}>{w.startLabel}</div>
-            <div style={{ marginTop:4, fontSize:13, color: isSelected ? C.pinkText : C.inkMuted, fontFamily:F }}>Through {w.endLabel}</div>
-            <div style={{ marginTop:8, fontSize:12, color: isSelected ? C.pinkText : C.inkMuted, fontFamily:F, opacity:0.9 }}>{cardSubLabel}</div>
-          </div>
-          <div style={{ textAlign:"right", flexShrink:0 }}>
-            <div style={{ fontSize:26, fontWeight:900, color: isSelected ? C.pinkText : C.ink, letterSpacing:"-0.8px", lineHeight:1, fontFamily:F }}>
-              {typeof price === "number" ? `$${price}` : "—"}
-            </div>
-            <div style={{ marginTop:4, fontSize:11, color: isSelected ? C.pinkText : C.inkFaint, fontFamily:F, fontWeight:700 }}>{rentalTypeLabel(type)}</div>
-            {isSelected && (
-              <div style={{ marginTop:6 }}>
-                <span style={{ fontSize:11, fontWeight:800, color:C.pinkText, background:C.white, border:`1px solid ${C.pinkBorder}`, borderRadius:99, padding:"3px 9px", fontFamily:F }}>
-                  Selected ✓
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-      </button>
-    );
-  };
-
-  const MoreCard = ({ card }) => {
-    const { option, window:w, type } = card;
-    const price      = priceFor(option.key);
-    const isSelected = isSelectedCard(option.key, w);
-    return (
-      <button
-        onClick={() => handleWindowSelect(option, w)}
-        style={{
-          width:"100%", textAlign:"left", padding:"14px 16px", borderRadius:12,
-          cursor:"pointer", fontFamily:F,
-          border: isSelected ? `1.5px solid ${C.pinkText}` : `1px solid ${C.surfaceBorder}`,
-          background: isSelected ? C.pinkBg : C.surfaceBg,
-        }}
-      >
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12 }}>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:10, fontWeight:800, color: isSelected ? C.pinkText : C.inkFaint, letterSpacing:"0.6px", textTransform:"uppercase", marginBottom:4, fontFamily:F }}>
-              {rentalTypeLabel(type)} · {rentalTypeSub(type)}
-            </div>
-            <div style={{ fontSize:15, fontWeight:800, color: isSelected ? C.pinkText : C.ink, fontFamily:F }}>{w.startLabel}</div>
-            <div style={{ fontSize:12, color: isSelected ? C.pinkText : C.inkMuted, marginTop:2, fontFamily:F }}>Through {w.endLabel}</div>
-          </div>
-          <div style={{ fontSize:20, fontWeight:900, color: isSelected ? C.pinkText : C.ink, letterSpacing:"-0.5px", fontFamily:F }}>
-            {typeof price === "number" ? `$${price}` : "—"}
-          </div>
-        </div>
-      </button>
-    );
-  };
 
   return (
     <div>
       <StepHeading
         eyebrow="Almost there"
-        title={availabilityLoading ? "Checking availability..." : "When do you want your dumpster?"}
-        text={
-          availabilityLoading
-            ? `Pulling live delivery dates for your ${effectiveSize}.`
-            : isAvailabilityDegraded
-              ? "Live scheduling is temporarily unavailable. Choose a rental option and we'll confirm the date with you."
-              : `Delivery and ${sizeMeta[effectiveSize]?.label?.toLowerCase()} included in all prices below.`
-        }
+        title="When do you want your dumpster?"
+        text={`Delivery and includes ${sizeMeta[effectiveSize]?.tons || 1} ton${(sizeMeta[effectiveSize]?.tons || 1) !== 1 ? "s" : ""} included in all prices below.`}
       />
 
-      <div style={{ marginBottom:18, background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:12, padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", gap:12 }}>
-        <div>
-          <div style={{ fontSize:10, fontWeight:700, color:C.inkFaint, textTransform:"uppercase", letterSpacing:"0.5px", fontFamily:F }}>Selected Dumpster</div>
-          <div style={{ fontSize:20, fontWeight:900, color:C.ink, marginTop:2, fontFamily:F }}>{effectiveSize}</div>
-        </div>
-        <TonnagePill label={sizeMeta[effectiveSize]?.label || ""} />
+      {/* selected dumpster badge */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px", borderRadius:12, border:`1px solid ${C.surfaceBorder}`, background:C.surfaceBg, marginBottom:16, fontFamily:F }}>
+        <span style={{ fontSize:15, fontWeight:800, color:C.ink }}>{effectiveSize}</span>
+        <span style={{ fontSize:12, fontWeight:700, color:C.pinkText, background:C.pinkBg, border:`1px solid ${C.pinkBorder}`, borderRadius:99, padding:"3px 10px" }}>
+          Includes {sizeMeta[effectiveSize]?.tons || 1} ton{(sizeMeta[effectiveSize]?.tons || 1) !== 1 ? "s" : ""}
+        </span>
       </div>
 
-      {availabilityLoading ? (
-        <div style={{ background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:"24px 16px", fontFamily:F, textAlign:"center" }}>
-          <div style={{ fontSize:14, fontWeight:700, color:C.ink, marginBottom:4 }}>Checking dates...</div>
-          <div style={{ fontSize:13, color:C.inkMuted }}>Pulling live availability from our schedule.</div>
-        </div>
-      ) : isAvailabilityDegraded ? (
-        <div>
-          <div style={{ marginBottom:12, background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:12, padding:"12px 14px", color:C.ink, lineHeight:1.5, fontSize:13, fontFamily:F }}>
-            <strong>Subject to confirmation:</strong> we'll confirm the exact delivery date after you submit.
-          </div>
-          <div style={{ display:"grid", gap:10 }}>
-            {rentalOptions.map(opt => {
-              const price = calculatedPrices[opt.key];
-              return (
-                <button key={opt.key} onClick={() => handleFallbackOptionSelect(opt)} style={{ width:"100%", textAlign:"left", padding:"14px 16px", borderRadius:12, border:`1px solid ${C.surfaceBorder}`, background:C.white, cursor:"pointer", fontFamily:F }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                    <div>
-                      <div style={{ fontSize:15, fontWeight:800, color:C.ink }}>{opt.label}</div>
-                      <div style={{ fontSize:12, color:C.inkMuted, marginTop:2 }}>{opt.sub}</div>
-                    </div>
-                    <div style={{ fontSize:20, fontWeight:900, color:C.ink }}>{typeof price === "number" ? `$${price}` : "—"}</div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ) : featured.length === 0 ? (
-        <div style={{ background:C.warningBg, border:`1px solid ${C.warningBorder}`, borderRadius:12, padding:"12px 14px", color:C.ink, lineHeight:1.5, fontSize:13, fontFamily:F }}>
-          No delivery windows found in the next 3 weeks for this size. <a href="tel:4705484733" style={{ color:C.ink, fontWeight:700 }}>Call us</a> to book or try a different size.
-        </div>
-      ) : (
-        <div>
-          <div style={{ display:"grid", gap:12 }}>
-            {featured.map(card => <PrimaryCard key={`${card.type}-${card.window.start}`} card={card} />)}
-          </div>
-          {hasMore && (
-            <div style={{ marginTop:14 }}>
+      {/* tier cards */}
+      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+        {TIERS.map(tier => {
+          const price    = calculatedPrices[tier.key];
+          const isActive = selectedTierKey === tier.key;
+          return (
+            <div key={tier.key}>
               <button
-                onClick={() => setShowMoreDates(prev => ({ ...prev, extended: !prev.extended }))}
-                style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, fontWeight:700, color:C.inkMuted, fontFamily:F, padding:"4px 0", display:"flex", alignItems:"center", gap:6 }}>
-                <span>{showMoreDates.extended ? "▲" : "▼"}</span>
-                <span>{showMoreDates.extended ? "Hide other options" : "More dates and rental lengths"}</span>
+                onClick={() => handleTierSelect(tier.key)}
+                style={{
+                  width:"100%", textAlign:"left", padding:"16px 18px",
+                  borderRadius: isActive ? "12px 12px 0 0" : 12,
+                  cursor:"pointer", fontFamily:F,
+                  display:"flex", justifyContent:"space-between", alignItems:"center",
+                  border: isActive ? `2px solid ${C.pinkText}` : `1px solid ${C.surfaceBorder}`,
+                  borderBottom: isActive ? "none" : undefined,
+                  background: isActive ? C.pinkBg : C.white,
+                  boxShadow: isActive ? `0 0 0 3px ${C.pinkBorder}` : "0 1px 3px rgba(0,0,0,0.04)",
+                  transition:"border-color 150ms, background 150ms",
+                }}
+              >
+                <div>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                    <span style={{ fontSize:15, fontWeight:900, color: isActive ? C.pinkText : C.ink, fontFamily:F }}>
+                      {tier.label}
+                    </span>
+                    {tier.tag && (
+                      <span style={{ fontSize:10, fontWeight:800, color:C.pinkText, background: isActive ? C.white : C.pinkBg, border:`1px solid ${C.pinkBorder}`, borderRadius:99, padding:"2px 8px", fontFamily:F }}>
+                        {tier.tag}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize:12, color: isActive ? C.pinkText : C.inkMuted, fontFamily:F }}>{tier.sublabel}</div>
+                </div>
+                <div style={{ textAlign:"right", flexShrink:0, marginLeft:12 }}>
+                  <div style={{ fontSize:24, fontWeight:900, color: isActive ? C.pinkText : C.ink, letterSpacing:"-0.5px", fontFamily:F }}>
+                    {typeof price === "number" ? `$${price}` : "—"}
+                  </div>
+                  <div style={{ fontSize:11, color: isActive ? C.pinkText : C.inkFaint, fontFamily:F, marginTop:2 }}>
+                    {isActive ? "select a date ↓" : "tap to select"}
+                  </div>
+                </div>
               </button>
-              {showMoreDates.extended && (
-                <div style={{ marginTop:10, display:"grid", gap:10 }}>
-                  {moreCards.map(card => <MoreCard key={`${card.type}-${card.window.start}`} card={card} />)}
+
+              {/* calendar panel — opens below active card */}
+              {isActive && (
+                <div style={{
+                  border:`2px solid ${C.pinkText}`, borderTop:"none",
+                  borderRadius:"0 0 12px 12px", overflow:"hidden",
+                  boxShadow:`0 0 0 3px ${C.pinkBorder}`,
+                  marginBottom:2,
+                }}>
+                  <CalendarWidget tier={tier} />
                 </div>
               )}
             </div>
-          )}
-        </div>
-      )}
+          );
+        })}
+      </div>
     </div>
   );
 }
+
 
 // ─── main component ───────────────────────────────────────────────────────────
 
@@ -1441,6 +1489,7 @@ export default function Funnel() {
                       duration={duration} showMoreDates={showMoreDates} setShowMoreDates={setShowMoreDates}
                       handleWindowSelect={handleWindowSelect} handleFallbackOptionSelect={handleFallbackOptionSelect}
                       sizeMeta={sizeMeta} rentalOptions={rentalOptions}
+                      blockedDates={availabilityData?.blockedDates || []}
                     />
                   )}
                   {step === 6 && !submitted && (

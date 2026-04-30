@@ -468,7 +468,7 @@ export default async function handler(req, res) {
       available[key] = buildWindows(key, blocked, today, windowEnd);
     }
 
-    const response = { size, available };
+    const response = { size, available, blockedDates: [...blocked].sort() };
 
     if (INCLUDE_DEBUG) {
       response.debug = {

@@ -35,7 +35,8 @@ const zipToZone = {
   "30268": "A", "30269": "A", "30276": "A", "30291": "A",
   "30106": "B", "30126": "B", "30134": "B", "30135": "B", "30168": "B",
   "30223": "B", "30224": "B", "30228": "B", "30236": "B", "30238": "B",
-  "30260": "B", "30274": "B", "30296": "B", "30297": "B", "30310": "B",
+  "30248": "B", "30252": "B", "30253": "B", "30260": "B", "30273": "B",
+  "30274": "B", "30281": "B", "30296": "B", "30297": "B", "30310": "B",
   "30311": "B", "30314": "B", "30315": "B", "30331": "B", "30336": "B",
   "30337": "B", "30344": "B", "30349": "B", "30354": "B",
   "30002": "C", "30004": "C", "30005": "C", "30009": "C", "30017": "C",
@@ -63,6 +64,8 @@ const zipToArea = {
   "30236": "Jonesboro area", "30238": "Jonesboro area", "30260": "Morrow area",
   "30274": "Riverdale area", "30296": "College Park area", "30297": "Hapeville / Forest Park area",
   "30349": "South Fulton / Atlanta area", "30344": "East Point area", "30337": "College Park area", "30331": "Atlanta area",
+  "30253": "McDonough area", "30252": "McDonough area", "30281": "Stockbridge area",
+  "30248": "Locust Grove area", "30273": "Rex area", "30228": "Hampton area",
 };
 
 const basePricing = {
