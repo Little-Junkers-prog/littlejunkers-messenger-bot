@@ -1467,7 +1467,7 @@ export default function Funnel() {
                         <div style={{ display:"grid", gap:12 }}>
                           {allSizes.map(sizeKey => {
                             const meta = sizeMeta[sizeKey];
-                            const hints = CONTRACTOR_HINTS[sizeKey];
+                            const hints = comparisonMeta[sizeKey];
                             const isSelected = effectiveSize === sizeKey;
                             return (
                               <div key={sizeKey} onClick={() => handleSizeSelect(sizeKey)} role="button" tabIndex={0}
