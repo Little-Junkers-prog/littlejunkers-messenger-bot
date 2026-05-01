@@ -924,21 +924,21 @@ export default function Funnel() {
 
   const areaLabel        = getAreaLabel(zip);
   const effectiveSize    = overrideSize || size;
-  const isReturningQuick = customerType === "Returning" && returningPath === "quick";
+  const isQuickPath = returningPath === "quick";
 
   const recommendation = useMemo(() => getRecommendation(customerType, project, otherText), [customerType, project, otherText]);
 
   const stepLabel = {
-    0:"Service Area", 1:"Customer Type", 2:"Path", 3:"Project Type",
-    4: isReturningQuick ? "Size Selection" : "Best Fit",
+    0:"Service Area", 1:"How to Proceed", 3:"Project Type",
+    4: isQuickPath ? "Size Selection" : "Best Fit",
     5:"Delivery Date", 6:"Contact Info"
-  }[step];
-  const visibleTotalSteps = isReturningQuick ? 6 : 7;
+  }[step] || "";
+  const visibleTotalSteps = isQuickPath ? 5 : 6;
   const currentVisualStep = (() => {
-    if (step===0) return 1; if (step===1) return 2; if (step===2) return 3;
-    if (step===3) return 4; if (step===4) return isReturningQuick ? 4 : 5;
-    if (step===5) return isReturningQuick ? 5 : 6;
-    if (step===6) return isReturningQuick ? 6 : 7;
+    if (step===0) return 1; if (step===1) return 2;
+    if (step===3) return 3; if (step===4) return isQuickPath ? 3 : 4;
+    if (step===5) return isQuickPath ? 4 : 5;
+    if (step===6) return isQuickPath ? 5 : 6;
     return 1;
   })();
   const progressPercent = (currentVisualStep / visibleTotalSteps) * 100;
@@ -1066,19 +1066,12 @@ export default function Funnel() {
     setStep(1);
   };
 
-  const handleCustomerType = (type) => {
-    setCustomerType(type); setReturningPath(""); setProject(""); setOtherText("");
-    setSize(""); setOverrideSize(""); setDuration(""); setSelectedPrice(null);
-    setAvailabilityData(null); setAvailabilityLoading(false); setAvailabilityError(""); setSelectedWindow(null);
-    setShowMoreDates({}); setShowConcreteNotice(false);
-    setStep(type === "Returning" ? 2 : 3);
-  };
-
-  const handleReturningPath = (path) => {
+  const handlePath = (path, impliedCustomerType) => {
+    setCustomerType(impliedCustomerType);
     setReturningPath(path); setProject(""); setOtherText("");
     setSize(""); setOverrideSize(""); setDuration(""); setSelectedPrice(null);
     setAvailabilityData(null); setAvailabilityLoading(false); setAvailabilityError(""); setSelectedWindow(null);
-    setShowMoreDates({});
+    setShowMoreDates({}); setShowConcreteNotice(false);
     setStep(path === "quick" ? 4 : 3);
   };
 
@@ -1103,7 +1096,7 @@ export default function Funnel() {
   };
 
   const handleSizeSelect = (sel) => {
-    if (isReturningQuick) {
+    if (isQuickPath) {
       setSize(""); setOverrideSize(sel); setDuration(""); setSelectedPrice(null);
       setAvailabilityData(null); setAvailabilityLoading(false); setAvailabilityError(""); setSelectedWindow(null);
       setTimeout(() => {
@@ -1325,9 +1318,8 @@ export default function Funnel() {
       return setStep(5);
     }
     if (step===5) return setStep(4);
-    if (step===4) return isReturningQuick ? setStep(2) : setStep(3);
-    if (step===3) return customerType === "Returning" ? setStep(2) : setStep(1);
-    if (step===2) return setStep(1);
+    if (step===4) return isQuickPath ? setStep(1) : setStep(3);
+    if (step===3) return setStep(1);
     if (step===1) return setStep(0);
   };
 
@@ -1388,20 +1380,11 @@ export default function Funnel() {
                 <CardBody>
                   {step === 1 && (
                     <div>
-                      <StepHeading eyebrow="Coverage confirmed" title="How can we help?" text={`${areaLabel} is in our ${zones[zoneKey]?.label?.toLowerCase() || ""}.`} />
+                      <StepHeading eyebrow="Coverage confirmed" title="How do you want to proceed?" text={`${areaLabel} is in our ${zones[zoneKey]?.label?.toLowerCase() || ""}.`} />
                       <div style={{ display:"grid", gap:10 }}>
-                        {[{ label:"New Customer", sub:"First time renting with us" }, { label:"Returning", sub:"You've rented from us before" }, { label:"Contractor / Roofer", sub:"Business or repeat jobsite use" }].map(item => (
-                          <OptionCard key={item.label} title={item.label} sub={item.sub} selected={customerType===item.label} onClick={() => handleCustomerType(item.label)} />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {step === 2 && customerType === "Returning" && (
-                    <div>
-                      <StepHeading eyebrow="Welcome back" title="How do you want to proceed?" text="Move fast if you already know your size, or let us help match the best fit." />
-                      <div style={{ display:"grid", gap:10 }}>
-                        <OptionCard title="Quick Select" sub="I know my size already" selected={returningPath==="quick"} onClick={() => handleReturningPath("quick")} />
-                        <OptionCard title="Guide Me" sub="Help me size it for this project" selected={returningPath==="recommend"} onClick={() => handleReturningPath("recommend")} />
+                        <OptionCard title="Quick Select" sub="I already know which size I need" selected={returningPath==="quick"} onClick={() => handlePath("quick", "Returning")} />
+                        <OptionCard title="Help Me Choose" sub="Walk me through sizing for my project" selected={returningPath==="recommend" && customerType !== "Contractor / Roofer"} onClick={() => handlePath("recommend", "New Customer")} />
+                        <OptionCard title="Contractor / Roofer" sub="Business or repeat jobsite use — help me size" selected={returningPath==="recommend" && customerType === "Contractor / Roofer"} onClick={() => handlePath("recommend", "Contractor / Roofer")} />
                       </div>
                     </div>
                   )}
@@ -1431,8 +1414,8 @@ export default function Funnel() {
                   )}
                   {step === 4 && (
                     <div>
-                      <StepHeading eyebrow={isReturningQuick ? "Quick select" : "Based on your project"} title={isReturningQuick ? "Choose your rental size" : "Best fit for your project"} text={isReturningQuick ? "Select the size you want." : "This is the strongest fit based on what you described."} />
-                      {!isReturningQuick && effectiveSize && (
+                      <StepHeading eyebrow={isQuickPath ? "Quick select" : "Based on your project"} title={isQuickPath ? "Choose your rental size" : "Best fit for your project"} text={isQuickPath ? "Select the size you want." : "This is the strongest fit based on what you described."} />
+                      {!isQuickPath && effectiveSize && (
                         <div style={{ display:"flex", gap:14, alignItems:"stretch", marginBottom:18, flexWrap:"wrap" }}>
                           <div onClick={handleContinueFromStep4} role="button" tabIndex={0} onKeyDown={e => e.key === "Enter" && handleContinueFromStep4()} style={{ flex:"1 1 300px", background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:14, padding:20, cursor:"pointer" }}>
                             <div style={{ fontSize:36, fontWeight:900, color:C.ink, letterSpacing:"-1.5px", lineHeight:1, marginBottom:8 }}>{effectiveSize}</div>
@@ -1451,7 +1434,7 @@ export default function Funnel() {
                           </div>
                         </div>
                       )}
-                      {!isReturningQuick && effectiveSize && (
+                      {!isQuickPath && effectiveSize && (
                         <div style={{ marginBottom:8 }}>
                           <button onClick={() => setShowComparison(v => !v)} style={{ width:"100%", background:"none", border:`1px solid ${C.surfaceBorder}`, borderRadius:10, padding:"10px 16px", cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                             <span style={{ fontSize:13, fontWeight:700, color:C.inkMid }}>{showComparison ? "Hide size comparison" : "Compare other sizes"}</span>
@@ -1480,7 +1463,7 @@ export default function Funnel() {
                           <PrimaryButton onClick={handleContinueFromStep4}>Continue with {effectiveSize}</PrimaryButton>
                         </div>
                       )}
-                      {(isReturningQuick || !effectiveSize) && (
+                      {(isQuickPath || !effectiveSize) && (
                         <div style={{ display:"grid", gap:10 }}>
                           {allSizes.map(sizeKey => (
                             <button key={sizeKey} onClick={() => handleSizeSelect(sizeKey)} style={{ width:"100%", textAlign:"left", padding:"16px 18px", borderRadius:12, border: (effectiveSize === sizeKey) ? `1.5px solid ${C.ink}` : `1px solid ${C.surfaceBorder}`, background: (effectiveSize === sizeKey) ? C.white : C.surfaceBg }}>
@@ -1490,7 +1473,7 @@ export default function Funnel() {
                           ))}
                         </div>
                       )}
-                      {(isReturningQuick || !effectiveSize) && <PrimaryButton onClick={handleContinueFromStep4}>Continue</PrimaryButton>}
+                      {(isQuickPath || !effectiveSize) && <PrimaryButton onClick={handleContinueFromStep4}>Continue</PrimaryButton>}
                     </div>
                   )}
                   {step === 5 && (
