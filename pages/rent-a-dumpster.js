@@ -1464,13 +1464,29 @@ export default function Funnel() {
                         </div>
                       )}
                       {(isQuickPath || !effectiveSize) && (
-                        <div style={{ display:"grid", gap:10 }}>
-                          {allSizes.map(sizeKey => (
-                            <button key={sizeKey} onClick={() => handleSizeSelect(sizeKey)} style={{ width:"100%", textAlign:"left", padding:"16px 18px", borderRadius:12, border: (effectiveSize === sizeKey) ? `1.5px solid ${C.ink}` : `1px solid ${C.surfaceBorder}`, background: (effectiveSize === sizeKey) ? C.white : C.surfaceBg }}>
-                              <div style={{ fontSize:16, fontWeight:800 }}>{sizeKey}</div>
-                              <div style={{ fontSize:13, color:C.inkMuted }}>{sizeMeta[sizeKey].short}</div>
-                            </button>
-                          ))}
+                        <div style={{ display:"grid", gap:12 }}>
+                          {allSizes.map(sizeKey => {
+                            const meta = sizeMeta[sizeKey];
+                            const hints = CONTRACTOR_HINTS[sizeKey];
+                            const isSelected = effectiveSize === sizeKey;
+                            return (
+                              <div key={sizeKey} onClick={() => handleSizeSelect(sizeKey)} role="button" tabIndex={0}
+                                onKeyDown={e => e.key === "Enter" && handleSizeSelect(sizeKey)}
+                                style={{ padding:"18px 20px", borderRadius:14, cursor:"pointer", transition:"border 0.15s",
+                                  border: isSelected ? `2px solid ${C.ink}` : `1.5px solid ${C.surfaceBorder}`,
+                                  background: isSelected ? C.white : C.surfaceBg }}>
+                                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                                  <div style={{ fontSize:22, fontWeight:900, color:C.ink, letterSpacing:"-0.5px" }}>{sizeKey}</div>
+                                  <TonnagePill label={meta.label} />
+                                </div>
+                                <ul style={{ margin:"0 0 10px", paddingLeft:18, lineHeight:1.75, color:C.inkMid, fontSize:13 }}>
+                                  <li>{hints.truckLoads}</li>
+                                  <li>{hints.bestUse}</li>
+                                </ul>
+                                <div style={{ fontSize:12, color:C.inkMuted, fontStyle:"italic" }}>{meta.bestFor}</div>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                       {(isQuickPath || !effectiveSize) && <PrimaryButton onClick={handleContinueFromStep4}>Continue</PrimaryButton>}
