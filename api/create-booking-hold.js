@@ -1,4 +1,6 @@
 // api/create-booking-hold.js
+// Sprint 2A: writes a pending rental row to public.rentals as the hold mechanism
+// booking_holds table no longer used
 import { getSupabaseAdmin, assertServerOnly } from "../lib/supabaseAdmin";
 import { getAvailabilitySnapshot } from "../lib/availability";
 
@@ -8,15 +10,13 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 
 const VALID_SIZE_CODES = new Set(["11YD", "16YD", "21YD"]);
-const DEFAULT_HOLD_MINUTES = 15;
+const DEFAULT_HOLD_MINUTES = 30;
 
 function applyCors(req, res) {
   const origin = req.headers.origin;
-
   if (origin && ALLOWED_ORIGINS.has(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
-
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -38,24 +38,6 @@ function asInteger(v, fallback = 0) {
   return Number.isInteger(n) ? n : fallback;
 }
 
-function normalizeSizeCode(value) {
-  const raw = asString(value).toUpperCase();
-
-  if (!raw) return null;
-  if (VALID_SIZE_CODES.has(raw)) return raw;
-
-  const map = {
-    "11 YARD": "11YD",
-    "16 YARD": "16YD",
-    "21 YARD": "21YD",
-    "11YD": "11YD",
-    "16YD": "16YD",
-    "21YD": "21YD",
-  };
-
-  return map[raw] || null;
-}
-
 function firstNonEmpty(...values) {
   for (const value of values) {
     const s = asString(value);
@@ -64,54 +46,44 @@ function firstNonEmpty(...values) {
   return "";
 }
 
+function normalizeSizeCode(value) {
+  const raw = asString(value).toUpperCase();
+  if (!raw) return null;
+  if (VALID_SIZE_CODES.has(raw)) return raw;
+  const map = {
+    "11 YARD": "11YD", "16 YARD": "16YD", "21 YARD": "21YD",
+  };
+  return map[raw] || null;
+}
+
+function sizeCodeToYards(sizeCode) {
+  const map = { "11YD": 11, "16YD": 16, "21YD": 21 };
+  return map[sizeCode] || null;
+}
+
 function parseDateInput(value, fieldName) {
   const raw = asString(value);
-  if (!raw) {
-    throw new Error(`Missing ${fieldName}`);
-  }
-
+  if (!raw) throw new Error(`Missing ${fieldName}`);
   const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) {
-    throw new Error(`Invalid ${fieldName}`);
-  }
-
+  if (Number.isNaN(date.getTime())) throw new Error(`Invalid ${fieldName}`);
   return date;
 }
 
-function toIsoString(value) {
-  return value.toISOString();
+function toDateOnly(date) {
+  return date.toISOString().slice(0, 10);
 }
 
-function buildExpiry(now, requestedMinutes) {
-  const minutes = requestedMinutes > 0 ? requestedMinutes : DEFAULT_HOLD_MINUTES;
-  return new Date(now.getTime() + minutes * 60 * 1000);
+function inferZone(value) {
+  const raw = asString(value).toLowerCase();
+  if (raw === "zone2" || raw === "2") return "zone2";
+  if (raw === "zone3" || raw === "3") return "zone3";
+  return "local";
 }
 
-function deriveDeliveryDate(startDate) {
-  return startDate.toISOString().slice(0, 10);
-}
-
-function buildMetadata(body, normalizedSizeCode, requestedStartAtIso, requestedEndAtIso) {
-  return {
-    source: "website_checkout_hold",
-    funnelSource: firstNonEmpty(body?.funnelSource, "website_checkout"),
-    leadId: body?.leadId ?? null,
-    sizeCode: normalizedSizeCode,
-    rentalOption: firstNonEmpty(body?.rentalOption),
-    saleOrderName: firstNonEmpty(body?.saleOrderName, body?.orderName),
-    odooOrderId: firstNonEmpty(body?.odooOrderId),
-    odooRentalOrderId: firstNonEmpty(body?.odooRentalOrderId),
-    selectedWindow: {
-      start: firstNonEmpty(body?.selectedWindow?.start, body?.selectedWindow?.startDateTime, body?.requestedStartAt),
-      end: firstNonEmpty(body?.selectedWindow?.end, body?.selectedWindow?.endDateTime, body?.requestedEndAt),
-      startIso: requestedStartAtIso,
-      endIso: requestedEndAtIso,
-    },
-    deliveryAddress: body?.deliveryAddress || null,
-    areaLabel: firstNonEmpty(body?.areaLabel),
-    zone: firstNonEmpty(body?.zone),
-    zip: firstNonEmpty(body?.zip, body?.deliveryAddress?.zip),
-  };
+function normalizePhone(value) {
+  const raw = asString(value).replace(/\D/g, "");
+  if (!raw) return null;
+  return raw.length === 10 ? `+1${raw}` : raw.startsWith("1") ? `+${raw}` : raw;
 }
 
 export default async function handler(req, res) {
@@ -124,17 +96,11 @@ export default async function handler(req, res) {
   }
 
   if (req.method !== "POST") {
-    return res.status(405).json({
-      success: false,
-      error: "Method not allowed. Use POST.",
-    });
+    return res.status(405).json({ success: false, error: "Method not allowed. Use POST." });
   }
 
   if (!hasAllowedOrigin(req)) {
-    return res.status(403).json({
-      success: false,
-      error: "Forbidden origin",
-    });
+    return res.status(403).json({ success: false, error: "Forbidden origin" });
   }
 
   try {
@@ -184,14 +150,11 @@ export default async function handler(req, res) {
       });
     }
 
+    const requestedStartAtIso = requestedStartAt.toISOString();
+    const requestedEndAtIso = requestedEndAt.toISOString();
     const now = new Date();
-    const holdMinutes = asInteger(body?.holdMinutes, DEFAULT_HOLD_MINUTES);
-    const expiresAt = buildExpiry(now, holdMinutes);
 
-    const requestedStartAtIso = toIsoString(requestedStartAt);
-    const requestedEndAtIso = toIsoString(requestedEndAt);
-    const expiresAtIso = toIsoString(expiresAt);
-
+    // Check availability before creating hold
     const availability = await getAvailabilitySnapshot({
       sizeCode: normalizedSizeCode,
       requestedStartAt: requestedStartAtIso,
@@ -215,42 +178,119 @@ export default async function handler(req, res) {
 
     const supabase = getSupabaseAdmin();
 
+    // Extract customer info
     const customerName = firstNonEmpty(body?.contact?.name, body?.customerName);
     const customerEmail = firstNonEmpty(body?.contact?.email, body?.customerEmail);
-    const rentalOption = firstNonEmpty(body?.rentalOption);
-    const leadIdRaw = firstNonEmpty(body?.leadId);
-    const odooLeadId = leadIdRaw ? Number(leadIdRaw) : null;
+    const customerPhone = normalizePhone(
+      firstNonEmpty(body?.contact?.phone, body?.customerPhone)
+    );
+    const deliveryAddress = firstNonEmpty(
+      body?.deliveryAddress?.full,
+      body?.deliveryAddress,
+      body?.address
+    );
+    const zone = inferZone(firstNonEmpty(body?.zone, "local"));
+    const sizeYards = sizeCodeToYards(normalizedSizeCode);
 
-    const insertPayload = {
-      size_code: normalizedSizeCode,
-      requested_start_at: requestedStartAtIso,
-      requested_end_at: requestedEndAtIso,
-      delivery_date: deriveDeliveryDate(requestedStartAt),
-      rental_option: rentalOption || null,
-      status: "active",
-      expires_at: expiresAtIso,
-      odoo_lead_id: Number.isFinite(odooLeadId) ? odooLeadId : null,
-      customer_name: customerName || null,
-      customer_email: customerEmail || null,
-      metadata: buildMetadata(body, normalizedSizeCode, requestedStartAtIso, requestedEndAtIso),
-    };
+    // Upsert customer by phone (if phone provided), otherwise insert
+    let customerId = null;
+    if (customerPhone) {
+      const { data: existingCustomer } = await supabase
+        .from("customers")
+        .select("id")
+        .eq("phone", customerPhone)
+        .maybeSingle();
 
-    const { data, error } = await supabase
-      .from("booking_holds")
-      .insert(insertPayload)
-      .select(
-        "id, size_code, requested_start_at, requested_end_at, delivery_date, rental_option, status, expires_at, odoo_lead_id, customer_name, customer_email, created_at"
-      )
+      if (existingCustomer) {
+        customerId = existingCustomer.id;
+        // Update name/email if we have better data
+        if (customerName || customerEmail) {
+          await supabase
+            .from("customers")
+            .update({
+              ...(customerName ? { name: customerName } : {}),
+              ...(customerEmail ? { email: customerEmail } : {}),
+            })
+            .eq("id", customerId);
+        }
+      }
+    }
+
+    if (!customerId) {
+      const { data: newCustomer, error: customerError } = await supabase
+        .from("customers")
+        .insert({
+          name: customerName || "Unknown",
+          phone: customerPhone || "0000000000",
+          email: customerEmail || null,
+          address: deliveryAddress || null,
+          zone,
+        })
+        .select("id")
+        .single();
+
+      if (customerError) throw customerError;
+      customerId = newCustomer.id;
+    }
+
+    // Create pending rental as the hold
+    const dropoffDate = toDateOnly(requestedStartAt);
+    const scheduledReturn = toDateOnly(requestedEndAt);
+    const rentalDays = Math.max(
+      1,
+      Math.round((requestedEndAt - requestedStartAt) / (1000 * 60 * 60 * 24))
+    );
+
+    const { data: rental, error: rentalError } = await supabase
+      .from("rentals")
+      .insert({
+        customer_id: customerId,
+        status: "pending",
+        size_yards: sizeYards,
+        delivery_address: deliveryAddress || "TBD",
+        zone,
+        dropoff_date: dropoffDate,
+        scheduled_return: scheduledReturn,
+        rental_days: rentalDays,
+        payment_source: "funnel",
+        notes: firstNonEmpty(body?.rentalOption) || null,
+      })
+      .select("id, status, size_yards, delivery_address, zone, dropoff_date, scheduled_return, rental_days, created_at")
       .single();
 
-    if (error) {
-      throw error;
-    }
+    if (rentalError) throw rentalError;
+
+    // Log the hold event
+    await supabase.from("events").insert({
+      event_type: "availability_checked",
+      source: "funnel",
+      rental_id: rental.id,
+      customer_id: customerId,
+      payload: {
+        sizeCode: normalizedSizeCode,
+        availableUnitsBeforeHold: availability.totals.availableUnits,
+        tightWindow: availability.totals.tightWindow,
+        requestedStartAt: requestedStartAtIso,
+        requestedEndAt: requestedEndAtIso,
+      },
+    });
 
     return res.status(200).json({
       success: true,
       message: "Booking hold created successfully.",
-      hold: data,
+      hold: {
+        // Return as "hold" for backward compat with create-checkout.js which reads bookingHoldId
+        id: rental.id,
+        rental_id: rental.id,
+        size_code: normalizedSizeCode,
+        size_yards: rental.size_yards,
+        dropoff_date: rental.dropoff_date,
+        scheduled_return: rental.scheduled_return,
+        rental_days: rental.rental_days,
+        status: rental.status,
+        customer_id: customerId,
+        created_at: rental.created_at,
+      },
       availability: {
         sizeCode: availability.request.sizeCode,
         candidateUnits: availability.totals.candidateUnits,
@@ -260,7 +300,6 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error("[create-booking-hold] FAILED", error);
-
     return res.status(500).json({
       success: false,
       error: error.message || "Failed to create booking hold",
