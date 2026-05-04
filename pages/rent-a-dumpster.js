@@ -1353,21 +1353,101 @@ export default function Funnel() {
           <main style={{ background:C.cardBg, border:`1px solid ${C.cardBorder}`, borderRadius:16, overflow:"hidden", boxShadow:"0 1px 3px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.05)" }}>
             {step === 0 && (
               <div>
-                <div style={{ background:C.heroBg, padding:"28px 24px 24px", position:"relative" }}>
-                  <div style={{ position:"absolute", top:16, right:16, background:C.pink, color:C.heroBg, fontSize:10, fontWeight:800, padding:"4px 11px", borderRadius:99, letterSpacing:"0.4px" }}>Serving South Atlanta</div>
-                  <div style={{ fontSize:10, fontWeight:700, color:C.heroAccent, letterSpacing:"1.4px", textTransform:"uppercase", marginBottom:8 }}>Dumpster rental</div>
-                  <h1 style={{ margin:"0 0 4px", fontSize:28, fontWeight:900, color:C.white, letterSpacing:"-0.7px", lineHeight:1.1, fontFamily:F }}>Check your<br />service area</h1>
-                </div>
-                <div style={{ padding:"20px 24px 4px" }}>
-                  <p style={{ margin:"0 0 18px", fontSize:14, color:C.inkMid, lineHeight:1.55, fontFamily:F }}>Enter your ZIP and we'll verify coverage and show exact pricing for your location.</p>
-                  <div style={{ display:"flex", gap:10 }}>
-                    <input placeholder="5-digit ZIP" value={zip} onChange={e => setZip(e.target.value)} onKeyDown={e => e.key === "Enter" && handleZipSubmit()} maxLength={5} style={{ ...inputStyle, flex:1, marginTop:0 }} />
-                    <button onClick={handleZipSubmit} style={{ padding:"12px 20px", background:C.ink, color:C.white, border:"none", borderRadius:10, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:F, whiteSpace:"nowrap" }}>Verify →</button>
+                {/* ── Hero ── */}
+                <div style={{
+                  background:"radial-gradient(circle at top right, rgba(255,206,228,0.22), transparent 34%), radial-gradient(circle at bottom left, rgba(194,88,122,0.13), transparent 32%), linear-gradient(135deg,#171511 0%,#211f1a 52%,#2a2523 100%)",
+                  padding:"36px 28px 32px",
+                  position:"relative",
+                  borderRadius:"16px 16px 0 0",
+                }}>
+                  {/* Eyebrow */}
+                  <div style={{ fontSize:10, fontWeight:800, color:C.heroAccent, letterSpacing:"1.6px", textTransform:"uppercase", marginBottom:14, opacity:0.85, fontFamily:F }}>
+                    Dumpster Rental · South Atlanta
                   </div>
-                  {zipError && <div style={{ marginTop:8, color:"#b3261e", fontSize:13, lineHeight:1.4, fontFamily:F }}>{zipError}</div>}
-                  <div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:14, marginBottom:20 }}>
-                    {["Delivery included in pricing","Peachtree City & South Atlanta","¡Se habla español!"].map(t => (
-                      <span key={t} style={{ fontSize:11, color:C.inkMuted, fontWeight:600, background:C.surfaceBg, border:`1px solid ${C.surfaceBorder}`, borderRadius:99, padding:"4px 10px", fontFamily:F }}>{t}</span>
+                  {/* Headline */}
+                  <h1 style={{ margin:"0 0 18px", fontSize:30, fontWeight:900, color:C.white, letterSpacing:"-0.8px", lineHeight:1.12, fontFamily:F }}>
+                    Check Dumpster Availability<br />
+                    in{" "}
+                    <span style={{ color:C.heroAccent }}>Your ZIP Code</span>
+                  </h1>
+                  {/* Subcopy */}
+                  <p style={{ margin:"0 0 28px", fontSize:14, color:"#b8b0a6", lineHeight:1.6, fontFamily:F, maxWidth:480 }}>
+                    Enter your ZIP code to confirm delivery, view exact local pricing, and book a driveway-safe pink dumpster online.
+                  </p>
+                  {/* ZIP input + button */}
+                  <style>{`
+                    @media (max-width:520px) {
+                      .lj-zip-row { flex-direction: column !important; }
+                      .lj-zip-btn { width: 100% !important; }
+                    }
+                  `}</style>
+                  <div className="lj-zip-row" style={{ display:"flex", gap:10, alignItems:"stretch", maxWidth:440 }}>
+                    <input
+                      placeholder="Enter your ZIP code"
+                      value={zip}
+                      onChange={e => setZip(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && handleZipSubmit()}
+                      maxLength={5}
+                      inputMode="numeric"
+                      style={{
+                        flex:1,
+                        padding:"14px 16px",
+                        border:"1.5px solid rgba(255,255,255,0.12)",
+                        borderRadius:12,
+                        background:"rgba(255,255,255,0.07)",
+                        fontSize:15,
+                        color:C.white,
+                        boxSizing:"border-box",
+                        fontFamily:F,
+                        outline:"none",
+                        caretColor:C.heroAccent,
+                      }}
+                    />
+                    <button
+                      className="lj-zip-btn"
+                      onClick={handleZipSubmit}
+                      style={{
+                        padding:"14px 22px",
+                        background:C.heroAccent,
+                        color:"#1e1c19",
+                        border:"none",
+                        borderRadius:12,
+                        fontSize:14,
+                        fontWeight:900,
+                        cursor:"pointer",
+                        fontFamily:F,
+                        whiteSpace:"nowrap",
+                        letterSpacing:"0.2px",
+                        flexShrink:0,
+                      }}
+                    >
+                      Check Availability →
+                    </button>
+                  </div>
+                  {zipError && (
+                    <div style={{ marginTop:10, color:"#ffb3b3", fontSize:13, lineHeight:1.4, fontFamily:F }}>
+                      {zipError}
+                    </div>
+                  )}
+                  {/* Trust pills */}
+                  <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:24 }}>
+                    {[
+                      "✓ Delivery included",
+                      "✓ Driveway-safe trucks",
+                      "✓ Locally owned",
+                      "✓ Se habla español",
+                    ].map(t => (
+                      <span key={t} style={{
+                        fontSize:11,
+                        color:"rgba(255,255,255,0.65)",
+                        fontWeight:700,
+                        background:"rgba(255,255,255,0.07)",
+                        border:"1px solid rgba(255,255,255,0.1)",
+                        borderRadius:99,
+                        padding:"5px 12px",
+                        fontFamily:F,
+                        letterSpacing:"0.2px",
+                      }}>{t}</span>
                     ))}
                   </div>
                 </div>
