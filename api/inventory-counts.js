@@ -1,4 +1,5 @@
 // api/inventory-counts.js
+// Sprint 2A: queries public.units for live inventory counts
 import { getSupabaseAdmin, assertServerOnly } from "../lib/supabaseAdmin";
 
 const ALLOWED_ORIGINS = new Set([
@@ -23,43 +24,28 @@ function hasAllowedOrigin(req) {
 
 function buildCounts(rows) {
   const counts = {
-    totalUnits: 0,
+    totalUnits: rows.length,
     bySize: {
-      "11YD": { total: 0, active: 0, ready: 0, needs_emptying: 0, in_repair: 0, retired: 0 },
-      "16YD": { total: 0, active: 0, ready: 0, needs_emptying: 0, in_repair: 0, retired: 0 },
-      "21YD": { total: 0, active: 0, ready: 0, needs_emptying: 0, in_repair: 0, retired: 0 },
+      "11YD": { total: 0, available: 0, deployed: 0, maintenance: 0, ready: 0 },
+      "16YD": { total: 0, available: 0, deployed: 0, maintenance: 0, ready: 0 },
+      "21YD": { total: 0, available: 0, deployed: 0, maintenance: 0, ready: 0 },
     },
   };
 
   for (const row of rows) {
-    const size = row.size_code;
-    const bucket = counts.bySize[size];
+    const sizeKey = `${row.size_yards}YD`;
+    const bucket = counts.bySize[sizeKey];
+    if (!bucket) continue;
 
-    if (!bucket) {
-      continue;
-    }
-
-    counts.totalUnits += 1;
     bucket.total += 1;
 
-    if (row.lifecycle_status === "active") {
-      bucket.active += 1;
-    }
-
-    if (row.readiness_status === "ready") {
-      bucket.ready += 1;
-    }
-
-    if (row.readiness_status === "needs_emptying") {
-      bucket.needs_emptying += 1;
-    }
-
-    if (row.lifecycle_status === "in_repair") {
-      bucket.in_repair += 1;
-    }
-
-    if (row.lifecycle_status === "retired") {
-      bucket.retired += 1;
+    if (row.status === "available") {
+      bucket.available += 1;
+      bucket.ready += 1; // available = ready for CSR display
+    } else if (row.status === "deployed") {
+      bucket.deployed += 1;
+    } else if (row.status === "maintenance") {
+      bucket.maintenance += 1;
     }
   }
 
@@ -89,13 +75,12 @@ export default async function handler(req, res) {
     const supabase = getSupabaseAdmin();
 
     const { data, error } = await supabase
-      .from("dumpster_units")
-      .select("id, unit_code, size_code, lifecycle_status, readiness_status")
-      .order("unit_code", { ascending: true });
+      .from("units")
+      .select("id, name, size_yards, status, return_date, notes")
+      .order("size_yards", { ascending: true })
+      .order("name", { ascending: true });
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     const rows = data ?? [];
     const counts = buildCounts(rows);
@@ -108,7 +93,6 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error("[inventory-counts] FAILED", error);
-
     return res.status(500).json({
       success: false,
       error: error.message || "Failed to fetch inventory counts",

@@ -18,6 +18,9 @@ const C = {
   successBg: "#eff9f1",
   successBorder: "#bde3c4",
   successText: "#1d6a34",
+  errorBg: "#fff1f1",
+  errorBorder: "#fca5a5",
+  errorText: "#b91c1c",
   white: "#ffffff",
   darkBtn: "#121212",
 };
@@ -42,10 +45,13 @@ const rentalOptions = [
   { key: "Full Reset", label: "7-Day" },
 ];
 const allSizes = ["11 Yard", "16 Yard", "21 Yard"];
+const SIZE_YARDS_MAP = { "11 Yard": 11, "16 Yard": 16, "21 Yard": 21 };
+const SIZE_CODE_MAP = { "11 Yard": "11YD", "16 Yard": "16YD", "21 Yard": "21YD" };
 
 const getAreaLabel = (zip) => (!zip ? "Your area" : zipToArea[zip] || `ZIP ${zip} area`);
 const formatMoney = (value) => `$${Number(value || 0).toFixed(0)}`;
 const getRentalDisplayLabel = (key) => ({ "Base Rental": "2-Day Basic", "Early Bird": "2-Day Budget", "Weekend Warrior": "4-Day", "Full Reset": "7-Day" }[key] || key || "");
+const todayDateStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 
 function encodeLinkState(params) {
   const next = new URLSearchParams();
@@ -55,7 +61,327 @@ function encodeLinkState(params) {
   return next.toString();
 }
 
+// ─── Ops Panel Components ─────────────────────────────────────────────────────
 
+function UnitStatusPanel({ units, onRefresh }) {
+  const [updating, setUpdating] = useState(null);
+  const [result, setResult] = useState(null);
+
+  const statusOptions = ["available", "deployed", "maintenance"];
+  const statusColors = {
+    available: { bg: C.successBg, border: C.successBorder, text: C.successText },
+    deployed:  { bg: C.warningBg, border: C.warningBorder, text: C.warningText },
+    maintenance: { bg: C.errorBg, border: C.errorBorder, text: C.errorText },
+  };
+
+  async function handleStatusChange(unit, newStatus) {
+    if (unit.status === newStatus) return;
+    setUpdating(unit.id);
+    setResult(null);
+    try {
+      const res = await fetch("/api/admin-unit-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unitId: unit.id, status: newStatus }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Update failed");
+      setResult({ type: "success", message: `${unit.name} → ${newStatus}` });
+      onRefresh();
+    } catch (err) {
+      setResult({ type: "error", message: err.message });
+    } finally {
+      setUpdating(null);
+    }
+  }
+
+  const grouped = { 11: [], 16: [], 21: [] };
+  for (const u of units) {
+    if (grouped[u.size_yards]) grouped[u.size_yards].push(u);
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      {result && (
+        <div style={{ padding: "10px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700,
+          background: result.type === "success" ? C.successBg : C.errorBg,
+          border: `1px solid ${result.type === "success" ? C.successBorder : C.errorBorder}`,
+          color: result.type === "success" ? C.successText : C.errorText }}>
+          {result.message}
+        </div>
+      )}
+      {[11, 16, 21].map(size => (
+        <div key={size}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: C.inkMuted, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>{size} Yard</div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {grouped[size].map(unit => {
+              const colors = statusColors[unit.status] || statusColors.available;
+              return (
+                <div key={unit.id} style={{ background: C.surfaceBg, border: `1px solid ${C.surfaceBorder}`, borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: C.ink }}>{unit.name}</div>
+                    <div style={{ marginTop: 4, display: "inline-block", padding: "2px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700,
+                      background: colors.bg, border: `1px solid ${colors.border}`, color: colors.text }}>
+                      {unit.status}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    {statusOptions.filter(s => s !== unit.status).map(s => (
+                      <button key={s} disabled={!!updating} onClick={() => handleStatusChange(unit, s)}
+                        style={{ padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: updating ? "not-allowed" : "pointer", fontFamily: F,
+                          border: `1px solid ${C.surfaceBorder}`, background: updating === unit.id ? C.surfaceBg : C.white, color: C.inkMuted,
+                          opacity: updating && updating !== unit.id ? 0.5 : 1 }}>
+                        {updating === unit.id ? "..." : `→ ${s}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function NewRentalPanel() {
+  const emptyForm = { name: "", phone: "", email: "", street: "", city: "", state: "GA", zip: "", size: "16 Yard", dropoffDate: "", returnDate: "", rentalDays: "", zone: "local", paymentStatus: "unpaid", paymentMethod: "cash", amount: "", notes: "" };
+  const [form, setForm] = useState(emptyForm);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const update = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  // Auto-derive zone from zip when zip changes
+  useEffect(() => {
+    if (form.zip.length === 5) {
+      const z = zipToZone[form.zip];
+      if (z === "A") update("zone", "local");
+      else if (z === "B") update("zone", "zone2");
+      else if (z === "C") update("zone", "zone3");
+    }
+  }, [form.zip]);
+
+  // Auto-derive rental days when dates change
+  useEffect(() => {
+    if (form.dropoffDate && form.returnDate) {
+      const diff = Math.round((new Date(form.returnDate) - new Date(form.dropoffDate)) / (1000 * 60 * 60 * 24));
+      if (diff > 0) update("rentalDays", String(diff));
+    }
+  }, [form.dropoffDate, form.returnDate]);
+
+  async function handleSubmit() {
+    if (!form.name || !form.phone || !form.street || !form.dropoffDate || !form.returnDate) {
+      setResult({ type: "error", message: "Name, phone, street address, dropoff date, and return date are required." });
+      return;
+    }
+    setSubmitting(true);
+    setResult(null);
+    try {
+      const res = await fetch("/api/admin-manual-rental", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Failed to create rental");
+      setResult({ type: "success", message: `Rental created — ID: ${json.rentalId}` });
+      setForm(emptyForm);
+    } catch (err) {
+      setResult({ type: "error", message: err.message });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      {result && (
+        <div style={{ padding: "10px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700,
+          background: result.type === "success" ? C.successBg : C.errorBg,
+          border: `1px solid ${result.type === "success" ? C.successBorder : C.errorBorder}`,
+          color: result.type === "success" ? C.successText : C.errorText }}>
+          {result.message}
+        </div>
+      )}
+
+      <div style={{ fontSize: 11, fontWeight: 800, color: C.inkMuted, textTransform: "uppercase", letterSpacing: "1px" }}>Customer</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Name *"><input value={form.name} onChange={e => update("name", e.target.value)} style={inputStyle()} /></Field>
+        <Field label="Phone *"><input value={form.phone} onChange={e => update("phone", e.target.value)} placeholder="4705551234" style={inputStyle()} /></Field>
+      </div>
+      <Field label="Email"><input value={form.email} onChange={e => update("email", e.target.value)} style={inputStyle()} /></Field>
+      <Field label="Street address *"><input value={form.street} onChange={e => update("street", e.target.value)} style={inputStyle()} /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 110px", gap: 10 }}>
+        <Field label="City"><input value={form.city} onChange={e => update("city", e.target.value)} style={inputStyle()} /></Field>
+        <Field label="State"><input value={form.state} onChange={e => update("state", e.target.value)} style={inputStyle()} /></Field>
+        <Field label="ZIP"><input value={form.zip} onChange={e => update("zip", e.target.value)} maxLength={5} style={inputStyle()} /></Field>
+      </div>
+
+      <div style={{ height: 1, background: C.surfaceBorder }} />
+      <div style={{ fontSize: 11, fontWeight: 800, color: C.inkMuted, textTransform: "uppercase", letterSpacing: "1px" }}>Rental details</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Size">
+          <select value={form.size} onChange={e => update("size", e.target.value)} style={inputStyle()}>
+            {allSizes.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </Field>
+        <Field label="Zone">
+          <select value={form.zone} onChange={e => update("zone", e.target.value)} style={inputStyle()}>
+            <option value="local">Local (Zone A)</option>
+            <option value="zone2">Zone B (+$49)</option>
+            <option value="zone3">Zone C (+$89)</option>
+          </select>
+        </Field>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 80px", gap: 10 }}>
+        <Field label="Dropoff date *"><input type="date" value={form.dropoffDate} min={todayDateStr()} onChange={e => update("dropoffDate", e.target.value)} style={inputStyle()} /></Field>
+        <Field label="Return date *"><input type="date" value={form.returnDate} min={form.dropoffDate || todayDateStr()} onChange={e => update("returnDate", e.target.value)} style={inputStyle()} /></Field>
+        <Field label="Days"><input value={form.rentalDays} readOnly style={inputStyle({ background: C.surfaceBg, color: C.inkMuted })} /></Field>
+      </div>
+
+      <div style={{ height: 1, background: C.surfaceBorder }} />
+      <div style={{ fontSize: 11, fontWeight: 800, color: C.inkMuted, textTransform: "uppercase", letterSpacing: "1px" }}>Payment</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+        <Field label="Status">
+          <select value={form.paymentStatus} onChange={e => update("paymentStatus", e.target.value)} style={inputStyle()}>
+            <option value="unpaid">Unpaid</option>
+            <option value="paid">Paid</option>
+          </select>
+        </Field>
+        <Field label="Method">
+          <select value={form.paymentMethod} onChange={e => update("paymentMethod", e.target.value)} style={inputStyle()}>
+            <option value="cash">Cash</option>
+            <option value="zelle">Zelle</option>
+            <option value="broker">Broker</option>
+            <option value="other">Other</option>
+          </select>
+        </Field>
+        <Field label="Amount ($)"><input type="number" value={form.amount} onChange={e => update("amount", e.target.value)} placeholder="0" style={inputStyle()} /></Field>
+      </div>
+
+      <Field label="Office notes"><textarea value={form.notes} onChange={e => update("notes", e.target.value)} style={inputStyle({ minHeight: 72, resize: "vertical" })} /></Field>
+
+      <button onClick={handleSubmit} disabled={submitting} style={primaryButtonStyle(submitting)}>
+        {submitting ? "Creating rental..." : "Create rental record"}
+      </button>
+    </div>
+  );
+}
+
+function FindCustomerPanel() {
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [customers, setCustomers] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState(null);
+
+  async function handleSearch() {
+    if (!query.trim()) return;
+    setSearching(true);
+    setCustomers(null);
+    setSelected(null);
+    setResult(null);
+    try {
+      const res = await fetch(`/api/admin-customer-search?q=${encodeURIComponent(query.trim())}`);
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Search failed");
+      setCustomers(json.customers || []);
+    } catch (err) {
+      setResult({ type: "error", message: err.message });
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function handleSelect(customer) {
+    setSelected(customer);
+    setEditForm({ name: customer.name || "", phone: customer.phone || "", email: customer.email || "", notes: customer.notes || "" });
+    setResult(null);
+  }
+
+  async function handleSave() {
+    if (!selected) return;
+    setSaving(true);
+    setResult(null);
+    try {
+      const res = await fetch("/api/admin-customer-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerId: selected.id, ...editForm }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Save failed");
+      setResult({ type: "success", message: "Customer updated." });
+      setSelected(null);
+      setCustomers(null);
+      setQuery("");
+    } catch (err) {
+      setResult({ type: "error", message: err.message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      {result && (
+        <div style={{ padding: "10px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700,
+          background: result.type === "success" ? C.successBg : C.errorBg,
+          border: `1px solid ${result.type === "success" ? C.successBorder : C.errorBorder}`,
+          color: result.type === "success" ? C.successText : C.errorText }}>
+          {result.message}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 10 }}>
+        <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSearch()}
+          placeholder="Search by phone or name..." style={{ ...inputStyle(), flex: 1 }} />
+        <button onClick={handleSearch} disabled={searching || !query.trim()} style={{ ...primaryButtonStyle(searching || !query.trim()), width: "auto", padding: "12px 20px", whiteSpace: "nowrap" }}>
+          {searching ? "..." : "Search"}
+        </button>
+      </div>
+
+      {customers !== null && customers.length === 0 && (
+        <div style={{ color: C.inkMuted, fontSize: 13 }}>No customers found for "{query}".</div>
+      )}
+
+      {customers && customers.length > 0 && !selected && (
+        <div style={{ display: "grid", gap: 8 }}>
+          {customers.map(c => (
+            <button key={c.id} onClick={() => handleSelect(c)}
+              style={{ textAlign: "left", padding: "12px 14px", borderRadius: 12, border: `1px solid ${C.surfaceBorder}`, background: C.surfaceBg, cursor: "pointer", fontFamily: F }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: C.ink }}>{c.name}</div>
+              <div style={{ fontSize: 12, color: C.inkMuted, marginTop: 2 }}>{c.phone}{c.email ? ` · ${c.email}` : ""}</div>
+              {c.rentals_count > 0 && <div style={{ fontSize: 11, color: C.pinkText, marginTop: 2 }}>{c.rentals_count} rental{c.rentals_count !== 1 ? "s" : ""} on file</div>}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {selected && (
+        <div style={{ display: "grid", gap: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.inkMuted }}>Editing: {selected.name}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Field label="Name"><input value={editForm.name} onChange={e => setEditForm(p => ({...p, name: e.target.value}))} style={inputStyle()} /></Field>
+            <Field label="Phone"><input value={editForm.phone} onChange={e => setEditForm(p => ({...p, phone: e.target.value}))} style={inputStyle()} /></Field>
+          </div>
+          <Field label="Email"><input value={editForm.email} onChange={e => setEditForm(p => ({...p, email: e.target.value}))} style={inputStyle()} /></Field>
+          <Field label="Notes"><textarea value={editForm.notes} onChange={e => setEditForm(p => ({...p, notes: e.target.value}))} style={inputStyle({ minHeight: 72, resize: "vertical" })} /></Field>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={handleSave} disabled={saving} style={primaryButtonStyle(saving)}>{saving ? "Saving..." : "Save changes"}</button>
+            <button onClick={() => { setSelected(null); setResult(null); }} style={{ ...secondaryButtonStyle, flex: "0 0 auto" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function CsrQuickBookPage() {
   const [zip, setZip] = useState("");
@@ -63,6 +389,7 @@ export default function CsrQuickBookPage() {
   const [zipError, setZipError] = useState("");
   const [selectedSize, setSelectedSize] = useState("16 Yard");
   const [inventoryCounts, setInventoryCounts] = useState(null);
+  const [units, setUnits] = useState([]);
   const [countsLoading, setCountsLoading] = useState(true);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityError, setAvailabilityError] = useState("");
@@ -78,14 +405,20 @@ export default function CsrQuickBookPage() {
   const [mode, setMode] = useState("link");
   const [form, setForm] = useState({ phone: "", name: "", email: "", street1: "", street2: "", city: "", state: "GA", zip: "", paymentMethod: "cash", manualPaymentReference: "", notes: "" });
 
-  useEffect(() => {
+  // Ops panel state
+  const [activeOpsPanel, setActiveOpsPanel] = useState(null); // "units" | "rental" | "customer" | null
+
+  function loadInventory() {
     let active = true;
     (async () => {
       try {
         setCountsLoading(true);
         const response = await fetch("/api/inventory-counts");
         const json = await response.json();
-        if (active && response.ok && json.success) setInventoryCounts(json.counts);
+        if (active && response.ok && json.success) {
+          setInventoryCounts(json.counts);
+          setUnits(json.units || []);
+        }
       } catch {
         if (active) setInventoryCounts(null);
       } finally {
@@ -93,6 +426,11 @@ export default function CsrQuickBookPage() {
       }
     })();
     return () => { active = false; };
+  }
+
+  useEffect(() => {
+    const cancel = loadInventory();
+    return cancel;
   }, []);
 
   useEffect(() => {
@@ -116,16 +454,26 @@ export default function CsrQuickBookPage() {
       try {
         setAvailabilityLoading(true);
         setAvailabilityError("");
-        const response = await fetch("/api/availability", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ size: selectedSize }),
-        });
+
+        // Build a 90-day window to get all blocked dates for the calendar
+        const start = new Date();
+        start.setDate(start.getDate() + 1);
+        const end = new Date(start);
+        end.setDate(end.getDate() + 90);
+
+        const sizeCode = SIZE_CODE_MAP[selectedSize];
+        const response = await fetch(
+          `/api/availability-supabase?sizeCode=${sizeCode}&requestedStartAt=${start.toISOString()}&requestedEndAt=${end.toISOString()}`
+        );
         const json = await response.json();
         if (!active) return;
-        if (response.ok && json.available) {
-          setBlockedDates(json.blockedDates || []);
-          setIsAvailabilityDegraded(false);
+
+        if (response.ok && json.success) {
+          // Build blocked dates from availability — if 0 units available on a day, mark blocked
+          // For CSR calendar we show degraded if no units at all, otherwise open
+          const isAvailable = json.availability?.isAvailable !== false;
+          setIsAvailabilityDegraded(!isAvailable);
+          setBlockedDates([]); // Per-date blocking handled by real-time hold check in create-booking-hold
         } else {
           setBlockedDates([]);
           setIsAvailabilityDegraded(true);
@@ -133,7 +481,6 @@ export default function CsrQuickBookPage() {
       } catch {
         if (active) {
           setAvailabilityError("Unable to pull live availability right now.");
-          setBlockedDates([]);
           setIsAvailabilityDegraded(true);
         }
       } finally {
@@ -323,6 +670,12 @@ export default function CsrQuickBookPage() {
     }
   }
 
+  const opsPanels = [
+    { key: "units",    label: "Update Unit",      icon: "🚛", desc: "Toggle available / deployed / maintenance" },
+    { key: "rental",   label: "New Rental",        icon: "📋", desc: "Log a phone, cash, or broker booking" },
+    { key: "customer", label: "Find Customer",     icon: "🔍", desc: "Search, view, and edit customer records" },
+  ];
+
   return (
     <div style={{ minHeight: "100vh", background: C.pageBg, padding: "18px 12px 28px", fontFamily: F }}>
       <style jsx>{`
@@ -342,7 +695,7 @@ export default function CsrQuickBookPage() {
           <SectionCard title="Available now">
             <div className="stats-grid">
               {allSizes.map((size) => {
-                const sizeCode = size.replace(" Yard", "YD");
+                const sizeCode = SIZE_CODE_MAP[size];
                 const bucket = inventoryCounts?.bySize?.[sizeCode];
                 return (
                   <div key={size} style={statCardStyle}>
@@ -481,6 +834,43 @@ export default function CsrQuickBookPage() {
             </SectionCard>
           </div>
         </div>
+
+        {/* ── Ops Panel ── */}
+        <div style={{ marginTop: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <div style={{ flex: 1, height: 1, background: C.cardBorder }} />
+            <div style={{ fontSize: 11, fontWeight: 800, color: C.inkFaint, textTransform: "uppercase", letterSpacing: "1.2px", whiteSpace: "nowrap" }}>Operations</div>
+            <div style={{ flex: 1, height: 1, background: C.cardBorder }} />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 14 }}>
+            {opsPanels.map(panel => {
+              const isActive = activeOpsPanel === panel.key;
+              return (
+                <button key={panel.key} onClick={() => setActiveOpsPanel(isActive ? null : panel.key)}
+                  style={{ padding: "14px 12px", borderRadius: 14, border: isActive ? `2px solid ${C.pinkText}` : `1px solid ${C.cardBorder}`,
+                    background: isActive ? C.pinkBg : C.cardBg, cursor: "pointer", fontFamily: F, textAlign: "left",
+                    boxShadow: isActive ? `0 0 0 3px ${C.pinkBorder}` : "none", transition: "all 150ms" }}>
+                  <div style={{ fontSize: 20, marginBottom: 6 }}>{panel.icon}</div>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: isActive ? C.pinkText : C.ink }}>{panel.label}</div>
+                  <div style={{ fontSize: 11, color: isActive ? C.pinkText : C.inkMuted, marginTop: 3, lineHeight: 1.4 }}>{panel.desc}</div>
+                </button>
+              );
+            })}
+          </div>
+
+          {activeOpsPanel && (
+            <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderRadius: 22, padding: 16 }}>
+              <div style={{ marginBottom: 14, fontSize: 16, fontWeight: 900, color: C.ink }}>
+                {opsPanels.find(p => p.key === activeOpsPanel)?.label}
+              </div>
+              {activeOpsPanel === "units" && <UnitStatusPanel units={units} onRefresh={loadInventory} />}
+              {activeOpsPanel === "rental" && <NewRentalPanel />}
+              {activeOpsPanel === "customer" && <FindCustomerPanel />}
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
   );
@@ -661,6 +1051,7 @@ function CsrCalendarPicker({ selectedSize, calculatedPrices, blockedDates, isAva
   );
 }
 
+// ─── Shared UI primitives ─────────────────────────────────────────────────────
 
 function SectionCard({ title, children }) {
   return <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderRadius: 22, padding: 16 }}><div style={{ marginBottom: 12, fontSize: 18, fontWeight: 900, color: C.ink, lineHeight: 1.1 }}>{title}</div>{children}</div>;
