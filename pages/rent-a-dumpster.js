@@ -1374,81 +1374,132 @@ export default function Funnel() {
                   <p style={{ margin:"0 0 28px", fontSize:14, color:"#b8b0a6", lineHeight:1.6, fontFamily:F, maxWidth:480 }}>
                     Enter your ZIP code to confirm delivery, view exact local pricing, and book a driveway-safe pink dumpster online.
                   </p>
-                  {/* ZIP input + button */}
+                  {/* ZIP input + button + trust image — two-column grid */}
                   <style>{`
+                    @media (max-width:760px) {
+                      .lj-step0-grid { grid-template-columns: 1fr !important; }
+                      .lj-step0-proof { margin-top: 8px !important; }
+                    }
                     @media (max-width:520px) {
                       .lj-zip-row { flex-direction: column !important; }
                       .lj-zip-btn { width: 100% !important; }
                     }
                   `}</style>
-                  <div className="lj-zip-row" style={{ display:"flex", gap:10, alignItems:"stretch", maxWidth:440 }}>
-                    <input
-                      placeholder="Enter your ZIP code"
-                      value={zip}
-                      onChange={e => setZip(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && handleZipSubmit()}
-                      maxLength={5}
-                      inputMode="numeric"
+                  <div
+                    className="lj-step0-grid"
+                    style={{
+                      display:"grid",
+                      gridTemplateColumns:"1.08fr 0.92fr",
+                      gap:24,
+                      alignItems:"center",
+                    }}
+                  >
+                    {/* Left column: ZIP form + error + trust pills */}
+                    <div>
+                      <div className="lj-zip-row" style={{ display:"flex", gap:10, alignItems:"stretch", maxWidth:440 }}>
+                        <input
+                          placeholder="Enter your ZIP code"
+                          value={zip}
+                          onChange={e => setZip(e.target.value)}
+                          onKeyDown={e => e.key === "Enter" && handleZipSubmit()}
+                          maxLength={5}
+                          inputMode="numeric"
+                          style={{
+                            flex:1,
+                            padding:"14px 16px",
+                            border:"1.5px solid rgba(255,255,255,0.12)",
+                            borderRadius:12,
+                            background:"rgba(255,255,255,0.07)",
+                            fontSize:15,
+                            color:C.white,
+                            boxSizing:"border-box",
+                            fontFamily:F,
+                            outline:"none",
+                            caretColor:C.heroAccent,
+                          }}
+                        />
+                        <button
+                          className="lj-zip-btn"
+                          onClick={handleZipSubmit}
+                          style={{
+                            padding:"14px 22px",
+                            background:C.heroAccent,
+                            color:"#1e1c19",
+                            border:"none",
+                            borderRadius:12,
+                            fontSize:14,
+                            fontWeight:900,
+                            cursor:"pointer",
+                            fontFamily:F,
+                            whiteSpace:"nowrap",
+                            letterSpacing:"0.2px",
+                            flexShrink:0,
+                          }}
+                        >
+                          Check Availability →
+                        </button>
+                      </div>
+                      {zipError && (
+                        <div style={{ marginTop:10, color:"#ffb3b3", fontSize:13, lineHeight:1.4, fontFamily:F }}>
+                          {zipError}
+                        </div>
+                      )}
+                      {/* Trust pills */}
+                      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:24 }}>
+                        {[
+                          "✓ Delivery included",
+                          "✓ Driveway-safe trucks",
+                          "✓ Locally owned",
+                          "✓ Se habla español",
+                        ].map(t => (
+                          <span key={t} style={{
+                            fontSize:11,
+                            color:"rgba(255,255,255,0.65)",
+                            fontWeight:700,
+                            background:"rgba(255,255,255,0.07)",
+                            border:"1px solid rgba(255,255,255,0.1)",
+                            borderRadius:99,
+                            padding:"5px 12px",
+                            fontFamily:F,
+                            letterSpacing:"0.2px",
+                          }}>{t}</span>
+                        ))}
+                      </div>
+                    </div>
+                    {/* Right column: proof image */}
+                    <div
+                      className="lj-step0-proof"
                       style={{
-                        flex:1,
-                        padding:"14px 16px",
-                        border:"1.5px solid rgba(255,255,255,0.12)",
-                        borderRadius:12,
                         background:"rgba(255,255,255,0.07)",
-                        fontSize:15,
-                        color:C.white,
-                        boxSizing:"border-box",
-                        fontFamily:F,
-                        outline:"none",
-                        caretColor:C.heroAccent,
-                      }}
-                    />
-                    <button
-                      className="lj-zip-btn"
-                      onClick={handleZipSubmit}
-                      style={{
-                        padding:"14px 22px",
-                        background:C.heroAccent,
-                        color:"#1e1c19",
-                        border:"none",
-                        borderRadius:12,
-                        fontSize:14,
-                        fontWeight:900,
-                        cursor:"pointer",
-                        fontFamily:F,
-                        whiteSpace:"nowrap",
-                        letterSpacing:"0.2px",
-                        flexShrink:0,
+                        border:"1px solid rgba(255,255,255,0.12)",
+                        borderRadius:18,
+                        padding:10,
+                        boxShadow:"0 14px 36px rgba(0,0,0,0.22)",
                       }}
                     >
-                      Check Availability →
-                    </button>
-                  </div>
-                  {zipError && (
-                    <div style={{ marginTop:10, color:"#ffb3b3", fontSize:13, lineHeight:1.4, fontFamily:F }}>
-                      {zipError}
-                    </div>
-                  )}
-                  {/* Trust pills */}
-                  <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:24 }}>
-                    {[
-                      "✓ Delivery included",
-                      "✓ Driveway-safe trucks",
-                      "✓ Locally owned",
-                      "✓ Se habla español",
-                    ].map(t => (
-                      <span key={t} style={{
+                      <img
+                        src="/Little_Junker_in_residential_driveway.JPEG"
+                        alt="Pink Little Junkers dumpster placed in a residential driveway"
+                        loading="eager"
+                        style={{
+                          width:"100%",
+                          height:210,
+                          objectFit:"cover",
+                          borderRadius:13,
+                          display:"block",
+                        }}
+                      />
+                      <div style={{
+                        marginTop:9,
                         fontSize:11,
-                        color:"rgba(255,255,255,0.65)",
-                        fontWeight:700,
-                        background:"rgba(255,255,255,0.07)",
-                        border:"1px solid rgba(255,255,255,0.1)",
-                        borderRadius:99,
-                        padding:"5px 12px",
+                        lineHeight:1.45,
+                        color:"rgba(255,255,255,0.68)",
+                        fontWeight:800,
                         fontFamily:F,
-                        letterSpacing:"0.2px",
-                      }}>{t}</span>
-                    ))}
+                      }}>
+                        Real pink dumpsters sized for residential driveways.
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <CardFooter />
