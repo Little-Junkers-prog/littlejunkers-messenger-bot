@@ -381,6 +381,247 @@ function FindCustomerPanel() {
   );
 }
 
+// ─── Rental Board Panel ───────────────────────────────────────────────────────
+
+const STATUS_META = {
+  pending:       { label: "Pending",     bg: "#fff8eb", border: "#f2cf7a", text: "#6b5b20" },
+  awaiting_date: { label: "Needs Date",  bg: "#fff8eb", border: "#f2cf7a", text: "#6b5b20" },
+  confirmed:     { label: "Ready",       bg: "#eff9f1", border: "#bde3c4", text: "#1d6a34" },
+  active:        { label: "Out",         bg: "#fff0fa", border: "#ffd6eb", text: "#c2587a" },
+  returned:      { label: "Returned",    bg: "#f3f3f3", border: "#d0d0d0", text: "#666666" },
+  cancelled:     { label: "Cancelled",   bg: "#fff1f1", border: "#fca5a5", text: "#b91c1c" },
+};
+
+function fmt(dateStr) {
+  if (!dateStr) return "—";
+  const [y, m, d] = dateStr.split("-");
+  return `${m}/${d}`;
+}
+
+function RentalCard({ rental, onAction, acting }) {
+  const customer = rental.customers || {};
+  const statusMeta = STATUS_META[rental.status] || STATUS_META.pending;
+  const isPaid = rental.amount_paid > 0;
+  const phone = customer.phone || "";
+
+  return (
+    <div style={{
+      background: C.white, border: `1px solid ${C.cardBorder}`,
+      borderRadius: 16, padding: "14px 16px", display: "grid", gap: 10,
+    }}>
+      {/* Top row: name + status badge */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 900, color: C.ink }}>{customer.name || "Unknown customer"}</div>
+          {phone ? (
+            <a href={`tel:${phone}`} style={{ fontSize: 13, color: C.pinkText, fontWeight: 700, textDecoration: "none", display: "block", marginTop: 2 }}>
+              {phone}
+            </a>
+          ) : null}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, padding: "3px 10px", borderRadius: 99,
+            background: statusMeta.bg, border: `1px solid ${statusMeta.border}`, color: statusMeta.text }}>
+            {statusMeta.label}
+          </span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: isPaid ? C.successText : C.warningText,
+            background: isPaid ? C.successBg : C.warningBg, border: `1px solid ${isPaid ? C.successBorder : C.warningBorder}`,
+            padding: "2px 8px", borderRadius: 99 }}>
+            {isPaid ? `Paid $${rental.amount_paid}` : "Unpaid"}
+          </span>
+        </div>
+      </div>
+
+      {/* Details row */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+        <div style={{ fontSize: 12, color: C.inkMuted }}>
+          <span style={{ fontWeight: 700, color: C.ink }}>{rental.size_yards} Yard</span>
+        </div>
+        <div style={{ fontSize: 12, color: C.inkMuted, textAlign: "right" }}>
+          {fmt(rental.dropoff_date)} → {fmt(rental.scheduled_return)}
+        </div>
+        <div style={{ fontSize: 12, color: C.inkMuted, gridColumn: "1 / -1", lineHeight: 1.4 }}>
+          {rental.delivery_address || "No address"}
+        </div>
+        {rental.notes ? (
+          <div style={{ fontSize: 12, color: C.inkMuted, gridColumn: "1 / -1", fontStyle: "italic" }}>
+            {rental.notes}
+          </div>
+        ) : null}
+      </div>
+
+      {/* Action buttons */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {(rental.status === "pending" || rental.status === "awaiting_date") && (
+          <button disabled={acting} onClick={() => onAction(rental.id, "confirm")}
+            style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: `1px solid ${C.successBorder}`,
+              background: C.successBg, color: C.successText, fontWeight: 800, fontSize: 13, cursor: acting ? "not-allowed" : "pointer", fontFamily: F }}>
+            {acting ? "..." : "✓ Confirm"}
+          </button>
+        )}
+        {rental.status === "confirmed" && (
+          <button disabled={acting} onClick={() => onAction(rental.id, "deliver")}
+            style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "none",
+              background: C.darkBtn, color: C.white, fontWeight: 800, fontSize: 13, cursor: acting ? "not-allowed" : "pointer", fontFamily: F }}>
+            {acting ? "..." : "🚛 Mark Delivered"}
+          </button>
+        )}
+        {rental.status === "active" && (
+          <button disabled={acting} onClick={() => onAction(rental.id, "return")}
+            style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: `1px solid ${C.pinkBorder}`,
+              background: C.pinkBg, color: C.pinkText, fontWeight: 800, fontSize: 13, cursor: acting ? "not-allowed" : "pointer", fontFamily: F }}>
+            {acting ? "..." : "✓ Mark Returned"}
+          </button>
+        )}
+        {!["returned", "cancelled"].includes(rental.status) && (
+          <button disabled={acting} onClick={() => {
+            if (window.confirm("Cancel this rental?")) onAction(rental.id, "cancel");
+          }}
+            style={{ padding: "10px 14px", borderRadius: 10, border: `1px solid ${C.errorBorder}`,
+              background: C.errorBg, color: C.errorText, fontWeight: 700, fontSize: 12, cursor: acting ? "not-allowed" : "pointer", fontFamily: F }}>
+            Cancel
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RentalBoardPanel() {
+  const [lanes, setLanes] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [acting, setActing] = useState(null); // rentalId being acted on
+  const [toast, setToast] = useState(null);
+  const [activeTab, setActiveTab] = useState("active"); // "active" | "pending" | "completed"
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin-rental-board");
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Failed to load");
+      setLanes(json.lanes);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function handleAction(rentalId, action) {
+    setActing(rentalId);
+    try {
+      const res = await fetch("/api/admin-rental-board", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rentalId, action }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Action failed");
+      const labels = { confirm: "Confirmed", deliver: "Marked delivered", return: "Marked returned", cancel: "Cancelled" };
+      setToast({ type: "success", message: labels[action] || "Updated" });
+      await load();
+      // Switch to relevant tab after action
+      if (action === "deliver") setActiveTab("active");
+      if (action === "return" || action === "cancel") setActiveTab("completed");
+      if (action === "confirm") setActiveTab("active");
+    } catch (err) {
+      setToast({ type: "error", message: err.message });
+    } finally {
+      setActing(null);
+      setTimeout(() => setToast(null), 3000);
+    }
+  }
+
+  const tabs = [
+    { key: "active",    label: "Active",    count: (lanes?.confirmed?.length || 0) + (lanes?.active?.length || 0) },
+    { key: "pending",   label: "Pending",   count: lanes?.pending?.length || 0 },
+    { key: "completed", label: "Done",      count: lanes?.completed?.length || 0 },
+  ];
+
+  const activeRentals = [...(lanes?.confirmed || []), ...(lanes?.active || [])];
+  // Sort: active (out) first, then confirmed (ready), by dropoff date
+  activeRentals.sort((a, b) => {
+    if (a.status === "active" && b.status !== "active") return -1;
+    if (b.status === "active" && a.status !== "active") return 1;
+    return (a.dropoff_date || "").localeCompare(b.dropoff_date || "");
+  });
+
+  const visibleRentals =
+    activeTab === "active"    ? activeRentals :
+    activeTab === "pending"   ? (lanes?.pending || []) :
+    (lanes?.completed || []).slice(0, 20);
+
+  if (loading) return <div style={{ color: C.inkMuted, fontSize: 14, padding: "20px 0" }}>Loading rentals...</div>;
+  if (error) return (
+    <div>
+      <div style={{ color: C.errorText, fontSize: 13, marginBottom: 12 }}>{error}</div>
+      <button onClick={load} style={{ padding: "10px 18px", borderRadius: 10, border: `1px solid ${C.cardBorder}`, background: C.surfaceBg, fontFamily: F, cursor: "pointer", fontWeight: 700 }}>Retry</button>
+    </div>
+  );
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      {/* Toast */}
+      {toast && (
+        <div style={{ padding: "10px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700,
+          background: toast.type === "success" ? C.successBg : C.errorBg,
+          border: `1px solid ${toast.type === "success" ? C.successBorder : C.errorBorder}`,
+          color: toast.type === "success" ? C.successText : C.errorText }}>
+          {toast.message}
+        </div>
+      )}
+
+      {/* Tab bar */}
+      <div style={{ display: "flex", gap: 6 }}>
+        {tabs.map(tab => (
+          <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+            style={{ flex: 1, padding: "10px 8px", borderRadius: 10, fontFamily: F, fontWeight: 800, fontSize: 13, cursor: "pointer",
+              border: activeTab === tab.key ? `2px solid ${C.pinkText}` : `1px solid ${C.cardBorder}`,
+              background: activeTab === tab.key ? C.pinkBg : C.surfaceBg,
+              color: activeTab === tab.key ? C.pinkText : C.inkMuted }}>
+            {tab.label}
+            {tab.count > 0 && (
+              <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 900,
+                background: activeTab === tab.key ? C.pinkText : C.inkFaint,
+                color: C.white, borderRadius: 99, padding: "1px 7px" }}>
+                {tab.count}
+              </span>
+            )}
+          </button>
+        ))}
+        <button onClick={load} style={{ padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.cardBorder}`,
+          background: C.surfaceBg, cursor: "pointer", fontSize: 16, lineHeight: 1 }} title="Refresh">
+          ↻
+        </button>
+      </div>
+
+      {/* Rental cards */}
+      {visibleRentals.length === 0 ? (
+        <div style={{ color: C.inkMuted, fontSize: 14, textAlign: "center", padding: "24px 0" }}>
+          {activeTab === "active" ? "No active or confirmed rentals." :
+           activeTab === "pending" ? "No pending rentals." : "No completed rentals in the last 30 days."}
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 10 }}>
+          {visibleRentals.map(rental => (
+            <RentalCard
+              key={rental.id}
+              rental={rental}
+              onAction={handleAction}
+              acting={acting === rental.id}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function CsrQuickBookPage() {
@@ -671,8 +912,9 @@ export default function CsrQuickBookPage() {
   }
 
   const opsPanels = [
-    { key: "units",    label: "Update Unit",      icon: "🚛", desc: "Toggle available / deployed / maintenance" },
+    { key: "board",    label: "Rental Board",      icon: "📦", desc: "View, deliver, and close active rentals" },
     { key: "rental",   label: "New Rental",        icon: "📋", desc: "Log a phone, cash, or broker booking" },
+    { key: "units",    label: "Update Unit",        icon: "🚛", desc: "Toggle available / deployed / maintenance" },
     { key: "customer", label: "Find Customer",     icon: "🔍", desc: "Search, view, and edit customer records" },
   ];
 
@@ -843,7 +1085,7 @@ export default function CsrQuickBookPage() {
             <div style={{ flex: 1, height: 1, background: C.cardBorder }} />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, marginBottom: 14 }}>
             {opsPanels.map(panel => {
               const isActive = activeOpsPanel === panel.key;
               return (
@@ -864,8 +1106,9 @@ export default function CsrQuickBookPage() {
               <div style={{ marginBottom: 14, fontSize: 16, fontWeight: 900, color: C.ink }}>
                 {opsPanels.find(p => p.key === activeOpsPanel)?.label}
               </div>
-              {activeOpsPanel === "units" && <UnitStatusPanel units={units} onRefresh={loadInventory} />}
-              {activeOpsPanel === "rental" && <NewRentalPanel />}
+              {activeOpsPanel === "board"    && <RentalBoardPanel />}
+              {activeOpsPanel === "units"    && <UnitStatusPanel units={units} onRefresh={loadInventory} />}
+              {activeOpsPanel === "rental"   && <NewRentalPanel />}
               {activeOpsPanel === "customer" && <FindCustomerPanel />}
             </div>
           )}
