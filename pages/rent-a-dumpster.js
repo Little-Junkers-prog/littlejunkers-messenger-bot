@@ -1371,8 +1371,12 @@ export default function Funnel() {
                     <span style={{ color:C.heroAccent }}>Your ZIP Code</span>
                   </h1>
                   {/* Subcopy */}
-                  <p style={{ margin:"0 0 28px", fontSize:14, color:"#b8b0a6", lineHeight:1.6, fontFamily:F, maxWidth:480 }}>
-                    Enter your ZIP code to confirm delivery, view exact local pricing, and book a driveway-safe pink dumpster online.
+                  <p style={{ margin:"0 0 6px", fontSize:14, color:"#b8b0a6", lineHeight:1.6, fontFamily:F, maxWidth:480 }}>
+                    Almost there — just need your ZIP to pull up local pricing.
+                  </p>
+                  {/* Subline */}
+                  <p style={{ margin:"0 0 28px", fontSize:12, color:"rgba(255,255,255,0.4)", lineHeight:1.5, fontFamily:F, maxWidth:480 }}>
+                    Hey, we hate when the price changes at checkout — providing your ZIP ensures no surprises.
                   </p>
                   {/* ZIP input + button + trust image — two-column grid */}
                   <style>{`
@@ -1398,7 +1402,7 @@ export default function Funnel() {
                     <div>
                       <div className="lj-zip-row" style={{ display:"flex", gap:10, alignItems:"stretch", maxWidth:440 }}>
                         <input
-                          placeholder="Enter your ZIP code"
+                          placeholder="Your ZIP"
                           value={zip}
                           onChange={e => setZip(e.target.value)}
                           onKeyDown={e => e.key === "Enter" && handleZipSubmit()}
