@@ -184,9 +184,20 @@ export default async function handler(req, res) {
     const customerPhone = normalizePhone(
       firstNonEmpty(body?.contact?.phone, body?.customerPhone)
     );
+    // deliveryAddress may arrive as a flat string, a { full } string, or a
+    // { street1, street2, city, state, zip } object from the CSR manual form.
+    // Flatten all cases to a single string before storing.
+    const addrObj = body?.deliveryAddress;
+    const flattenedAddress =
+      typeof addrObj === "string"
+        ? addrObj
+        : addrObj && typeof addrObj === "object"
+          ? [addrObj.full, addrObj.street1, addrObj.street2, addrObj.city, addrObj.state, addrObj.zip]
+              .filter(Boolean).join(", ")
+          : "";
+
     const deliveryAddress = firstNonEmpty(
-      body?.deliveryAddress?.full,
-      body?.deliveryAddress,
+      flattenedAddress,
       body?.address
     );
     const zone = inferZone(firstNonEmpty(body?.zone, "local"));

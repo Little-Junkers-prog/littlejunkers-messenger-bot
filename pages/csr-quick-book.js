@@ -441,7 +441,9 @@ function RentalCard({ rental, onAction, acting }) {
           {fmt(rental.dropoff_date)} → {fmt(rental.scheduled_return)}
         </div>
         <div style={{ fontSize: 12, color: C.inkMuted, gridColumn: "1 / -1", lineHeight: 1.4 }}>
-          {rental.delivery_address || "No address"}
+          {typeof rental.delivery_address === "string" && !rental.delivery_address.includes("[object")
+            ? rental.delivery_address
+            : "No address on file"}
         </div>
         {rental.notes ? (
           <div style={{ fontSize: 12, color: C.inkMuted, gridColumn: "1 / -1", fontStyle: "italic" }}>
