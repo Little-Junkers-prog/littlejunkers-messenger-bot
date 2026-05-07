@@ -314,7 +314,7 @@ export default async function handler(req, res) {
   assertServerOnly();
 
   const sig = req.headers["stripe-signature"];
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  const secret = process.env.STRIPE_WEBHOOK_SECRET_SUPABASE;
 
   let event;
   try {
