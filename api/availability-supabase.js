@@ -79,8 +79,6 @@ function buildExample() {
 }
 
 function summarizeAvailability(snapshot, includeDebug = false) {
-  const hasSizeLevelBlackout = snapshot.totals.sizeLevelBlackouts > 0;
-
   return {
     success: true,
     message: "Availability snapshot fetched successfully.",
@@ -90,15 +88,13 @@ function summarizeAvailability(snapshot, includeDebug = false) {
       candidateUnits: snapshot.totals.candidateUnits,
       availableUnits: snapshot.totals.availableUnits,
       blockedUnits: snapshot.totals.blockedUnits,
-      isAvailable: snapshot.totals.availableUnits > 0 && !hasSizeLevelBlackout,
+      isAvailable: snapshot.totals.availableUnits > 0,
       isTightWindow: snapshot.totals.tightWindow,
-      hasSizeLevelBlackout,
+      hasSizeLevelBlackout: false,
       blockingSummary: {
-        bookings: snapshot.totals.blockingBookings,
+        rentals: snapshot.totals.blockingRentals,
         holds: snapshot.totals.blockingHolds,
-        blackouts: snapshot.totals.blockingBlackouts,
-        sizeLevelBlackouts: snapshot.totals.sizeLevelBlackouts,
-        unassignedBlockingBookings: snapshot.totals.unassignedBlockingBookings,
+        unassignedBlockingRentals: snapshot.totals.unassignedBlockingRentals,
       },
     },
     availableUnits: snapshot.availableUnits,
