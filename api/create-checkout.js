@@ -103,6 +103,7 @@ export default async function handler(req, res) {
       orderName,
       odooOrderId,
       odooRentalOrderId,
+      deliveryAddress,
     } = req.body || {};
 
     const resolvedHoldId = asString(bookingHoldId || holdId);
@@ -185,6 +186,7 @@ export default async function handler(req, res) {
       zone: String(zone || ""),
       zip: String(zip || ""),
       area_label: String(areaLabel || ""),
+      delivery_address: String(deliveryAddress || ""),
       delivery_date: String(deliveryDate || ""),
       selected_window_start: String(selectedWindowStart || ""),
       selected_window_end: String(selectedWindowEnd || ""),
