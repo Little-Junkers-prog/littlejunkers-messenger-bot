@@ -14,7 +14,7 @@ function applyCors(req, res) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
   res.setHeader("Vary", "Origin");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
@@ -231,5 +231,123 @@ export default async function handler(req, res) {
     }
   }
 
-  return res.status(405).json({ error: "Method not allowed" });
+
+  // ── PATCH: CSR field edit ──────────────────────────────────────────────────
+  // Editable: delivery_address, dropoff_date, scheduled_return,
+  //           size_yards, amount_paid, customer_phone
+  // Writes admin_override event with before/after diff on every save.
+  if (req.method === 'PATCH') {
+    try {
+      const { rentalId, fields } = req.body || {};
+
+      if (!rentalId || !fields || typeof fields !== 'object') {
+        return res.status(400).json({ success: false, error: 'rentalId and fields object required' });
+      }
+
+      const supabase = getSupabaseAdmin();
+
+      // Fetch current rental + customer_id for diff
+      const { data: rental, error: fetchError } = await supabase
+        .from('rentals')
+        .select('id, customer_id, delivery_address, dropoff_date, scheduled_return, size_yards, amount_paid')
+        .eq('id', rentalId)
+        .single();
+
+      if (fetchError || !rental) {
+        return res.status(404).json({ success: false, error: 'Rental not found' });
+      }
+
+      const rentalUpdate = {};
+      const changes = {};
+
+      if (fields.delivery_address !== undefined) {
+        const val = String(fields.delivery_address || '').trim();
+        if (val && val !== rental.delivery_address) {
+          rentalUpdate.delivery_address = val;
+          changes.delivery_address = { from: rental.delivery_address, to: val };
+        }
+      }
+
+      if (fields.dropoff_date !== undefined) {
+        const val = String(fields.dropoff_date || '').trim();
+        if (/^d{4}-d{2}-d{2}$/.test(val) && val !== rental.dropoff_date) {
+          rentalUpdate.dropoff_date = val;
+          changes.dropoff_date = { from: rental.dropoff_date, to: val };
+        }
+      }
+
+      if (fields.scheduled_return !== undefined) {
+        const val = String(fields.scheduled_return || '').trim();
+        if (/^d{4}-d{2}-d{2}$/.test(val) && val !== rental.scheduled_return) {
+          rentalUpdate.scheduled_return = val;
+          changes.scheduled_return = { from: rental.scheduled_return, to: val };
+        }
+      }
+
+      if (fields.size_yards !== undefined) {
+        const val = parseInt(fields.size_yards, 10);
+        if ([11, 16, 21].includes(val) && val !== rental.size_yards) {
+          rentalUpdate.size_yards = val;
+          changes.size_yards = { from: rental.size_yards, to: val };
+        }
+      }
+
+      if (fields.amount_paid !== undefined) {
+        const val = parseFloat(fields.amount_paid);
+        if (!isNaN(val) && val >= 0 && val !== Number(rental.amount_paid)) {
+          rentalUpdate.amount_paid = val;
+          changes.amount_paid = { from: Number(rental.amount_paid), to: val };
+        }
+      }
+
+      // customer.phone lives on the customers table
+      let customerPhoneChanged = false;
+      if (fields.customer_phone !== undefined && rental.customer_id) {
+        const val = String(fields.customer_phone || '').trim();
+        if (val) {
+          const { data: customer } = await supabase
+            .from('customers')
+            .select('phone')
+            .eq('id', rental.customer_id)
+            .single();
+
+          if (customer && val !== customer.phone) {
+            await supabase
+              .from('customers')
+              .update({ phone: val })
+              .eq('id', rental.customer_id);
+            changes.customer_phone = { from: customer.phone, to: val };
+            customerPhoneChanged = true;
+          }
+        }
+      }
+
+      if (Object.keys(rentalUpdate).length === 0 && !customerPhoneChanged) {
+        return res.status(200).json({ success: true, rentalId, changes: {}, message: 'No changes to apply' });
+      }
+
+      if (Object.keys(rentalUpdate).length > 0) {
+        const { error: updateError } = await supabase
+          .from('rentals')
+          .update(rentalUpdate)
+          .eq('id', rentalId);
+        if (updateError) throw updateError;
+      }
+
+      await supabase.from('events').insert({
+        event_type: 'admin_override',
+        source: 'admin',
+        rental_id: rentalId,
+        customer_id: rental.customer_id || null,
+        payload: { triggeredBy: 'csr_rental_edit', changes },
+      });
+
+      return res.status(200).json({ success: true, rentalId, changes });
+    } catch (err) {
+      console.error('[admin-rental-board] PATCH failed:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  return res.status(405).json({ error: 'Method not allowed' });
 }

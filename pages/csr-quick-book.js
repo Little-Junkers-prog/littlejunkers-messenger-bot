@@ -398,18 +398,63 @@ function fmt(dateStr) {
   return `${m}/${d}`;
 }
 
-function RentalCard({ rental, onAction, acting }) {
+function RentalCard({ rental, onAction, onEdit, acting }) {
   const customer = rental.customers || {};
   const statusMeta = STATUS_META[rental.status] || STATUS_META.pending;
   const isPaid = rental.amount_paid > 0;
   const phone = customer.phone || "";
+
+  // ── Edit mode state ──────────────────────────────────────────────────────
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [draft, setDraft] = useState({});
+
+  function openEdit() {
+    setDraft({
+      delivery_address: rental.delivery_address || "",
+      dropoff_date:     rental.dropoff_date     || "",
+      scheduled_return: rental.scheduled_return || "",
+      size_yards:       String(rental.size_yards || ""),
+      amount_paid:      rental.amount_paid != null ? String(rental.amount_paid) : "",
+      customer_phone:   phone,
+    });
+    setEditError("");
+    setEditing(true);
+  }
+
+  async function saveEdit() {
+    setSaving(true);
+    setEditError("");
+    try {
+      const res = await fetch("/api/admin-rental-board", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rentalId: rental.id, fields: draft }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Save failed");
+      setEditing(false);
+      if (onEdit) onEdit(); // trigger board refresh
+    } catch (err) {
+      setEditError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputStyle = {
+    width: "100%", padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.surfaceBorder}`,
+    fontSize: 13, fontFamily: F, color: C.ink, background: C.white, boxSizing: "border-box",
+  };
+  const labelStyle = { fontSize: 11, fontWeight: 700, color: C.inkMuted, marginBottom: 3 };
 
   return (
     <div style={{
       background: C.white, border: `1px solid ${C.cardBorder}`,
       borderRadius: 16, padding: "14px 16px", display: "grid", gap: 10,
     }}>
-      {/* Top row: name + status badge */}
+      {/* Top row: name + status badges + edit button */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 900, color: C.ink }}>{customer.name || "Unknown customer"}</div>
@@ -420,10 +465,19 @@ function RentalCard({ rental, onAction, acting }) {
           ) : null}
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
-          <span style={{ fontSize: 11, fontWeight: 800, padding: "3px 10px", borderRadius: 99,
-            background: statusMeta.bg, border: `1px solid ${statusMeta.border}`, color: statusMeta.text }}>
-            {statusMeta.label}
-          </span>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <span style={{ fontSize: 11, fontWeight: 800, padding: "3px 10px", borderRadius: 99,
+              background: statusMeta.bg, border: `1px solid ${statusMeta.border}`, color: statusMeta.text }}>
+              {statusMeta.label}
+            </span>
+            {!editing && !["returned", "cancelled"].includes(rental.status) && (
+              <button onClick={openEdit} title="Edit rental"
+                style={{ padding: "3px 8px", borderRadius: 8, border: `1px solid ${C.surfaceBorder}`,
+                  background: C.surfaceBg, cursor: "pointer", fontSize: 13, lineHeight: 1, color: C.inkMuted, fontFamily: F }}>
+                ✏️
+              </button>
+            )}
+          </div>
           <span style={{ fontSize: 11, fontWeight: 700, color: isPaid ? C.successText : C.warningText,
             background: isPaid ? C.successBg : C.warningBg, border: `1px solid ${isPaid ? C.successBorder : C.warningBorder}`,
             padding: "2px 8px", borderRadius: 99 }}>
@@ -432,59 +486,126 @@ function RentalCard({ rental, onAction, acting }) {
         </div>
       </div>
 
-      {/* Details row */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-        <div style={{ fontSize: 12, color: C.inkMuted }}>
-          <span style={{ fontWeight: 700, color: C.ink }}>{rental.size_yards} Yard</span>
-        </div>
-        <div style={{ fontSize: 12, color: C.inkMuted, textAlign: "right" }}>
-          {fmt(rental.dropoff_date)} → {fmt(rental.scheduled_return)}
-        </div>
-        <div style={{ fontSize: 12, color: C.inkMuted, gridColumn: "1 / -1", lineHeight: 1.4 }}>
-          {typeof rental.delivery_address === "string" && !rental.delivery_address.includes("[object")
-            ? rental.delivery_address
-            : "No address on file"}
-        </div>
-        {rental.notes ? (
-          <div style={{ fontSize: 12, color: C.inkMuted, gridColumn: "1 / -1", fontStyle: "italic" }}>
-            {rental.notes}
+      {/* ── Edit form (inline) ─────────────────────────────────────────── */}
+      {editing ? (
+        <div style={{ display: "grid", gap: 10, padding: "10px 0" }}>
+          <div>
+            <div style={labelStyle}>Delivery Address</div>
+            <input style={inputStyle} value={draft.delivery_address}
+              onChange={e => setDraft(d => ({ ...d, delivery_address: e.target.value }))} />
           </div>
-        ) : null}
-      </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div>
+              <div style={labelStyle}>Drop-off Date</div>
+              <input type="date" style={inputStyle} value={draft.dropoff_date}
+                onChange={e => setDraft(d => ({ ...d, dropoff_date: e.target.value }))} />
+            </div>
+            <div>
+              <div style={labelStyle}>Return Date</div>
+              <input type="date" style={inputStyle} value={draft.scheduled_return}
+                onChange={e => setDraft(d => ({ ...d, scheduled_return: e.target.value }))} />
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div>
+              <div style={labelStyle}>Size</div>
+              <select style={inputStyle} value={draft.size_yards}
+                onChange={e => setDraft(d => ({ ...d, size_yards: e.target.value }))}>
+                <option value="11">11 Yard</option>
+                <option value="16">16 Yard</option>
+                <option value="21">21 Yard</option>
+              </select>
+            </div>
+            <div>
+              <div style={labelStyle}>Amount Paid ($)</div>
+              <input type="number" min="0" step="1" style={inputStyle} value={draft.amount_paid}
+                onChange={e => setDraft(d => ({ ...d, amount_paid: e.target.value }))}
+                placeholder="0" />
+            </div>
+          </div>
+          <div>
+            <div style={labelStyle}>Customer Phone</div>
+            <input type="tel" style={inputStyle} value={draft.customer_phone}
+              onChange={e => setDraft(d => ({ ...d, customer_phone: e.target.value }))} />
+          </div>
+          {editError && (
+            <div style={{ fontSize: 12, color: C.errorText, background: C.errorBg,
+              border: `1px solid ${C.errorBorder}`, borderRadius: 8, padding: "8px 10px" }}>
+              {editError}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={saveEdit} disabled={saving}
+              style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "none",
+                background: saving ? C.inkFaint : C.darkBtn, color: C.white,
+                fontWeight: 800, fontSize: 13, cursor: saving ? "not-allowed" : "pointer", fontFamily: F }}>
+              {saving ? "Saving..." : "Save Changes"}
+            </button>
+            <button onClick={() => setEditing(false)} disabled={saving}
+              style={{ padding: "10px 14px", borderRadius: 10, border: `1px solid ${C.cardBorder}`,
+                background: C.surfaceBg, color: C.inkMuted, fontWeight: 700, fontSize: 13,
+                cursor: saving ? "not-allowed" : "pointer", fontFamily: F }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        /* ── Read-only detail view ──────────────────────────────────────── */
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+          <div style={{ fontSize: 12, color: C.inkMuted }}>
+            <span style={{ fontWeight: 700, color: C.ink }}>{rental.size_yards} Yard</span>
+          </div>
+          <div style={{ fontSize: 12, color: C.inkMuted, textAlign: "right" }}>
+            {fmt(rental.dropoff_date)} → {fmt(rental.scheduled_return)}
+          </div>
+          <div style={{ fontSize: 12, color: C.inkMuted, gridColumn: "1 / -1", lineHeight: 1.4 }}>
+            {typeof rental.delivery_address === "string" && !rental.delivery_address.includes("[object")
+              ? rental.delivery_address
+              : "No address on file"}
+          </div>
+          {rental.notes ? (
+            <div style={{ fontSize: 12, color: C.inkMuted, gridColumn: "1 / -1", fontStyle: "italic" }}>
+              {rental.notes}
+            </div>
+          ) : null}
+        </div>
+      )}
 
-      {/* Action buttons */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {(rental.status === "pending" || rental.status === "awaiting_date") && (
-          <button disabled={acting} onClick={() => onAction(rental.id, "confirm")}
-            style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: `1px solid ${C.successBorder}`,
-              background: C.successBg, color: C.successText, fontWeight: 800, fontSize: 13, cursor: acting ? "not-allowed" : "pointer", fontFamily: F }}>
-            {acting ? "..." : "✓ Confirm"}
-          </button>
-        )}
-        {rental.status === "confirmed" && (
-          <button disabled={acting} onClick={() => onAction(rental.id, "deliver")}
-            style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "none",
-              background: C.darkBtn, color: C.white, fontWeight: 800, fontSize: 13, cursor: acting ? "not-allowed" : "pointer", fontFamily: F }}>
-            {acting ? "..." : "🚛 Mark Delivered"}
-          </button>
-        )}
-        {rental.status === "active" && (
-          <button disabled={acting} onClick={() => onAction(rental.id, "return")}
-            style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: `1px solid ${C.pinkBorder}`,
-              background: C.pinkBg, color: C.pinkText, fontWeight: 800, fontSize: 13, cursor: acting ? "not-allowed" : "pointer", fontFamily: F }}>
-            {acting ? "..." : "✓ Mark Returned"}
-          </button>
-        )}
-        {!["returned", "cancelled"].includes(rental.status) && (
-          <button disabled={acting} onClick={() => {
-            if (window.confirm("Cancel this rental?")) onAction(rental.id, "cancel");
-          }}
-            style={{ padding: "10px 14px", borderRadius: 10, border: `1px solid ${C.errorBorder}`,
-              background: C.errorBg, color: C.errorText, fontWeight: 700, fontSize: 12, cursor: acting ? "not-allowed" : "pointer", fontFamily: F }}>
-            Cancel
-          </button>
-        )}
-      </div>
+      {/* Action buttons — hidden while editing */}
+      {!editing && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {(rental.status === "pending" || rental.status === "awaiting_date") && (
+            <button disabled={acting} onClick={() => onAction(rental.id, "confirm")}
+              style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: `1px solid ${C.successBorder}`,
+                background: C.successBg, color: C.successText, fontWeight: 800, fontSize: 13, cursor: acting ? "not-allowed" : "pointer", fontFamily: F }}>
+              {acting ? "..." : "✓ Confirm"}
+            </button>
+          )}
+          {rental.status === "confirmed" && (
+            <button disabled={acting} onClick={() => onAction(rental.id, "deliver")}
+              style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "none",
+                background: C.darkBtn, color: C.white, fontWeight: 800, fontSize: 13, cursor: acting ? "not-allowed" : "pointer", fontFamily: F }}>
+              {acting ? "..." : "🚛 Mark Delivered"}
+            </button>
+          )}
+          {rental.status === "active" && (
+            <button disabled={acting} onClick={() => onAction(rental.id, "return")}
+              style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: `1px solid ${C.pinkBorder}`,
+                background: C.pinkBg, color: C.pinkText, fontWeight: 800, fontSize: 13, cursor: acting ? "not-allowed" : "pointer", fontFamily: F }}>
+              {acting ? "..." : "✓ Mark Returned"}
+            </button>
+          )}
+          {!["returned", "cancelled"].includes(rental.status) && (
+            <button disabled={acting} onClick={() => {
+              if (window.confirm("Cancel this rental?")) onAction(rental.id, "cancel");
+            }}
+              style={{ padding: "10px 14px", borderRadius: 10, border: `1px solid ${C.errorBorder}`,
+                background: C.errorBg, color: C.errorText, fontWeight: 700, fontSize: 12, cursor: acting ? "not-allowed" : "pointer", fontFamily: F }}>
+              Cancel
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -615,6 +736,7 @@ function RentalBoardPanel() {
               key={rental.id}
               rental={rental}
               onAction={handleAction}
+              onEdit={load}
               acting={acting === rental.id}
             />
           ))}
