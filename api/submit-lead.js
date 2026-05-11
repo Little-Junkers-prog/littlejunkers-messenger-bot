@@ -1,10 +1,10 @@
 // api/submit-lead.js
-// Creates or updates a structured crm.lead in Odoo from funnel submission payload.
-// Auth flow:
-//   1) XML-RPC authenticate -> uid
-//   2) JSON-RPC execute_kw -> create/write/search_read calls
+// Dual-write: Supabase leads table (primary, blocking) + Odoo CRM (secondary, non-blocking).
+// Supabase is the source of truth. Odoo failure does not fail the request.
+// Returns both supabaseLeadId and leadId (Odoo) to the frontend.
 
 import smsModule from "../lib/sms";
+import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 
 const { sendSms } = smsModule;
 
@@ -333,6 +333,66 @@ const MAP_PAYMENT_STATUS = {
   "Pending": "Pending",
 };
 
+// ─── Supabase helpers ────────────────────────────────────────────────────────
+
+/**
+ * Parse "11 Yard" / "16 Yard" / "21 Yard" -> integer 11 / 16 / 21.
+ * Returns null if unparseable — column is nullable.
+ */
+function parseSizeYards(sizeString) {
+  if (!sizeString) return null;
+  const m = String(sizeString).match(/(\d+)/);
+  const n = m ? parseInt(m[1], 10) : null;
+  return [11, 16, 21].includes(n) ? n : null;
+}
+
+/**
+ * Parse an ISO or date-only string to YYYY-MM-DD for Supabase date columns.
+ * Returns null if unparseable.
+ */
+function toDateOnly(val) {
+  const s = asString(val);
+  if (!s) return null;
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s.includes("T") ? s : s + "T12:00:00");
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Upsert a lead row in Supabase.
+ * - If supabaseLeadId is provided: UPDATE that row and return it.
+ * - Otherwise: INSERT and return the new row.
+ * Returns the row id (uuid string) or throws.
+ */
+async function upsertSupabaseLead(supabaseLeadId, leadData) {
+  const supabase = getSupabaseAdmin();
+
+  if (supabaseLeadId) {
+    const { data, error } = await supabase
+      .from("leads")
+      .update({ ...leadData, updated_at: new Date().toISOString() })
+      .eq("id", supabaseLeadId)
+      .select("id")
+      .single();
+
+    if (error) throw new Error(`Supabase lead update failed: ${error.message}`);
+    return data.id;
+  }
+
+  const { data, error } = await supabase
+    .from("leads")
+    .insert(leadData)
+    .select("id")
+    .single();
+
+  if (error) throw new Error(`Supabase lead insert failed: ${error.message}`);
+  return data.id;
+}
+
+// ─── Handler ─────────────────────────────────────────────────────────────────
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -347,7 +407,8 @@ export default async function handler(req, res) {
   }
 
   const {
-    leadId, // <--- New parameter injected here
+    supabaseLeadId, // Supabase leads.id — present on updates, absent on first write
+    leadId,         // Odoo crm.lead id — present on updates
     zip,
     areaLabel,
     zone,
@@ -398,8 +459,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    const uid = await xmlrpcAuth();
-
     const dumpsterSize = pickFirstNonEmpty(selectedSize, recommendedSize);
     const rentalType = asString(rentalOption);
 
@@ -425,149 +484,197 @@ export default async function handler(req, res) {
     const quotedPrice = asNumber(rentalPrice, 0);
     const deliveryFeeNum = asNumber(deliveryFee, 0);
 
-    const sourceId =
-      (await findLeadSourceIdByName(uid, pickFirstNonEmpty(leadSourceName, "Website"))) || false;
-
     const referralText = pickFirstNonEmpty(contact?.source, referredBy);
-    const projectText = pickFirstNonEmpty(project, otherText);
 
-    // Native CRM address fields
-    const street  = asString(deliveryAddress?.street  || req.body?.street);
-const street2 = asString(deliveryAddress?.street2 || req.body?.street2);
-const city    = pickFirstNonEmpty(deliveryAddress?.city, req.body?.city, areaLabel);
-const postalCode = pickFirstNonEmpty(deliveryAddress?.zip, req.body?.zip, zip);
-    const countryName = pickFirstNonEmpty(deliveryAddress?.country, "United States");
-    const stateName = pickFirstNonEmpty(
-      deliveryAddress?.state,
-      "Georgia",
-      "Georgia (US)"
-    );
-
-    const countryId = await findCountryId(uid, countryName);
-    const stateId = await findStateId(uid, stateName, countryId);
+    // Native address fields
+    const street     = asString(deliveryAddress?.street  || req.body?.street);
+    const street2    = asString(deliveryAddress?.street2 || req.body?.street2);
+    const city       = pickFirstNonEmpty(deliveryAddress?.city, req.body?.city, areaLabel);
+    const postalCode = pickFirstNonEmpty(deliveryAddress?.zip, req.body?.zip, zip);
+    const stateName  = pickFirstNonEmpty(deliveryAddress?.state, "Georgia", "Georgia (US)");
 
     const smsOptInBool = asBoolean(smsOptIn);
     const smsOptInTimestamp = smsOptInBool
       ? (toOdooDatetime(smsOptInDate) || buildNowPlusMinutes(0))
       : false;
 
-    const leadName = isExitCapture
-      ? `Exit Lead: ${contactName || phone} — ${dumpsterSize || "No Size Selected"}`
-      : `Funnel Lead: ${contactName || phone} — ${dumpsterSize || "Unknown Size"}`;
+    // ── 1. SUPABASE WRITE (primary, blocking) ────────────────────────────────
+    const fullStreet = [street, street2].filter(Boolean).join(" ").trim() || null;
 
-    const exitCaptureWarning = isExitCapture
-      ? [
-          "⚠️  EXIT CAPTURE LEAD — INCOMPLETE BOOKING",
-          "This lead was captured when the customer abandoned the funnel.",
-          "No delivery date, pricing, or booking hold exists for this lead.",
-          "Do NOT treat as a confirmed booking. Follow up by phone/text before taking action.",
-          "---",
-        ]
-      : [];
-
-    const debugNotes = [
-      ...exitCaptureWarning,
-      `Funnel source: ${pickFirstNonEmpty(funnelSource, "website_checkout")}`,
-      `ZIP: ${postalCode || "—"}`,
-      `Area: ${asString(areaLabel) || "—"}`,
-      `Zone: ${asString(zone) || "—"}`,
-      `Delivery address: ${[street, street2, city, stateName, postalCode].filter(Boolean).join(", ") || "—"}`,
-      `Customer type: ${asString(customerType) || "—"}`,
-      `Project: ${projectText || "—"}`,
-      `Size: ${dumpsterSize || "—"}`,
-      `Rental type: ${rentalType || "—"}`,
-      `Rental start: ${rentalStart || "—"}`,
-      `Rental end: ${rentalEnd || "—"}`,
-      `Quoted price: ${quotedPrice}`,
-      `Delivery fee: ${deliveryFeeNum}`,
-      `SMS opt-in: ${smsOptInBool ? "Yes" : "No"}`,
-      referralText ? `Referred by: ${referralText}` : null,
-    ].filter(Boolean).join("\n");
-
-    const values = {
-      // standard CRM routing
-      name: leadName,
-      team_id: ODOO_TEAM_ID,
-      stage_id: ODOO_STAGE_ID,
-      source_id: sourceId || false,
-
-      // contact identity on lead
-      contact_name: contactName || false,
-      email_from: email || false,
-      phone: phone || false,
-      mobile: mobile || false,
-
-      // native CRM lead address fields
-      street: street || false,
-      street2: street2 || false,
-      city: city || false,
-      zip: postalCode || false,
-      state_id: stateId || false,
-      country_id: countryId || false,
-
-      // useful native CRM value
-      expected_revenue: quotedPrice,
-
-      // compact debug note
-      description: debugNotes,
-
-      // flag exit capture leads for easy CRM filtering
-      priority: isExitCapture ? "1" : "0",
-
-      // existing Studio fields to keep
-      x_studio_selection_field_222_1jkvln416:
-        mapSelection(customerType, MAP_CUSTOMER_TYPE),
-      x_studio_selection_field_es_1jkvlssq9:
-        mapSelection(project, MAP_PROJECT_TYPE),
-
-      // structured funnel fields
-      x_studio_dumpster_size:
-        mapSelection(dumpsterSize, MAP_DUMPSTER_SIZE),
-      x_studio_rental_type:
-        mapSelection(rentalType, MAP_RENTAL_TYPE),
-      x_studio_rental_start: rentalStart || false,
-      x_studio_rental_end: rentalEnd || false,
-      x_studio_payment_status:
-        mapSelection(
-          isExitCapture ? "Incomplete" : pickFirstNonEmpty(req.body?.paymentStatus, "Pending"),
-          MAP_PAYMENT_STATUS
-        ),
-      x_studio_hold_expires_at: holdExpiresAt || false,
-      x_studio_quoted_price: quotedPrice,
-      x_studio_delivery_fee: deliveryFeeNum,
-      x_studio_zone: asString(zone) || false,
-      x_studio_service_area: asString(areaLabel) || false,
-      x_studio_funnel_source: pickFirstNonEmpty(funnelSource, "website_checkout"),
-
-      // SMS compliance fields
-      x_studio_sms_opt_in: smsOptInBool,
-      x_studio_sms_opt_in_date: smsOptInTimestamp || false,
-
-      // referral helper
-      referred: referralText || false,
+    const supabaseLeadData = {
+      name:          contactName || null,
+      phone:         phone || null,
+      email:         email || null,
+      street:        fullStreet,
+      city:          city || null,
+      zip:           postalCode || null,
+      zone:          asString(zone) || null,
+      service_area:  asString(areaLabel) || null,
+      size_yards:    parseSizeYards(dumpsterSize),
+      rental_type:   rentalType || null,
+      rental_start:  toDateOnly(
+        selectedWindow?.start ||
+        selectedWindow?.startIso ||
+        selectedWindow?.startDateTime ||
+        selectedWindow?.start_at ||
+        req.body?.rentalStart
+      ),
+      rental_end: toDateOnly(
+        selectedWindow?.end ||
+        selectedWindow?.endIso ||
+        selectedWindow?.endDateTime ||
+        selectedWindow?.end_at ||
+        req.body?.rentalEnd
+      ),
+      quoted_price:   quotedPrice > 0 ? quotedPrice : null,
+      delivery_fee:   deliveryFeeNum > 0 ? deliveryFeeNum : null,
+      customer_type:  asString(customerType) || null,
+      is_contractor:  asString(customerType) === "contractor",
+      lead_source:    pickFirstNonEmpty(leadSourceName, "Website"),
+      funnel_source:  pickFirstNonEmpty(funnelSource, "website_checkout"),
+      referred_by:    referralText || null,
+      funnel_status:  isExitCapture ? "abandoned" : "active",
+      sms_opt_in:     smsOptInBool,
+      sms_opt_in_date: smsOptInBool && smsOptInDate ? new Date(smsOptInDate).toISOString() : null,
+      hold_expires_at: req.body?.holdExpiresAt
+        ? new Date(req.body.holdExpiresAt).toISOString()
+        : null,
     };
 
-    let resultingLeadId;
-    const parsedLeadId = parseInt(leadId, 10);
+    const resultingSupabaseLeadId = await upsertSupabaseLead(
+      supabaseLeadId || null,
+      supabaseLeadData
+    );
 
-    // PIIVOT LOGIC: Update if ID exists, Create if it doesn't
-    if (parsedLeadId && !isNaN(parsedLeadId)) {
-      await odooCall(uid, "crm.lead", "write", [[parsedLeadId], values]);
-      resultingLeadId = parsedLeadId;
-    } else {
-      values.type = "lead"; // only needed on creation
-      resultingLeadId = await odooCall(uid, "crm.lead", "create", [values]);
-    }
+    // ── 2. ODOO WRITE (secondary, non-blocking) ───────────────────────────────
+    let resultingLeadId = leadId || null;
+    let odooAction = null;
 
+    // Fire Odoo in background — failure does not fail the response
+    const odooPromise = (async () => {
+      try {
+        const uid = await xmlrpcAuth();
+
+        const countryName = pickFirstNonEmpty(deliveryAddress?.country, "United States");
+        const countryId = await findCountryId(uid, countryName);
+        const stateId = await findStateId(uid, stateName, countryId);
+        const sourceId =
+          (await findLeadSourceIdByName(uid, pickFirstNonEmpty(leadSourceName, "Website"))) || false;
+
+        const leadName = isExitCapture
+          ? `Exit Lead: ${contactName || phone} — ${dumpsterSize || "No Size Selected"}`
+          : `Funnel Lead: ${contactName || phone} — ${dumpsterSize || "Unknown Size"}`;
+
+        const exitCaptureWarning = isExitCapture
+          ? [
+              "⚠️  EXIT CAPTURE LEAD — INCOMPLETE BOOKING",
+              "This lead was captured when the customer abandoned the funnel.",
+              "No delivery date, pricing, or booking hold exists for this lead.",
+              "Do NOT treat as a confirmed booking. Follow up by phone/text before taking action.",
+              "---",
+            ]
+          : [];
+
+        const debugNotes = [
+          ...exitCaptureWarning,
+          `Funnel source: ${pickFirstNonEmpty(funnelSource, "website_checkout")}`,
+          `ZIP: ${postalCode || "—"}`,
+          `Area: ${asString(areaLabel) || "—"}`,
+          `Zone: ${asString(zone) || "—"}`,
+          `Delivery address: ${[street, street2, city, stateName, postalCode].filter(Boolean).join(", ") || "—"}`,
+          `Customer type: ${asString(customerType) || "—"}`,
+          `Project: ${pickFirstNonEmpty(project, otherText) || "—"}`,
+          `Size: ${dumpsterSize || "—"}`,
+          `Rental type: ${rentalType || "—"}`,
+          `Rental start: ${rentalStart || "—"}`,
+          `Rental end: ${rentalEnd || "—"}`,
+          `Quoted price: ${quotedPrice}`,
+          `Delivery fee: ${deliveryFeeNum}`,
+          `SMS opt-in: ${smsOptInBool ? "Yes" : "No"}`,
+          `Supabase lead ID: ${resultingSupabaseLeadId}`,
+          referralText ? `Referred by: ${referralText}` : null,
+        ].filter(Boolean).join("\n");
+
+        const values = {
+          name: leadName,
+          team_id: ODOO_TEAM_ID,
+          stage_id: ODOO_STAGE_ID,
+          source_id: sourceId || false,
+          contact_name: contactName || false,
+          email_from: email || false,
+          phone: phone || false,
+          mobile: mobile || false,
+          street: street || false,
+          street2: street2 || false,
+          city: city || false,
+          zip: postalCode || false,
+          state_id: stateId || false,
+          country_id: countryId || false,
+          expected_revenue: quotedPrice,
+          description: debugNotes,
+          priority: isExitCapture ? "1" : "0",
+          x_studio_selection_field_222_1jkvln416:
+            mapSelection(customerType, MAP_CUSTOMER_TYPE),
+          x_studio_selection_field_es_1jkvlssq9:
+            mapSelection(project, MAP_PROJECT_TYPE),
+          x_studio_dumpster_size:
+            mapSelection(dumpsterSize, MAP_DUMPSTER_SIZE),
+          x_studio_rental_type:
+            mapSelection(rentalType, MAP_RENTAL_TYPE),
+          x_studio_rental_start: rentalStart || false,
+          x_studio_rental_end: rentalEnd || false,
+          x_studio_payment_status:
+            mapSelection(
+              isExitCapture ? "Incomplete" : pickFirstNonEmpty(req.body?.paymentStatus, "Pending"),
+              MAP_PAYMENT_STATUS
+            ),
+          x_studio_hold_expires_at: holdExpiresAt || false,
+          x_studio_quoted_price: quotedPrice,
+          x_studio_delivery_fee: deliveryFeeNum,
+          x_studio_zone: asString(zone) || false,
+          x_studio_service_area: asString(areaLabel) || false,
+          x_studio_funnel_source: pickFirstNonEmpty(funnelSource, "website_checkout"),
+          x_studio_sms_opt_in: smsOptInBool,
+          x_studio_sms_opt_in_date: smsOptInTimestamp || false,
+          referred: referralText || false,
+        };
+
+        const parsedLeadId = parseInt(leadId, 10);
+        if (parsedLeadId && !isNaN(parsedLeadId)) {
+          await odooCall(uid, "crm.lead", "write", [[parsedLeadId], values]);
+          resultingLeadId = parsedLeadId;
+          odooAction = "updated";
+        } else {
+          values.type = "lead";
+          resultingLeadId = await odooCall(uid, "crm.lead", "create", [values]);
+          odooAction = "created";
+        }
+
+        // Write Odoo lead ID back to Supabase lead row
+        if (resultingLeadId && resultingSupabaseLeadId) {
+          const supabase = getSupabaseAdmin();
+          await supabase
+            .from("leads")
+            .update({ odoo_lead_id: String(resultingLeadId) })
+            .eq("id", resultingSupabaseLeadId);
+        }
+      } catch (odooErr) {
+        console.error("[submit-lead] Odoo write failed (non-blocking):", odooErr.message?.slice(0, 300));
+      }
+    })();
+
+    // ── 3. SMS (exit capture only, non-blocking) ──────────────────────────────
     let smsSent = false;
     if (isExitCapture && smsOptInBool && phone) {
+      const quotedPriceNum = quotedPrice;
+      odooPromise.then(() => {}).catch(() => {}); // ensure it doesn't block
       try {
         await sendExitQuoteSms({
           phone,
           contactName,
           dumpsterSize,
           rentalType,
-          quotedPrice,
+          quotedPrice: quotedPriceNum,
           deliveryFeeNum,
           areaLabel,
           postalCode,
@@ -578,21 +685,19 @@ const postalCode = pickFirstNonEmpty(deliveryAddress?.zip, req.body?.zip, zip);
       }
     }
 
+    // Wait for Odoo to settle before responding so leadId is available for holdPayload
+    await odooPromise;
+
     return res.status(200).json({
       success: true,
-      leadId: resultingLeadId, // <--- Returns the same ID back to the frontend
-      action: parsedLeadId ? "updated" : "created",
+      supabaseLeadId: resultingSupabaseLeadId,
+      leadId: resultingLeadId,
+      action: supabaseLeadId ? "updated" : "created",
       smsSent,
-      routed: {
-        type: "lead",
-        team_id: ODOO_TEAM_ID,
-        stage_id: ODOO_STAGE_ID,
-        source_id: sourceId || null,
-      },
     });
   } catch (err) {
-    console.error("[submit-lead] FAILED");
-    console.error("[submit-lead] msg:", err.message?.slice(0, 300));
+    // Only Supabase failures reach here — Odoo failures are caught internally
+    console.error("[submit-lead] FAILED:", err.message?.slice(0, 300));
 
     return res.status(500).json({
       success: false,

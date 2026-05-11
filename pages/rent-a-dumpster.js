@@ -878,8 +878,9 @@ export default function Funnel() {
     zip:     "",
   });
 
-  const [capturedLeadId,      setCapturedLeadId]      = useState(null);
-  const [showExitModal,       setShowExitModal]       = useState(false);
+  const [capturedLeadId,        setCapturedLeadId]        = useState(null);
+  const [capturedSupabaseLeadId, setCapturedSupabaseLeadId] = useState(null);
+  const [showExitModal,         setShowExitModal]          = useState(false);
   const [exitSubmitting,      setExitSubmitting]      = useState(false);
   const [exitError,           setExitError]           = useState("");
   const [exitSubmitted,       setExitSubmitted]       = useState(false);
@@ -1154,10 +1155,12 @@ export default function Funnel() {
   };
 
   const handlePhoneBlur = async () => {
-    if (capturedLeadId) return;
+    if (capturedLeadId && capturedSupabaseLeadId) return;
     const cleanPhone = form.phone.trim();
     if (cleanPhone.length < 10) return;
     const payload = {
+      supabaseLeadId: capturedSupabaseLeadId || undefined,
+      leadId: capturedLeadId || undefined,
       zip, areaLabel, zone:zoneKey, deliveryFee:zoneFee, customerType, returningPath,
       project: normalizeProjectForOdoo(project),
       otherText: project === "Other" ? otherText.trim() : "",
@@ -1174,8 +1177,13 @@ export default function Funnel() {
     try {
       const res = await fetch("/api/submit-lead", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(payload) });
       const json = await res.json();
-      if (json?.success && json?.leadId) { setCapturedLeadId(json.leadId); }
-    } catch (err) {}
+      if (json?.success) {
+        if (json?.supabaseLeadId) { setCapturedSupabaseLeadId(json.supabaseLeadId); }
+        if (json?.leadId) { setCapturedLeadId(json.leadId); }
+      }
+    } catch (err) {
+      console.error("[handlePhoneBlur] lead capture failed:", err.message);
+    }
   };
 
   const handleSubmit = async () => {
@@ -1203,6 +1211,7 @@ export default function Funnel() {
     setSubmitError("");
 
     const payload = {
+      supabaseLeadId: capturedSupabaseLeadId,
       leadId: capturedLeadId,
       zip,
       areaLabel,
@@ -1253,10 +1262,12 @@ export default function Funnel() {
       }
 
       const finalLeadId = odooJson.leadId || capturedLeadId;
+      const finalSupabaseLeadId = odooJson.supabaseLeadId || capturedSupabaseLeadId;
 
       const holdPayload = {
         ...payload,
         leadId: finalLeadId,
+        supabaseLeadId: finalSupabaseLeadId,
         customerName: form.name.trim(),
         customerEmail: form.email.trim(),
         sizeCode: SIZE_CODE_MAP[effectiveSize],
@@ -1277,6 +1288,7 @@ export default function Funnel() {
 
       const stripePayload = {
         leadId: finalLeadId,
+        supabaseLeadId: finalSupabaseLeadId,
         bookingHoldId: holdJson.hold.id,
         customerEmail: form.email.trim(),
         customerName: form.name.trim(),
