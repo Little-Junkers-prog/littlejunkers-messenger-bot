@@ -35,58 +35,10 @@ const SIZE_CODE_MAP = {
 };
 
 // ─── data ─────────────────────────────────────────────────────────────────────
+// Pricing, zone, ZIP, and size data are loaded dynamically from /api/get-pricing.
+// Nothing below is hardcoded — all sourced from Supabase at runtime.
 
-const zones = {
-  A: { fee: 0,  label: "Local Area"    },
-  B: { fee: 49, label: "Extended Area" },
-  C: { fee: 89, label: "Outer Area"    },
-};
-
-const zipToZone = {
-  "30213":"A","30214":"A","30215":"A","30263":"A","30265":"A",
-  "30268":"A","30269":"A","30276":"A","30291":"A",
-  "30106":"B","30126":"B","30134":"B","30135":"B","30168":"B",
-  "30223":"B","30224":"B","30228":"B","30236":"B","30238":"B",
-  "30248":"B","30252":"B","30253":"B","30260":"B","30274":"B",
-  "30281":"B","30273":"B","30296":"B","30297":"B","30310":"B",
-  "30311":"B","30314":"B","30315":"B","30331":"B","30336":"B",
-  "30337":"B","30344":"B","30349":"B","30354":"B",
-  "30002":"C","30004":"C","30005":"C","30009":"C","30017":"C",
-  "30019":"C","30021":"C","30022":"C","30028":"C","30030":"C",
-  "30032":"C","30033":"C","30034":"C","30035":"C","30038":"C",
-  "30039":"C","30040":"C","30041":"C","30043":"C","30044":"C",
-  "30045":"C","30046":"C","30047":"C","30052":"C","30058":"C",
-  "30071":"C","30072":"C","30075":"C","30076":"C","30078":"C",
-  "30092":"C","30093":"C","30094":"C","30096":"C","30097":"C",
-  "30101":"C","30102":"C","30107":"C","30114":"C","30115":"C",
-  "30116":"C","30117":"C","30120":"C","30121":"C","30127":"C",
-  "30132":"C","30137":"C","30141":"C","30142":"C","30143":"C",
-  "30144":"C","30152":"C","30157":"C","30517":"C","30518":"C",
-  "30519":"C","30303":"C","30305":"C","30308":"C","30309":"C",
-  "30312":"C","30313":"C","30316":"C","30317":"C","30318":"C",
-  "30319":"C","30324":"C","30327":"C","30328":"C","30338":"C",
-  "30339":"C","30340":"C","30341":"C","30342":"C","30346":"C",
-  "30350":"C","30360":"C","30363":"C",
-};
-
-const zipToArea = {
-  "30269":"Peachtree City area","30265":"Newnan area","30263":"Newnan area",
-  "30214":"Fayetteville area","30215":"Fayetteville area","30213":"Fairburn area",
-  "30268":"Palmetto area","30276":"Senoia area","30291":"Union City area",
-  "30236":"Jonesboro area","30238":"Jonesboro area","30260":"Morrow area",
-  "30274":"Riverdale area","30296":"College Park area","30297":"Hapeville / Forest Park area",
-  "30349":"South Fulton / Atlanta area","30344":"East Point area",
-  "30337":"College Park area","30331":"Atlanta area",
-  "30253":"McDonough area","30252":"McDonough area","30281":"Stockbridge area",
-  "30248":"Locust Grove area","30273":"Rex area","30228":"Hampton area",
-};
-
-const sizeMeta = {
-  "11 Yard": { tons:1,   label:"Includes 1 ton",    bestFor:"Small cleanouts, garage/basement jobs, weight-conscious loads", short:"Best for smaller jobs and heavier debris control", height:"3.5'" },
-  "16 Yard": { tons:1.5, label:"Includes 1.5 tons", bestFor:"Moving, decluttering, mixed cleanup, all-around use",           short:"Best all-around option for most mixed projects",    height:"4.5'" },
-  "21 Yard": { tons:2,   label:"Includes 2 tons",   bestFor:"Renovation, demo, bulky cleanouts, larger jobs",                short:"Best for bigger projects with more volume",         height:"6'"   },
-};
-
+// Static comparison copy (not pricing-sensitive — safe to keep here)
 const comparisonMeta = {
   "11 Yard": { truckLoads:"4–5 pickup loads",  projectScale:"Small",  bestUse:"Garage cleanouts, roofing, dense debris" },
   "16 Yard": { truckLoads:"6–7 pickup loads",  projectScale:"Medium", bestUse:"Moving, decluttering, mixed cleanup"      },
@@ -99,27 +51,16 @@ const DUMPSTER_IMAGES = {
   "21 Yard": "/21 -yard image.png",
 };
 
-const basePricing = {
-  "11 Yard": { "Early Bird":225, "Weekend Warrior":335, "Base Rental":275, "Full Reset":345 },
-  "16 Yard": { "Early Bird":275, "Weekend Warrior":385, "Base Rental":325, "Full Reset":445 },
-  "21 Yard": { "Early Bird":385, "Weekend Warrior":445, "Base Rental":385, "Full Reset":495 },
-};
-
-const rentalOptions = [
-  { key:"Base Rental",     label:"2-Day Rental",  sub:"Next available delivery", tag:"Soonest"    },
-  { key:"Early Bird",      label:"2-Day Rental",  sub:"Mon or Tue delivery",     tag:"Weekday Discount" },
-  { key:"Weekend Warrior", label:"4-Day Rental",  sub:"Best overall value",      tag:"Recommended" },
-  { key:"Full Reset",      label:"7-Day Rental",  sub:"Any weekday delivery",    tag:"Extended"   },
-];
-
 const allSizes = ["11 Yard", "16 Yard", "21 Yard"];
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-function getAreaLabel(zip) {
+function getAreaLabel(zip, zipCodes) {
   if (!zip) return "Your area";
-  return zipToArea[zip] || `ZIP ${zip} area`;
+  return (zipCodes && zipCodes[zip]?.areaLabel) || `ZIP ${zip} area`;
 }
+
+
 
 function containsHeavyKeywords(text) {
   return ["demo","renovation","remodel","cabinet","drywall","flooring","tile","brick","block","dirt","gravel","shingles","roof","deck","shed","heavy","weight bench","construction"].some(w => text.includes(w));
@@ -837,12 +778,41 @@ function Step5DatePicker({
 // ─── main component ───────────────────────────────────────────────────────────
 
 export default function Funnel() {
+  // ─── pricing data from Supabase ───────────────────────────────────────────
+  const [pricingData,    setPricingData]    = useState(null);
+  const [pricingLoading, setPricingLoading] = useState(true);
+  const [pricingError,   setPricingError]   = useState(false);
+
+  useEffect(() => {
+    fetch("/api/get-pricing")
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(data => { setPricingData(data); setPricingLoading(false); })
+      .catch(() => { setPricingError(true); setPricingLoading(false); });
+  }, []);
+
+  const pricing      = pricingData?.pricing      || [];
+  const serviceAreas = pricingData?.serviceAreas || {};
+  const zipCodes     = pricingData?.zipCodes     || {};
+  const sizes        = pricingData?.sizes        || {};
+
+  const sizeMeta = {
+    "11 Yard": { tons: sizes[11]?.includedTons ?? 1,   label: sizes[11] ? "Includes " + sizes[11].includedTons + " ton"  : "Includes 1 ton",    bestFor: "Small cleanouts, garage/basement jobs, weight-conscious loads", short: "Best for smaller jobs and heavier debris control", height: sizes[11]?.heightFt ? sizes[11].heightFt + "'" : "3.5'" },
+    "16 Yard": { tons: sizes[16]?.includedTons ?? 1.5, label: sizes[16] ? "Includes " + sizes[16].includedTons + " tons" : "Includes 1.5 tons", bestFor: "Moving, decluttering, mixed cleanup, all-around use",           short: "Best all-around option for most mixed projects",    height: sizes[16]?.heightFt ? sizes[16].heightFt + "'" : "4.5'" },
+    "21 Yard": { tons: sizes[21]?.includedTons ?? 2,   label: sizes[21] ? "Includes " + sizes[21].includedTons + " tons" : "Includes 2 tons",   bestFor: "Renovation, demo, bulky cleanouts, larger jobs",                short: "Best for bigger projects with more volume",         height: sizes[21]?.heightFt ? sizes[21].heightFt + "'" : "6'"   },
+  };
+
+  const rentalOptions = pricing.map(p => {
+    const tagMap = { "2day_montue": "Weekday Discount", "2day_standard": "Soonest", "4day": "Recommended", "7day": "Extended" };
+    const subMap = { "2day_montue": "Mon or Tue delivery", "2day_standard": "Next available delivery", "4day": "Best overall value", "7day": "Any weekday delivery" };
+    return { key: p.tierKey, label: p.displayLabel, sub: subMap[p.tierKey] || "", tag: tagMap[p.tierKey] || null };
+  });
+
   const _urlZip = (() => {
     try { const p = new URLSearchParams(window.location.search).get("zip"); return (p && /^\d{5}$/.test(p.trim())) ? p.trim() : ""; } catch { return ""; }
   })();
-  const _urlZipValid = _urlZip && !!zipToZone[_urlZip];
+  const _urlZipValid = _urlZip && !pricingLoading && !!zipCodes[_urlZip];
 
-  const [step,                setStep]                = useState(_urlZipValid ? 1 : 0);
+  const [step,                setStep]                = useState(0);
   const [zip,                 setZip]                 = useState(_urlZip || "");
   const [zipError,            setZipError]            = useState("");
   const [zoneKey,             setZoneKey]             = useState("");
@@ -895,14 +865,17 @@ export default function Funnel() {
 
   useEffect(() => { stepRef.current = step; }, [step]);
 
+  // When pricing loads and URL ZIP is valid, auto-advance to step 1
   useEffect(() => {
-    if (_urlZipValid) {
-      const found = zipToZone[_urlZip];
+    if (_urlZipValid && step === 0) {
+      const found = zipCodes[_urlZip]?.zone;
+      if (!found || !serviceAreas[found]) return;
       setZoneKey(found);
-      setZoneFee(zones[found].fee);
+      setZoneFee(serviceAreas[found].deliveryFee);
       setForm(prev => ({ ...prev, zip: _urlZip }));
+      setStep(1);
     }
-  }, []);
+  }, [pricingLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (step !== 6) return;
@@ -923,7 +896,7 @@ export default function Funnel() {
     turnstileRenderedRef.current = true;
   }, [step]);
 
-  const areaLabel        = getAreaLabel(zip);
+  const areaLabel        = getAreaLabel(zip, zipCodes);
   const effectiveSize    = overrideSize || size;
   const isQuickPath = returningPath === "quick";
 
@@ -945,11 +918,16 @@ export default function Funnel() {
   const progressPercent = (currentVisualStep / visibleTotalSteps) * 100;
 
   const calculatedPrices = useMemo(() => {
-    if (!effectiveSize || !basePricing[effectiveSize]) return {};
+    if (!effectiveSize || !pricing.length) return {};
+    // Convert "11 Yard" -> 11 for the sizes key
+    const sizeNum = parseInt(effectiveSize, 10);
     const p = {};
-    Object.entries(basePricing[effectiveSize]).forEach(([k, v]) => { p[k] = v + zoneFee; });
+    pricing.forEach(tier => {
+      const base = tier.prices[String(sizeNum)];
+      if (base != null) p[tier.tierKey] = base + zoneFee;
+    });
     return p;
-  }, [effectiveSize, zoneFee]);
+  }, [effectiveSize, zoneFee, pricing]);
 
   const isAvailabilityDegraded = Boolean(availabilityError || availabilityData?.degraded);
   const availableOptions       = availabilityData?.available || {};
@@ -1060,9 +1038,12 @@ export default function Funnel() {
   const handleZipSubmit = () => {
     const clean = zip.trim();
     if (!/^\d{5}$/.test(clean)) { setZipError("Please enter a valid 5-digit ZIP code."); return; }
-    const found = zipToZone[clean];
-    if (!found) { setZipError("We may not service that area right now."); return; }
-    setZipError(""); setZoneKey(found); setZoneFee(zones[found].fee);
+    const zipEntry = zipCodes[clean];
+    if (!zipEntry) { setZipError("We may not service that area right now."); return; }
+    const found = zipEntry.zone;
+    const area  = serviceAreas[found];
+    if (!area) { setZipError("We may not service that area right now."); return; }
+    setZipError(""); setZoneKey(found); setZoneFee(area.deliveryFee);
     setForm(prev => ({ ...prev, zip: clean }));
     setStep(1);
   };
@@ -1349,6 +1330,30 @@ export default function Funnel() {
   const labelStyle = { display:"block", fontSize:10, fontWeight:700, color:C.inkFaint, letterSpacing:"0.8px", textTransform:"uppercase", marginBottom:5, marginTop:14, fontFamily:F };
   const firstLabelStyle = { ...labelStyle, marginTop:0 };
 
+  // Show minimal loading screen until pricing data is available
+  if (pricingLoading) {
+    return (
+      <div style={{ minHeight:"100vh", background:C.pageBg, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:F }}>
+        <div style={{ textAlign:"center" }}>
+          <img src="/little-junkers-logo.png" alt="Little Junkers" style={{ maxWidth:120, height:"auto", marginBottom:24 }} />
+          <div style={{ fontSize:13, color:C.inkMuted }}>Loading pricing…</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (pricingError) {
+    return (
+      <div style={{ minHeight:"100vh", background:C.pageBg, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:F }}>
+        <div style={{ textAlign:"center", maxWidth:360, padding:"0 24px" }}>
+          <img src="/little-junkers-logo.png" alt="Little Junkers" style={{ maxWidth:120, height:"auto", marginBottom:24 }} />
+          <p style={{ fontSize:14, color:C.inkMid, marginBottom:20 }}>We’re having trouble loading pricing. Please try refreshing, or call/text us at 470-548-4733.</p>
+          <a href={ECOM_FALLBACK} style={{ display:"block", padding:"14px", background:C.ink, color:C.white, borderRadius:12, fontSize:14, fontWeight:800, textDecoration:"none" }}>Book via our shop instead</a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" strategy="afterInteractive" />
@@ -1537,7 +1542,7 @@ export default function Funnel() {
                 <CardBody>
                   {step === 1 && (
                     <div>
-                      <StepHeading eyebrow="Coverage confirmed" title="How do you want to proceed?" text={`${areaLabel} is in our ${zones[zoneKey]?.label?.toLowerCase() || ""}.`} />
+                      <StepHeading eyebrow="Coverage confirmed" title="How do you want to proceed?" text={`${areaLabel} is in our ${serviceAreas[zoneKey]?.label?.toLowerCase() || "service area"}.`} />
                       <div style={{ display:"grid", gap:10 }}>
                         <OptionCard title="Quick Select" sub="I already know which size I need" selected={returningPath==="quick"} onClick={() => handlePath("quick", "Returning")} />
                         <OptionCard title="Help Me Choose" sub="Walk me through sizing for my project" selected={returningPath==="recommend" && customerType !== "Contractor / Roofer"} onClick={() => handlePath("recommend", "New Customer")} />
