@@ -28,6 +28,7 @@ const HOMEPAGE = "https://www.littlejunkersllc.com";
 const ECOM_FALLBACK = "https://www.littlejunkersllc.com/shop";
 const IDLE_TIMEOUT_MS = 12 * 60 * 1000; // 12 minutes
 const AVAILABILITY_ENDPOINT = "/api/availability";
+const PRICING_ENDPOINT = "/api/get-pricing";
 const SIZE_CODE_MAP = {
   "11 Yard": "11YD",
   "16 Yard": "16YD",
@@ -36,55 +37,11 @@ const SIZE_CODE_MAP = {
 
 // ─── data ─────────────────────────────────────────────────────────────────────
 
-const zones = {
-  A: { fee: 0,  label: "Local Area"    },
-  B: { fee: 49, label: "Extended Area" },
-  C: { fee: 89, label: "Outer Area"    },
-};
-
-const zipToZone = {
-  "30213":"A","30214":"A","30215":"A","30263":"A","30265":"A",
-  "30268":"A","30269":"A","30276":"A","30291":"A",
-  "30106":"B","30126":"B","30134":"B","30135":"B","30168":"B",
-  "30223":"B","30224":"B","30228":"B","30236":"B","30238":"B",
-  "30248":"B","30252":"B","30253":"B","30260":"B","30274":"B",
-  "30281":"B","30273":"B","30296":"B","30297":"B","30310":"B",
-  "30311":"B","30314":"B","30315":"B","30331":"B","30336":"B",
-  "30337":"B","30344":"B","30349":"B","30354":"B",
-  "30002":"C","30004":"C","30005":"C","30009":"C","30017":"C",
-  "30019":"C","30021":"C","30022":"C","30028":"C","30030":"C",
-  "30032":"C","30033":"C","30034":"C","30035":"C","30038":"C",
-  "30039":"C","30040":"C","30041":"C","30043":"C","30044":"C",
-  "30045":"C","30046":"C","30047":"C","30052":"C","30058":"C",
-  "30071":"C","30072":"C","30075":"C","30076":"C","30078":"C",
-  "30092":"C","30093":"C","30094":"C","30096":"C","30097":"C",
-  "30101":"C","30102":"C","30107":"C","30114":"C","30115":"C",
-  "30116":"C","30117":"C","30120":"C","30121":"C","30127":"C",
-  "30132":"C","30137":"C","30141":"C","30142":"C","30143":"C",
-  "30144":"C","30152":"C","30157":"C","30517":"C","30518":"C",
-  "30519":"C","30303":"C","30305":"C","30308":"C","30309":"C",
-  "30312":"C","30313":"C","30316":"C","30317":"C","30318":"C",
-  "30319":"C","30324":"C","30327":"C","30328":"C","30338":"C",
-  "30339":"C","30340":"C","30341":"C","30342":"C","30346":"C",
-  "30350":"C","30360":"C","30363":"C",
-};
-
-const zipToArea = {
-  "30269":"Peachtree City area","30265":"Newnan area","30263":"Newnan area",
-  "30214":"Fayetteville area","30215":"Fayetteville area","30213":"Fairburn area",
-  "30268":"Palmetto area","30276":"Senoia area","30291":"Union City area",
-  "30236":"Jonesboro area","30238":"Jonesboro area","30260":"Morrow area",
-  "30274":"Riverdale area","30296":"College Park area","30297":"Hapeville / Forest Park area",
-  "30349":"South Fulton / Atlanta area","30344":"East Point area",
-  "30337":"College Park area","30331":"Atlanta area",
-  "30253":"McDonough area","30252":"McDonough area","30281":"Stockbridge area",
-  "30248":"Locust Grove area","30273":"Rex area","30228":"Hampton area",
-};
-
-const sizeMeta = {
-  "11 Yard": { tons:1,   label:"Includes 1 ton",    bestFor:"Small cleanouts, garage/basement jobs, weight-conscious loads", short:"Best for smaller jobs and heavier debris control", height:"3.5'" },
-  "16 Yard": { tons:1.5, label:"Includes 1.5 tons", bestFor:"Moving, decluttering, mixed cleanup, all-around use",           short:"Best all-around option for most mixed projects",    height:"4.5'" },
-  "21 Yard": { tons:2,   label:"Includes 2 tons",   bestFor:"Renovation, demo, bulky cleanouts, larger jobs",                short:"Best for bigger projects with more volume",         height:"6'"   },
+const DEFAULT_TIER_COPY = {
+  "2day_montue":   { label:"Discounted 2-Day", sub:"Mon or Tue delivery only", tag:"Weekday Discount", validDays:[1, 2] },
+  "2day_standard": { label:"Standard 2-Day",   sub:"Any day except Mon/Tue",   tag:"Soonest",          validDays:[0, 3, 4, 5, 6] },
+  "4day":          { label:"4-Day",            sub:"Any start date",           tag:"Most Flexible",    validDays:null },
+  "7day":          { label:"7-Day",            sub:"Any start date",           tag:"Extended",         validDays:null },
 };
 
 const comparisonMeta = {
@@ -99,26 +56,100 @@ const DUMPSTER_IMAGES = {
   "21 Yard": "/21 -yard image.png",
 };
 
-const basePricing = {
-  "11 Yard": { "Early Bird":225, "Weekend Warrior":335, "Base Rental":275, "Full Reset":345 },
-  "16 Yard": { "Early Bird":275, "Weekend Warrior":385, "Base Rental":325, "Full Reset":445 },
-  "21 Yard": { "Early Bird":385, "Weekend Warrior":445, "Base Rental":385, "Full Reset":495 },
-};
-
-const rentalOptions = [
-  { key:"Base Rental",     label:"2-Day Rental",  sub:"Next available delivery", tag:"Soonest"    },
-  { key:"Early Bird",      label:"2-Day Rental",  sub:"Mon or Tue delivery",     tag:"Weekday Discount" },
-  { key:"Weekend Warrior", label:"4-Day Rental",  sub:"Best overall value",      tag:"Recommended" },
-  { key:"Full Reset",      label:"7-Day Rental",  sub:"Any weekday delivery",    tag:"Extended"   },
-];
-
-const allSizes = ["11 Yard", "16 Yard", "21 Yard"];
-
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-function getAreaLabel(zip) {
+function extractSizeYards(value) {
+  const match = String(value || "").match(/\d+/);
+  return match ? Number(match[0]) : null;
+}
+
+function sizeLabelFromYards(value) {
+  const yards = extractSizeYards(value);
+  return yards ? `${yards} Yard` : "";
+}
+
+function sizeCodeFromLabel(value) {
+  const yards = extractSizeYards(value);
+  return yards ? `${yards}YD` : "";
+}
+
+function formatIncludedTons(tons) {
+  const n = Number(tons || 0);
+  if (!n) return "Includes tonnage";
+  return `Includes ${n} ton${n !== 1 ? "s" : ""}`;
+}
+
+function getAreaLabel(serviceArea, zip) {
+  if (serviceArea?.areaLabel) return serviceArea.areaLabel;
   if (!zip) return "Your area";
-  return zipToArea[zip] || `ZIP ${zip} area`;
+  return `ZIP ${zip} area`;
+}
+
+function resolveServiceArea(pricingConfig, zip) {
+  const clean = String(zip || "").trim();
+  const zipEntry = pricingConfig?.zipCodes?.[clean];
+  if (!zipEntry) {
+    return { serviceable:false, zip:clean, error:"We may not service that area right now." };
+  }
+  const zoneEntry = pricingConfig?.serviceAreas?.[zipEntry.zone];
+  if (!zoneEntry) {
+    return { serviceable:false, zip:clean, error:"That ZIP is mapped to a service area that is not configured yet." };
+  }
+  return {
+    serviceable: true,
+    zip: clean,
+    areaLabel: zipEntry.areaLabel || `ZIP ${clean} area`,
+    zone: zoneEntry.zone,
+    rentalZone: zoneEntry.rentalZone,
+    zoneLabel: zoneEntry.label,
+    deliveryFee: Number(zoneEntry.deliveryFee || 0),
+    dryRunFee: Number(zoneEntry.dryRunFee || 0),
+  };
+}
+
+function buildSizeMeta(sizes) {
+  const rows = Object.values(sizes || {}).sort((a, b) => Number(a.sizeYards || 0) - Number(b.sizeYards || 0));
+  return rows.reduce((acc, row) => {
+    const label = row.label || sizeLabelFromYards(row.sizeYards);
+    if (!label) return acc;
+    const tons = Number(row.includedTons || 0);
+    const comparison = comparisonMeta[label] || {};
+    acc[label] = {
+      tons: tons || 1,
+      label: formatIncludedTons(tons || 1),
+      bestFor: row.longDesc || row.shortDesc || comparison.bestUse || "Cleanup and debris removal projects",
+      short: row.shortDesc || comparison.bestUse || "Dumpster rental option",
+      height: row.heightFt ? `${row.heightFt}'` : "",
+      sizeCode: row.sizeCode || sizeCodeFromLabel(label),
+    };
+    return acc;
+  }, {});
+}
+
+function buildRentalOptions(pricingRows) {
+  return (pricingRows || []).map((tier) => {
+    const copy = DEFAULT_TIER_COPY[tier.tierKey] || {};
+    return {
+      key: tier.tierKey,
+      label: copy.label || tier.displayLabel || tier.tierKey,
+      displayLabel: tier.displayLabel || copy.label || tier.tierKey,
+      sub: copy.sub || (tier.durationDays ? `${tier.durationDays}-day rental` : ""),
+      tag: copy.tag || "",
+      validDays: copy.validDays || null,
+      durationDays: Number(tier.durationDays || 0),
+      dayRestriction: tier.dayRestriction,
+    };
+  });
+}
+
+function normalizeRentalOption(key, rentalOptions = []) {
+  const option = rentalOptions.find(o => o.key === key);
+  return option?.displayLabel || option?.label || key || "";
+}
+
+function getRentalDisplayLabel(key, rentalOptions = []) {
+  const option = rentalOptions.find(o => o.key === key);
+  return option?.displayLabel || option?.label || key || "-";
 }
 
 function containsHeavyKeywords(text) {
@@ -126,26 +157,6 @@ function containsHeavyKeywords(text) {
 }
 function containsLightKeywords(text) {
   return ["garage","attic","closet","cardboard","boxes","declutter","moving","household","furniture","basement","junk"].some(w => text.includes(w));
-}
-
-function normalizeRentalOption(key) {
-  const map = {
-    "Base Rental":     "2-Day Rental",
-    "Early Bird":      "2-Day Rental",
-    "Weekend Warrior": "4-Day Rental",
-    "Full Reset":      "7-Day Rental",
-  };
-  return map[key] || "";
-}
-
-function getRentalDisplayLabel(key) {
-  const map = {
-    "Base Rental":     "2-Day Rental",
-    "Early Bird":      "2-Day Rental (Mon/Tue delivery)",
-    "Weekend Warrior": "4-Day Rental",
-    "Full Reset":      "7-Day Rental",
-  };
-  return map[key] || key || "-";
 }
 
 function normalizeProjectForOdoo(project) {
@@ -539,41 +550,17 @@ function Step5DatePicker({
   showMoreDates, setShowMoreDates, handleWindowSelect,
   handleFallbackOptionSelect, sizeMeta, rentalOptions, blockedDates,
 }) {
-  // ── tier definitions ──────────────────────────────────────────────────────
-  const TIERS = [
-    {
-      key:       "Early Bird",
-      label:     "Discounted 2-Day",
-      sublabel:  "Mon or Tue delivery only",
-      tag:       null,
-      validDays: [1, 2],
-      duration:  2,
-    },
-    {
-      key:       "Base Rental",
-      label:     "Standard 2-Day",
-      sublabel:  "Any day except Mon/Tue",
-      tag:       null,
-      validDays: [0, 3, 4, 5, 6],
-      duration:  2,
-    },
-    {
-      key:       "Weekend Warrior",
-      label:     "4-Day",
-      sublabel:  "Any start date",
-      tag:       "Most Flexible",
-      validDays: null,
-      duration:  4,
-    },
-    {
-      key:       "Full Reset",
-      label:     "7-Day",
-      sublabel:  "Any start date",
-      tag:       null,
-      validDays: null,
-      duration:  7,
-    },
-  ];
+  // ── tier definitions come from Supabase pricing rows ─────────────────────
+  const TIERS = useMemo(() => {
+    return (rentalOptions || []).map((option) => ({
+      key: option.key,
+      label: option.label || option.displayLabel || option.key,
+      sublabel: option.sub || "",
+      tag: option.tag || null,
+      validDays: option.validDays || null,
+      duration: Number(option.durationDays || 1),
+    }));
+  }, [rentalOptions]);
 
   const today = useMemo(() => {
     const d = new Date(); d.setHours(0,0,0,0); return d;
@@ -746,6 +733,14 @@ function Step5DatePicker({
     );
   };
 
+  if (!TIERS.length) {
+    return (
+      <div style={{ padding:"40px 0", textAlign:"center" }}>
+        <div style={{ fontSize:13, color:C.inkFaint, fontFamily:F }}>Loading rental options…</div>
+      </div>
+    );
+  }
+
   if (availabilityLoading) {
     return (
       <div style={{ padding:"40px 0", textAlign:"center" }}>
@@ -840,9 +835,7 @@ export default function Funnel() {
   const _urlZip = (() => {
     try { const p = new URLSearchParams(window.location.search).get("zip"); return (p && /^\d{5}$/.test(p.trim())) ? p.trim() : ""; } catch { return ""; }
   })();
-  const _urlZipValid = _urlZip && !!zipToZone[_urlZip];
-
-  const [step,                setStep]                = useState(_urlZipValid ? 1 : 0);
+  const [step,                setStep]                = useState(0);
   const [zip,                 setZip]                 = useState(_urlZip || "");
   const [zipError,            setZipError]            = useState("");
   const [zoneKey,             setZoneKey]             = useState("");
@@ -878,6 +871,11 @@ export default function Funnel() {
     zip:     "",
   });
 
+  const [pricingConfig, setPricingConfig] = useState(null);
+  const [pricingLoading, setPricingLoading] = useState(true);
+  const [pricingError, setPricingError] = useState("");
+  const [serviceArea, setServiceArea] = useState(null);
+
   const [capturedLeadId,        setCapturedLeadId]        = useState(null);
   const [capturedSupabaseLeadId, setCapturedSupabaseLeadId] = useState(null);
   const [showExitModal,         setShowExitModal]          = useState(false);
@@ -895,14 +893,43 @@ export default function Funnel() {
 
   useEffect(() => { stepRef.current = step; }, [step]);
 
-  useEffect(() => {
-    if (_urlZipValid) {
-      const found = zipToZone[_urlZip];
-      setZoneKey(found);
-      setZoneFee(zones[found].fee);
-      setForm(prev => ({ ...prev, zip: _urlZip }));
-    }
+  const applyResolvedServiceArea = useCallback((cleanZip, resolvedArea) => {
+    setZip(cleanZip);
+    setServiceArea(resolvedArea);
+    setZoneKey(resolvedArea.rentalZone || resolvedArea.zone || "");
+    setZoneFee(Number(resolvedArea.deliveryFee || 0));
+    setForm(prev => ({ ...prev, zip: cleanZip }));
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        setPricingLoading(true);
+        setPricingError("");
+        const url = _urlZip ? `${PRICING_ENDPOINT}?zip=${encodeURIComponent(_urlZip)}` : PRICING_ENDPOINT;
+        const res = await fetch(url);
+        const json = await res.json();
+        if (!active) return;
+        if (!res.ok || !json?.success) throw new Error(json?.error || "Unable to load pricing.");
+        setPricingConfig(json);
+        if (_urlZip) {
+          const resolved = json.serviceArea?.serviceable
+            ? json.serviceArea
+            : resolveServiceArea(json, _urlZip);
+          if (resolved?.serviceable) {
+            applyResolvedServiceArea(_urlZip, resolved);
+            setStep(1);
+          }
+        }
+      } catch (err) {
+        if (active) setPricingError(err.message || "Unable to load pricing.");
+      } finally {
+        if (active) setPricingLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [applyResolvedServiceArea, _urlZip]);
 
   useEffect(() => {
     if (step !== 6) return;
@@ -923,7 +950,11 @@ export default function Funnel() {
     turnstileRenderedRef.current = true;
   }, [step]);
 
-  const areaLabel        = getAreaLabel(zip);
+  const sizeMeta = useMemo(() => buildSizeMeta(pricingConfig?.sizes), [pricingConfig]);
+  const allSizes = useMemo(() => Object.keys(sizeMeta).sort((a, b) => extractSizeYards(a) - extractSizeYards(b)), [sizeMeta]);
+  const rentalOptions = useMemo(() => buildRentalOptions(pricingConfig?.pricing), [pricingConfig]);
+
+  const areaLabel        = getAreaLabel(serviceArea, zip);
   const effectiveSize    = overrideSize || size;
   const isQuickPath = returningPath === "quick";
 
@@ -945,11 +976,15 @@ export default function Funnel() {
   const progressPercent = (currentVisualStep / visibleTotalSteps) * 100;
 
   const calculatedPrices = useMemo(() => {
-    if (!effectiveSize || !basePricing[effectiveSize]) return {};
+    if (!effectiveSize || !pricingConfig?.pricing) return {};
+    const yards = String(extractSizeYards(effectiveSize));
     const p = {};
-    Object.entries(basePricing[effectiveSize]).forEach(([k, v]) => { p[k] = v + zoneFee; });
+    (pricingConfig.pricing || []).forEach((tier) => {
+      const base = Number(tier.prices?.[yards] || 0);
+      if (base > 0) p[tier.tierKey] = base + zoneFee;
+    });
     return p;
-  }, [effectiveSize, zoneFee]);
+  }, [effectiveSize, pricingConfig, zoneFee]);
 
   const isAvailabilityDegraded = Boolean(availabilityError || availabilityData?.degraded);
   const availableOptions       = availabilityData?.available || {};
@@ -1057,13 +1092,15 @@ export default function Funnel() {
     } else { window.location.href = HOMEPAGE; }
   };
 
-  const handleZipSubmit = () => {
+  const handleZipSubmit = async () => {
     const clean = zip.trim();
     if (!/^\d{5}$/.test(clean)) { setZipError("Please enter a valid 5-digit ZIP code."); return; }
-    const found = zipToZone[clean];
-    if (!found) { setZipError("We may not service that area right now."); return; }
-    setZipError(""); setZoneKey(found); setZoneFee(zones[found].fee);
-    setForm(prev => ({ ...prev, zip: clean }));
+    if (pricingLoading) { setZipError("Pricing is still loading. Please try again in a moment."); return; }
+    if (pricingError || !pricingConfig) { setZipError("Pricing is temporarily unavailable. Please call or text 470-548-4733."); return; }
+    const resolved = resolveServiceArea(pricingConfig, clean);
+    if (!resolved.serviceable) { setZipError(resolved.error || "We may not service that area right now."); return; }
+    setZipError("");
+    applyResolvedServiceArea(clean, resolved);
     setStep(1);
   };
 
@@ -1167,7 +1204,7 @@ export default function Funnel() {
       recommendedSize: size,
       selectedSize: effectiveSize,
       includedTons: sizeMeta[effectiveSize]?.tons || null,
-      rentalOption: normalizeRentalOption(duration),
+      rentalOption: normalizeRentalOption(duration, rentalOptions),
       rentalPrice: selectedPrice,
       selectedWindow,
       funnelSource: "rent_a_dumpster_funnel_partial",
@@ -1224,7 +1261,7 @@ export default function Funnel() {
       recommendedSize: size,
       selectedSize: effectiveSize,
       includedTons: sizeMeta[effectiveSize]?.tons || null,
-      rentalOption: normalizeRentalOption(duration),
+      rentalOption: normalizeRentalOption(duration, rentalOptions),
       rentalPrice: selectedPrice,
       selectedWindow,
       pricingShown: calculatedPrices,
@@ -1270,7 +1307,7 @@ export default function Funnel() {
         supabaseLeadId: finalSupabaseLeadId,
         customerName: form.name.trim(),
         customerEmail: form.email.trim(),
-        sizeCode: SIZE_CODE_MAP[effectiveSize],
+        sizeCode: sizeMeta[effectiveSize]?.sizeCode || sizeCodeFromLabel(effectiveSize) || SIZE_CODE_MAP[effectiveSize],
         requestedStartAt: selectedWindow.startIso,
         requestedEndAt: selectedWindow.endIso,
       };
@@ -1294,7 +1331,8 @@ export default function Funnel() {
         customerName: form.name.trim(),
         customerPhone: form.phone.trim(),
         dumpsterSize: effectiveSize,
-        rentalOption: getRentalDisplayLabel(duration),
+        tierKey: duration,
+        rentalOption: duration,
         basePrice: selectedPrice - zoneFee,
         deliveryFee: zoneFee,
         zone: zoneKey,
@@ -1462,12 +1500,12 @@ export default function Funnel() {
                             flexShrink:0,
                           }}
                         >
-                          Check Availability →
+                          {pricingLoading ? "Loading pricing…" : "Check Availability →"}
                         </button>
                       </div>
-                      {zipError && (
+                      {(zipError || pricingError) && (
                         <div style={{ marginTop:10, color:"#ffb3b3", fontSize:13, lineHeight:1.4, fontFamily:F }}>
-                          {zipError}
+                          {zipError || pricingError}
                         </div>
                       )}
                       {/* Trust pills */}
@@ -1537,7 +1575,7 @@ export default function Funnel() {
                 <CardBody>
                   {step === 1 && (
                     <div>
-                      <StepHeading eyebrow="Coverage confirmed" title="How do you want to proceed?" text={`${areaLabel} is in our ${zones[zoneKey]?.label?.toLowerCase() || ""}.`} />
+                      <StepHeading eyebrow="Coverage confirmed" title="How do you want to proceed?" text={`${areaLabel} is in our ${serviceArea?.zoneLabel?.toLowerCase() || "service area"}.`} />
                       <div style={{ display:"grid", gap:10 }}>
                         <OptionCard title="Quick Select" sub="I already know which size I need" selected={returningPath==="quick"} onClick={() => handlePath("quick", "Returning")} />
                         <OptionCard title="Help Me Choose" sub="Walk me through sizing for my project" selected={returningPath==="recommend" && customerType !== "Contractor / Roofer"} onClick={() => handlePath("recommend", "New Customer")} />
@@ -1667,7 +1705,7 @@ export default function Funnel() {
                         {[
                           { label: "Service Area", value: areaLabel },
                           { label: "Dumpster", value: effectiveSize },
-                          { label: "Rental", value: getRentalDisplayLabel(duration) },
+                          { label: "Rental", value: getRentalDisplayLabel(duration, rentalOptions) },
                           { label: "Delivery date", value: selectedWindow ? `${selectedWindow.startLabel}` : "Subject to confirmation" },
                         ].map((row) => (
                           <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "10px 16px", borderBottom: `1px solid ${C.surfaceBorder}` }}>
