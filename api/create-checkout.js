@@ -1,5 +1,9 @@
 // api/create-checkout.js
 import Stripe from "stripe";
+import {
+  getPricingConfig,
+  resolveTierPrice,
+} from "../lib/pricingService";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: "2025-01-27.acacia",
@@ -9,12 +13,6 @@ const ALLOWED_ORIGINS = new Set([
   "https://book.littlejunkersllc.com",
   "https://www.littlejunkersllc.com",
 ]);
-
-const CANONICAL_BASE_PRICING = {
-  "11 Yard": { "Early Bird": 225, "Weekend Warrior": 335, "Base Rental": 275, "Full Reset": 345 },
-  "16 Yard": { "Early Bird": 275, "Weekend Warrior": 385, "Base Rental": 325, "Full Reset": 445 },
-  "21 Yard": { "Early Bird": 385, "Weekend Warrior": 445, "Base Rental": 385, "Full Reset": 495 },
-};
 
 function applyCors(req, res) {
   const origin = req.headers.origin;
@@ -40,12 +38,6 @@ function asMoneyCents(value) {
 function asString(value) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
-}
-
-function getCanonicalBasePrice(size, option, fallback) {
-  const canonical = CANONICAL_BASE_PRICING[asString(size)]?.[asString(option)];
-  if (Number.isFinite(Number(canonical))) return Number(canonical);
-  return fallback;
 }
 
 function getBaseUrl(req) {
@@ -90,8 +82,7 @@ export default async function handler(req, res) {
       customerPhone,
       dumpsterSize,
       rentalOption,
-      basePrice,
-      deliveryFee,
+      tierKey,
       zone,
       zip,
       areaLabel,
@@ -113,18 +104,26 @@ export default async function handler(req, res) {
       });
     }
 
-    if (!dumpsterSize || !rentalOption) {
+    const requestedTierKey = asString(tierKey || rentalOption);
+    if (!dumpsterSize || !requestedTierKey) {
       return res.status(400).json({
         error: "Missing dumpster size or rental option.",
       });
     }
 
-    const resolvedBasePrice = getCanonicalBasePrice(dumpsterSize, rentalOption, basePrice);
-    const basePriceCents = asMoneyCents(resolvedBasePrice);
-    const deliveryFeeCents = asMoneyCents(deliveryFee || 0);
+    const pricingConfig = await getPricingConfig();
+    const quote = resolveTierPrice(pricingConfig, {
+      tierKey: requestedTierKey,
+      size: dumpsterSize,
+      zip,
+      zone,
+    });
 
-    if (basePriceCents === null) {
-      return res.status(400).json({ error: "Invalid base price." });
+    const basePriceCents = asMoneyCents(quote.basePrice);
+    const deliveryFeeCents = asMoneyCents(quote.deliveryFee);
+
+    if (basePriceCents === null || deliveryFeeCents === null) {
+      return res.status(400).json({ error: "Invalid Supabase pricing configuration." });
     }
 
     const selectedWindowStart =
@@ -143,13 +142,17 @@ export default async function handler(req, res) {
 
     const resolvedSaleOrderName = asString(saleOrderName || orderName);
     const resolvedLeadId = asString(leadId);
+    const resolvedAreaLabel = asString(areaLabel || quote.serviceArea?.areaLabel);
+    const resolvedZone = asString(quote.serviceArea?.zone || zone);
+    const resolvedRentalZone = asString(quote.serviceArea?.rentalZone || zone);
+    const resolvedDeliveryAddress = asString(deliveryAddress);
 
     const lineItems = [
       {
         price_data: {
           currency: "usd",
           product_data: {
-            name: `${dumpsterSize} — ${rentalOption}`,
+            name: `${quote.sizeLabel} — ${quote.displayLabel}`,
             description: "Includes delivery, pickup, and allotted tonnage.",
           },
           unit_amount: basePriceCents,
@@ -163,7 +166,7 @@ export default async function handler(req, res) {
         price_data: {
           currency: "usd",
           product_data: {
-            name: `Extended Area Delivery Fee (Zone ${zone || "B/C"})`,
+            name: `${quote.serviceArea?.zoneLabel || "Extended Area"} Delivery Fee`,
           },
           unit_amount: deliveryFeeCents,
         },
@@ -180,13 +183,19 @@ export default async function handler(req, res) {
       customer_name: String(customerName || ""),
       customer_phone: String(customerPhone || ""),
       customer_email: String(customerEmail || ""),
-      dumpster_size: String(dumpsterSize),
-      rental_option: String(rentalOption),
-      base_price: String(resolvedBasePrice),
-      zone: String(zone || ""),
+      dumpster_size: String(quote.sizeLabel),
+      size_code: String(quote.sizeCode),
+      size_yards: String(quote.sizeYards),
+      rental_option: String(quote.displayLabel),
+      tier_key: String(quote.tierKey),
+      base_price: String(quote.basePrice),
+      delivery_fee: String(quote.deliveryFee),
+      total_price: String(quote.totalPrice),
+      zone: String(resolvedRentalZone || ""),
+      service_area_zone: String(resolvedZone || ""),
       zip: String(zip || ""),
-      area_label: String(areaLabel || ""),
-      delivery_address: String(deliveryAddress || ""),
+      area_label: String(resolvedAreaLabel || ""),
+      delivery_address: String(resolvedDeliveryAddress || ""),
       delivery_date: String(deliveryDate || ""),
       selected_window_start: String(selectedWindowStart || ""),
       selected_window_end: String(selectedWindowEnd || ""),
@@ -216,6 +225,16 @@ export default async function handler(req, res) {
       url: session.url,
       sessionId: session.id,
       bookingHoldId: resolvedHoldId,
+      quote: {
+        tierKey: quote.tierKey,
+        displayLabel: quote.displayLabel,
+        sizeLabel: quote.sizeLabel,
+        basePrice: quote.basePrice,
+        deliveryFee: quote.deliveryFee,
+        totalPrice: quote.totalPrice,
+        zone: resolvedZone,
+        rentalZone: resolvedRentalZone,
+      },
     });
   } catch (error) {
     console.error("[Stripe Checkout Error]:", error);
