@@ -72,6 +72,10 @@ function wantsTextLink(text) {
   return /(text|sms|send.*link|send me.*link|phone.*link|booking link)/i.test(text);
 }
 
+function wantsBookingLink(text) {
+  return /(book|booking|reserve|proceed|checkout|check out|rent it|start order|place order|direct link|send.*link|link)/i.test(text);
+}
+
 async function callOpenAI({ systemPrompt, messages }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -86,7 +90,7 @@ async function callOpenAI({ systemPrompt, messages }) {
     },
     body: JSON.stringify({
       model: process.env.RANDY_OPENAI_MODEL || "gpt-4o-mini",
-      temperature: 0.25,
+      temperature: 0.2,
       messages: [
         { role: "system", content: systemPrompt },
         ...messages,
@@ -144,6 +148,39 @@ function buildDeterministicFallbackReply({ intent, zip, projectType, recommended
   }
 
   return "I can help with dumpster sizing, pricing, availability, booking links, or basic rental questions. What are you working on?";
+}
+
+function cleanReplyLinks(reply = "") {
+  return String(reply)
+    .replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>.*?<\/a>/gi, "<$1>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "<$2>")
+    .replace(/(https?:\/\/[^\s<>]+)/g, "<$1>")
+    .replace(/<(<https?:\/\/[^>]+>)>/g, "$1");
+}
+
+async function createBookingContext({ phone, email, zip, projectType, recommendedSizeYards, intent, availabilityContext }) {
+  const randySession = await createRandySession({
+    phone,
+    email,
+    zip,
+    projectType,
+    sizeYards: recommendedSizeYards,
+    summary: `Randy lead: ${projectType}, ${recommendedSizeYards} yard, ZIP ${zip || "unknown"}`,
+    metadata: {
+      intent,
+      source: "randy_chat",
+      availabilitySoonest: availabilityContext?.soonest || null,
+    },
+  });
+
+  const url = buildPrefilledBookingUrl({
+    sessionId: randySession?.id,
+    zip,
+    sizeYards: recommendedSizeYards,
+    projectType,
+  });
+
+  return { randySession, url };
 }
 
 export default async function handler(req, res) {
@@ -222,28 +259,15 @@ export default async function handler(req, res) {
       }
     }
 
-    // High-value action: send a booking link only after a phone number is provided
-    // and the session is not suspicious.
     if (!risk.shouldRestrictActions && wantsTextLink(lastUserMessage) && phone && intent !== INTENTS.CUSTOMER_SERVICE) {
-      const randySession = await createRandySession({
+      const { randySession, url } = await createBookingContext({
         phone,
         email,
         zip,
         projectType,
-        sizeYards: recommendedSizeYards,
-        summary: `Randy lead: ${projectType}, ${recommendedSizeYards} yard, ZIP ${zip || "unknown"}`,
-        metadata: {
-          intent,
-          source: "randy_chat",
-          availabilitySoonest: availabilityContext?.soonest || null,
-        },
-      });
-
-      const url = buildPrefilledBookingUrl({
-        sessionId: randySession?.id,
-        zip,
-        sizeYards: recommendedSizeYards,
-        projectType,
+        recommendedSizeYards,
+        intent,
+        availabilityContext,
       });
 
       const smsResult = await sendBookingLinkByText({ to: normalizePhoneForSms(phone), url });
@@ -260,6 +284,25 @@ export default async function handler(req, res) {
         reply: `I couldn’t send the text from here, but here’s the direct booking link: <${url}>`,
         bookingUrl: url,
         sessionId: randySession?.id || null,
+      });
+    }
+
+    if (!risk.shouldRestrictActions && wantsBookingLink(lastUserMessage) && zip && intent !== INTENTS.CUSTOMER_SERVICE) {
+      const { randySession, url } = await createBookingContext({
+        phone,
+        email,
+        zip,
+        projectType,
+        recommendedSizeYards,
+        intent,
+        availabilityContext,
+      });
+
+      return res.status(200).json({
+        reply: `Absolutely — here’s your direct booking link. I included the ZIP and recommended ${recommendedSizeYards}-yard dumpster so you don’t have to start over: <${url}>`,
+        bookingUrl: url,
+        sessionId: randySession?.id || null,
+        intent,
       });
     }
 
@@ -292,7 +335,7 @@ export default async function handler(req, res) {
       });
     }
 
-    reply = reply.replace(/(https?:\/\/[^\s<>]+)/g, "<$1>");
+    reply = cleanReplyLinks(reply);
 
     return res.status(200).json({
       reply,
