@@ -23,6 +23,10 @@ function clickButtonByText(pattern) {
   return true;
 }
 
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function RandyAutoAdvance() {
   const [status, setStatus] = useState("Preparing your Randy booking handoff…");
 
@@ -60,7 +64,7 @@ function RandyAutoAdvance() {
 
       if (/Choose your rental size/i.test(bodyText)) {
         setStatus(`Selecting the ${handoff.sizeLabel} Randy recommended…`);
-        clickButtonByText(new RegExp(`^${handoff.sizeLabel.replace(" ", "\\\\s+")}`, "i"));
+        clickButtonByText(new RegExp(`^${escapeRegExp(handoff.sizeLabel)}`, "i"));
         return;
       }
 
