@@ -135,8 +135,9 @@ function buildDeterministicFallbackReply({ intent, zip, projectType, recommended
       ? `I need the team to confirm service for ZIP ${zip}.`
       : "What ZIP code is the job in?";
 
-  const priceText = salesContext?.price
-    ? `The ${salesContext.price.sizeLabel} ${salesContext.price.displayLabel} option is $${salesContext.price.totalPrice} including delivery for that area.`
+  const activePrice = availabilityContext?.soonest?.price || salesContext?.price;
+  const priceText = activePrice
+    ? `The ${activePrice.sizeLabel} ${activePrice.displayLabel} option is $${activePrice.totalPrice} including delivery for that area.`
     : "Once I have the ZIP code, I can check service area and pricing.";
 
   const availabilityText = availabilityContext?.soonest
@@ -245,7 +246,7 @@ export default async function handler(req, res) {
 
     if (!risk.shouldRestrictActions && shouldCheckAvailability(intent, allUserText)) {
       try {
-        availabilityContext = await getAvailabilityContext({ sizeYards: recommendedSizeYards });
+        availabilityContext = await getAvailabilityContext({ sizeYards: recommendedSizeYards, zip });
       } catch (err) {
         console.warn("[randy] availability context unavailable", err.message);
       }
