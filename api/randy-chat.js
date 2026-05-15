@@ -115,6 +115,37 @@ function normalizePhoneForSms(phone) {
   return phone;
 }
 
+function buildDeterministicFallbackReply({ intent, zip, projectType, recommendedSizeYards, salesContext, availabilityContext, rentalContext }) {
+  if (rentalContext?.rental) {
+    return `I found your rental. The current status is ${rentalContext.rental.status || "on file"}, and the scheduled return date is ${rentalContext.rental.scheduled_return || "not listed yet"}. If you need an extension or help with pickup, call or text 470-548-4733.`;
+  }
+
+  if (intent === INTENTS.CUSTOMER_SERVICE) {
+    return "I can help with existing rental questions. For privacy, please provide the phone number or email used for the rental, plus the delivery ZIP code or street number.";
+  }
+
+  const sizeText = `${recommendedSizeYards || 11}-yard`;
+  const serviceText = salesContext?.serviceArea?.serviceable
+    ? `We service ${salesContext.serviceArea.areaLabel || `ZIP ${zip}`}.`
+    : zip
+      ? `I need the team to confirm service for ZIP ${zip}.`
+      : "What ZIP code is the job in?";
+
+  const priceText = salesContext?.price
+    ? `The ${salesContext.price.sizeLabel} ${salesContext.price.displayLabel} option is $${salesContext.price.totalPrice} including delivery for that area.`
+    : "Once I have the ZIP code, I can check service area and pricing.";
+
+  const availabilityText = availabilityContext?.soonest
+    ? `The soonest window I see is ${availabilityContext.soonest.startLabel} to ${availabilityContext.soonest.endLabel}.`
+    : "I can also check the next available delivery windows.";
+
+  if (intent === INTENTS.PRICING || intent === INTENTS.AVAILABILITY || intent === INTENTS.SALES || intent === INTENTS.SERVICE_AREA) {
+    return `${serviceText} Based on a ${projectType === "unknown" ? "cleanup" : projectType.replaceAll("_", " ")} project, I’d start with the ${sizeText}. ${priceText} ${availabilityText} Want me to text you a direct booking link so you don’t have to start over?`;
+  }
+
+  return "I can help with dumpster sizing, pricing, availability, booking links, or basic rental questions. What are you working on?";
+}
+
 export default async function handler(req, res) {
   applyCors(req, res);
 
@@ -240,12 +271,34 @@ export default async function handler(req, res) {
       rentalContext,
     });
 
-    let reply = await callOpenAI({ systemPrompt, messages });
+    let reply;
+    let degraded = false;
+    let degradedReason = null;
+
+    try {
+      reply = await callOpenAI({ systemPrompt, messages });
+    } catch (err) {
+      degraded = true;
+      degradedReason = err.message;
+      console.warn("[randy] AI response degraded", err.message);
+      reply = buildDeterministicFallbackReply({
+        intent,
+        zip,
+        projectType,
+        recommendedSizeYards,
+        salesContext,
+        availabilityContext,
+        rentalContext,
+      });
+    }
+
     reply = reply.replace(/(https?:\/\/[^\s<>]+)/g, "<$1>");
 
     return res.status(200).json({
       reply,
       intent,
+      degraded,
+      degradedReason: process.env.NODE_ENV !== "production" ? degradedReason : undefined,
       context: {
         zip: zip || null,
         projectType,
@@ -258,8 +311,9 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     console.error("[randy] failed", err);
-    return res.status(500).json({
-      reply: "I’m having trouble connecting right now. Please call or text Little Junkers at 470-548-4733, or use the booking page: <https://book.littlejunkersllc.com/rent-a-dumpster>",
+    return res.status(200).json({
+      reply: "I’m having trouble with part of my connection right now, but I can still help route you. Please call or text Little Junkers at 470-548-4733, or use the booking page: <https://book.littlejunkersllc.com/rent-a-dumpster>",
+      degraded: true,
       error: process.env.NODE_ENV !== "production" ? err.message : undefined,
     });
   }
