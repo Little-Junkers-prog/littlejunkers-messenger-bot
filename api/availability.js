@@ -2,7 +2,7 @@
 // Supabase-backed rental availability.
 // Source of truth:
 // - public.units    -> physical dumpster inventory and maintenance state
-// - public.rentals  -> confirmed/active rentals and short-lived pending holds
+// - public.rentals  -> confirmed/active rentals and short-lived Stripe pending holds
 // - public.pricing  -> rental tier keys, durations, and day restrictions
 
 import { getSupabaseAdmin, assertServerOnly } from "../lib/supabaseAdmin";
@@ -180,9 +180,10 @@ async function getUnitsAndRentals(supabase, sizeYards, today, windowEnd) {
       .gt("scheduled_return", toDateStr(today)),
     supabase
       .from("rentals")
-      .select("id, unit_id, size_yards, status, dropoff_date, scheduled_return, created_at")
+      .select("id, unit_id, size_yards, status, dropoff_date, scheduled_return, stripe_session_id, created_at")
       .eq("size_yards", sizeYards)
       .eq("status", HOLD_RENTAL_STATUS)
+      .not("stripe_session_id", "is", null)
       .lt("dropoff_date", toDateStr(addDays(windowEnd, 1)))
       .gt("scheduled_return", toDateStr(today))
       .gte("created_at", holdCutoff),
