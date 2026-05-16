@@ -60,6 +60,10 @@ function getLastUserMessage(messages = []) {
   return [...messages].reverse().find((m) => m.role === "user")?.content || "";
 }
 
+function getPreviousAssistantMessage(messages = []) {
+  return [...messages].reverse().find((m) => m.role === "assistant")?.content || "";
+}
+
 function shouldCheckAvailability(intent, text) {
   return intent === INTENTS.AVAILABILITY || /(available|availability|soonest|earliest|delivery|book|schedule|today|tomorrow|this weekend)/i.test(text);
 }
@@ -74,6 +78,22 @@ function wantsTextLink(text) {
 
 function wantsBookingLink(text) {
   return /(book|booking|reserve|proceed|checkout|check out|rent it|start order|place order|direct link|send.*link|link)/i.test(text);
+}
+
+function messageLooksLikeContactOnly(text) {
+  const raw = String(text || "").trim();
+  const digits = raw.replace(/\D/g, "");
+  const hasPhone = digits.length >= 10 && digits.length <= 11;
+  const hasEmail = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(raw);
+  const stripped = raw
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "")
+    .replace(/[\d\s().+-]/g, "")
+    .trim();
+  return (hasPhone || hasEmail) && stripped.length === 0;
+}
+
+function assistantWasWaitingForBookingContact(text) {
+  return /(phone number|email|send.*booking link|text.*booking link|booking link)/i.test(String(text || ""));
 }
 
 async function callOpenAI({ systemPrompt, messages }) {
@@ -135,8 +155,9 @@ function buildDeterministicFallbackReply({ intent, zip, projectType, recommended
       ? `I need the team to confirm service for ZIP ${zip}.`
       : "What ZIP code is the job in?";
 
-  const priceText = salesContext?.price
-    ? `The ${salesContext.price.sizeLabel} ${salesContext.price.displayLabel} option is $${salesContext.price.totalPrice} including delivery for that area.`
+  const activePrice = availabilityContext?.soonest?.price || salesContext?.price;
+  const priceText = activePrice
+    ? `The ${activePrice.sizeLabel} ${activePrice.displayLabel} option is $${activePrice.totalPrice} including delivery for that area.`
     : "Once I have the ZIP code, I can check service area and pricing.";
 
   const availabilityText = availabilityContext?.soonest
@@ -210,6 +231,7 @@ export default async function handler(req, res) {
     }
 
     const lastUserMessage = getLastUserMessage(messages);
+    const previousAssistantMessage = getPreviousAssistantMessage(messages);
     const allUserText = getAllUserText(messages);
     const risk = analyzeConversationRisk(messages, lastUserMessage);
 
@@ -245,7 +267,7 @@ export default async function handler(req, res) {
 
     if (!risk.shouldRestrictActions && shouldCheckAvailability(intent, allUserText)) {
       try {
-        availabilityContext = await getAvailabilityContext({ sizeYards: recommendedSizeYards });
+        availabilityContext = await getAvailabilityContext({ sizeYards: recommendedSizeYards, zip });
       } catch (err) {
         console.warn("[randy] availability context unavailable", err.message);
       }
@@ -259,7 +281,16 @@ export default async function handler(req, res) {
       }
     }
 
-    if (!risk.shouldRestrictActions && wantsTextLink(lastUserMessage) && phone && intent !== INTENTS.CUSTOMER_SERVICE) {
+    const shouldAutoSendTextLink =
+      phone &&
+      intent !== INTENTS.CUSTOMER_SERVICE &&
+      !risk.shouldRestrictActions &&
+      (
+        wantsTextLink(lastUserMessage) ||
+        (messageLooksLikeContactOnly(lastUserMessage) && assistantWasWaitingForBookingContact(previousAssistantMessage))
+      );
+
+    if (shouldAutoSendTextLink) {
       const { randySession, url } = await createBookingContext({
         phone,
         email,
@@ -274,16 +305,19 @@ export default async function handler(req, res) {
 
       if (smsResult.sent) {
         return res.status(200).json({
-          reply: `Done — I texted you the direct booking link. It should keep the details you already shared so you don’t have to start over. You can also open it here: <${url}>`,
+          reply: `Done — I texted you the direct booking link. You can also open it here: ${url}`,
           bookingUrl: url,
           sessionId: randySession?.id || null,
+          smsSent: true,
         });
       }
 
       return res.status(200).json({
-        reply: `I couldn’t send the text from here, but here’s the direct booking link: <${url}>`,
+        reply: `I couldn't send the text from here, but here is the direct booking link: ${url}`,
         bookingUrl: url,
         sessionId: randySession?.id || null,
+        smsSent: false,
+        smsError: process.env.NODE_ENV !== "production" ? smsResult.error : undefined,
       });
     }
 
@@ -299,7 +333,7 @@ export default async function handler(req, res) {
       });
 
       return res.status(200).json({
-        reply: `Absolutely — here’s your direct booking link. I included the ZIP and recommended ${recommendedSizeYards}-yard dumpster so you don’t have to start over: <${url}>`,
+        reply: `Absolutely — here is your direct booking link. I included the ZIP and recommended ${recommendedSizeYards}-yard dumpster so you don't have to start over: ${url}`,
         bookingUrl: url,
         sessionId: randySession?.id || null,
         intent,
@@ -355,7 +389,7 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error("[randy] failed", err);
     return res.status(200).json({
-      reply: "I’m having trouble with part of my connection right now, but I can still help route you. Please call or text Little Junkers at 470-548-4733, or use the booking page: <https://book.littlejunkersllc.com/rent-a-dumpster>",
+      reply: "I'm having trouble with part of my connection right now, but I can still help route you. Please call or text Little Junkers at 470-548-4733, or use the booking page: https://book.littlejunkersllc.com/rent-a-dumpster",
       degraded: true,
       error: process.env.NODE_ENV !== "production" ? err.message : undefined,
     });
