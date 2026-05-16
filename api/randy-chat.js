@@ -5,6 +5,7 @@ import { analyzeConversationRisk, getGuardrailReply, getRespectfulBoundaryReply 
 import {
   classifyIntent,
   extractEmail,
+  extractName,
   extractPhone,
   extractZip,
   getAllUserText,
@@ -28,6 +29,8 @@ const ALLOWED_ORIGINS = new Set([
   "https://book.littlejunkersllc.com",
   "http://localhost:3000",
 ]);
+
+const SMS_OPT_IN_TEXT = "By providing your mobile number, you agree to receive this booking link and rental-related texts from Little Junkers. Reply STOP to unsubscribe.";
 
 function applyCors(req, res) {
   const origin = req.headers.origin;
@@ -93,14 +96,22 @@ function messageLooksLikeContactOnly(text) {
 }
 
 function assistantWasWaitingForBookingContact(text) {
-  return /(phone number|email|send.*booking link|text.*booking link|booking link)/i.test(String(text || ""));
+  return /(phone number|mobile number|email|first name|name|send.*booking link|text.*booking link|booking link)/i.test(String(text || ""));
+}
+
+function shouldCollectLeadForBooking({ lastUserMessage, previousAssistantMessage, zip, intent }) {
+  if (!zip || intent === INTENTS.CUSTOMER_SERVICE) return false;
+  return (
+    wantsTextLink(lastUserMessage) ||
+    wantsBookingLink(lastUserMessage) ||
+    (messageLooksLikeContactOnly(lastUserMessage) && assistantWasWaitingForBookingContact(previousAssistantMessage)) ||
+    (/^[A-Za-z][A-Za-z' -]{1,50}$/.test(String(lastUserMessage || "").trim()) && assistantWasWaitingForBookingContact(previousAssistantMessage))
+  );
 }
 
 async function callOpenAI({ systemPrompt, messages }) {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("Missing OPENAI_API_KEY");
-  }
+  if (!apiKey) throw new Error("Missing OPENAI_API_KEY");
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -165,7 +176,7 @@ function buildDeterministicFallbackReply({ intent, zip, projectType, recommended
     : "I can also check the next available delivery windows.";
 
   if (intent === INTENTS.PRICING || intent === INTENTS.AVAILABILITY || intent === INTENTS.SALES || intent === INTENTS.SERVICE_AREA) {
-    return `${serviceText} Based on a ${projectType === "unknown" ? "cleanup" : projectType.replaceAll("_", " ")} project, I’d start with the ${sizeText}. ${priceText} ${availabilityText} Want me to text you a direct booking link so you don’t have to start over?`;
+    return `${serviceText} Based on a ${projectType === "unknown" ? "cleanup" : projectType.replaceAll("_", " ")} project, I’d start with the ${sizeText}. ${priceText} ${availabilityText} Want me to send a direct booking link so you don’t have to start over?`;
   }
 
   return "I can help with dumpster sizing, pricing, availability, booking links, or basic rental questions. What are you working on?";
@@ -179,18 +190,25 @@ function cleanReplyLinks(reply = "") {
     .replace(/<(<https?:\/\/[^>]+>)>/g, "$1");
 }
 
-async function createBookingContext({ phone, email, zip, projectType, recommendedSizeYards, intent, availabilityContext }) {
+async function createBookingContext({ name, phone, email, zip, projectType, recommendedSizeYards, intent, availabilityContext, optIn }) {
   const randySession = await createRandySession({
+    name,
     phone,
     email,
     zip,
     projectType,
     sizeYards: recommendedSizeYards,
-    summary: `Randy lead: ${projectType}, ${recommendedSizeYards} yard, ZIP ${zip || "unknown"}`,
+    summary: `Randy lead: ${name || "unknown name"}, ${projectType}, ${recommendedSizeYards} yard, ZIP ${zip || "unknown"}`,
     metadata: {
       intent,
       source: "randy_chat",
+      leadStatus: "open",
       availabilitySoonest: availabilityContext?.soonest || null,
+      smsOptIn: Boolean(optIn?.smsOptIn),
+      smsOptInText: optIn?.smsOptInText || null,
+      smsOptInTimestamp: optIn?.smsOptInTimestamp || null,
+      smsOptInSource: optIn?.smsOptInSource || null,
+      marketingOptIn: false,
     },
   });
 
@@ -207,17 +225,9 @@ async function createBookingContext({ phone, email, zip, projectType, recommende
 export default async function handler(req, res) {
   applyCors(req, res);
 
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
-
-  if (req.method !== "POST") {
-    return res.status(405).json({ reply: "Method not allowed" });
-  }
-
-  if (!validateSiteToken(req)) {
-    return res.status(401).json({ reply: "Unauthorized" });
-  }
+  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "POST") return res.status(405).json({ reply: "Method not allowed" });
+  if (!validateSiteToken(req)) return res.status(401).json({ reply: "Unauthorized" });
 
   try {
     const { messages: rawMessages = [], event = "", session = {} } = req.body || {};
@@ -236,18 +246,14 @@ export default async function handler(req, res) {
     const risk = analyzeConversationRisk(messages, lastUserMessage);
 
     const guardrailReply = getGuardrailReply(risk);
-    if (guardrailReply) {
-      return res.status(200).json({ reply: guardrailReply, restricted: true });
-    }
-
-    if (risk.profanityCount === 1) {
-      return res.status(200).json({ reply: getRespectfulBoundaryReply(), restricted: true });
-    }
+    if (guardrailReply) return res.status(200).json({ reply: guardrailReply, restricted: true });
+    if (risk.profanityCount === 1) return res.status(200).json({ reply: getRespectfulBoundaryReply(), restricted: true });
 
     const intent = classifyIntent(lastUserMessage, allUserText);
     const zip = session.zip || extractZip(allUserText);
     const phone = session.phone || extractPhone(allUserText);
     const email = session.email || extractEmail(allUserText);
+    const name = session.name || extractName(allUserText);
     const projectType = session.projectType || inferProjectType(allUserText);
     const recommendedSizeYards = session.sizeYards || recommendSizeYards(projectType, allUserText);
 
@@ -256,11 +262,7 @@ export default async function handler(req, res) {
     let rentalContext = null;
 
     try {
-      salesContext = await getSalesContext({
-        zip,
-        sizeYards: recommendedSizeYards,
-        tierKey: session.tierKey || "2day_standard",
-      });
+      salesContext = await getSalesContext({ zip, sizeYards: recommendedSizeYards, tierKey: session.tierKey || "2day_standard" });
     } catch (err) {
       console.warn("[randy] sales context unavailable", err.message);
     }
@@ -281,17 +283,50 @@ export default async function handler(req, res) {
       }
     }
 
-    const shouldAutoSendTextLink =
-      phone &&
-      intent !== INTENTS.CUSTOMER_SERVICE &&
-      !risk.shouldRestrictActions &&
-      (
-        wantsTextLink(lastUserMessage) ||
-        (messageLooksLikeContactOnly(lastUserMessage) && assistantWasWaitingForBookingContact(previousAssistantMessage))
-      );
+    const shouldCollectLead = !risk.shouldRestrictActions && shouldCollectLeadForBooking({ lastUserMessage, previousAssistantMessage, zip, intent });
 
-    if (shouldAutoSendTextLink) {
+    if (shouldCollectLead) {
+      if (!name && !(phone || email)) {
+        return res.status(200).json({
+          reply: `I can send a direct booking link and save this as a quote. What is your first name and mobile number?\n\n${SMS_OPT_IN_TEXT}`,
+          needsLeadInfo: true,
+          needsName: true,
+          needsContact: true,
+        });
+      }
+
+      if (!name) {
+        return res.status(200).json({
+          reply: "Got it. What first name should I attach to this quote?",
+          needsLeadInfo: true,
+          needsName: true,
+          needsContact: false,
+        });
+      }
+
+      if (!(phone || email)) {
+        return res.status(200).json({
+          reply: `Thanks, ${name}. What mobile number should I send the direct booking link to?\n\n${SMS_OPT_IN_TEXT}`,
+          needsLeadInfo: true,
+          needsName: false,
+          needsContact: true,
+        });
+      }
+
+      const optIn = phone ? {
+        smsOptIn: true,
+        smsOptInText: SMS_OPT_IN_TEXT,
+        smsOptInTimestamp: new Date().toISOString(),
+        smsOptInSource: "randy_chat_booking_link_request",
+      } : {
+        smsOptIn: false,
+        smsOptInText: null,
+        smsOptInTimestamp: null,
+        smsOptInSource: null,
+      };
+
       const { randySession, url } = await createBookingContext({
+        name,
         phone,
         email,
         zip,
@@ -299,54 +334,39 @@ export default async function handler(req, res) {
         recommendedSizeYards,
         intent,
         availabilityContext,
+        optIn,
       });
 
-      const smsResult = await sendBookingLinkByText({ to: normalizePhoneForSms(phone), url });
+      if (phone) {
+        const smsResult = await sendBookingLinkByText({ to: normalizePhoneForSms(phone), url });
 
-      if (smsResult.sent) {
+        if (smsResult.sent) {
+          return res.status(200).json({
+            reply: `Done — I texted the direct booking link to you, ${name}. You can also open it here: ${url}`,
+            bookingUrl: url,
+            sessionId: randySession?.id || null,
+            smsSent: true,
+          });
+        }
+
         return res.status(200).json({
-          reply: `Done — I texted you the direct booking link. You can also open it here: ${url}`,
+          reply: `I saved the quote, but I couldn't send the text from here. Here is the direct booking link: ${url}`,
           bookingUrl: url,
           sessionId: randySession?.id || null,
-          smsSent: true,
+          smsSent: false,
+          smsError: process.env.NODE_ENV !== "production" ? smsResult.error : undefined,
         });
       }
 
       return res.status(200).json({
-        reply: `I couldn't send the text from here, but here is the direct booking link: ${url}`,
+        reply: `Thanks, ${name}. I saved this as a Randy lead. Here is your direct booking link: ${url}`,
         bookingUrl: url,
         sessionId: randySession?.id || null,
         smsSent: false,
-        smsError: process.env.NODE_ENV !== "production" ? smsResult.error : undefined,
       });
     }
 
-    if (!risk.shouldRestrictActions && wantsBookingLink(lastUserMessage) && zip && intent !== INTENTS.CUSTOMER_SERVICE) {
-      const { randySession, url } = await createBookingContext({
-        phone,
-        email,
-        zip,
-        projectType,
-        recommendedSizeYards,
-        intent,
-        availabilityContext,
-      });
-
-      return res.status(200).json({
-        reply: `Absolutely — here is your direct booking link. I included the ZIP and recommended ${recommendedSizeYards}-yard dumpster so you don't have to start over: ${url}`,
-        bookingUrl: url,
-        sessionId: randySession?.id || null,
-        intent,
-      });
-    }
-
-    const systemPrompt = buildRandySystemPrompt({
-      intent,
-      risk,
-      salesContext,
-      availabilityContext,
-      rentalContext,
-    });
+    const systemPrompt = buildRandySystemPrompt({ intent, risk, salesContext, availabilityContext, rentalContext });
 
     let reply;
     let degraded = false;
@@ -358,15 +378,7 @@ export default async function handler(req, res) {
       degraded = true;
       degradedReason = err.message;
       console.warn("[randy] AI response degraded", err.message);
-      reply = buildDeterministicFallbackReply({
-        intent,
-        zip,
-        projectType,
-        recommendedSizeYards,
-        salesContext,
-        availabilityContext,
-        rentalContext,
-      });
+      reply = buildDeterministicFallbackReply({ intent, zip, projectType, recommendedSizeYards, salesContext, availabilityContext, rentalContext });
     }
 
     reply = cleanReplyLinks(reply);
@@ -378,6 +390,9 @@ export default async function handler(req, res) {
       degradedReason: process.env.NODE_ENV !== "production" ? degradedReason : undefined,
       context: {
         zip: zip || null,
+        name: name || null,
+        phone: phone || null,
+        email: email || null,
         projectType,
         recommendedSizeYards,
         serviceable: salesContext?.serviceArea?.serviceable ?? null,
