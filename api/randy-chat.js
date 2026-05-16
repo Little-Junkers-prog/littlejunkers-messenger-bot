@@ -150,13 +150,29 @@ function normalizePhoneForSms(phone) {
   return phone;
 }
 
+function formatRentalDate(value) {
+  if (!value) return "not listed yet";
+  const date = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  return date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+}
+
+function existingRentalReply({ rentalContext }) {
+  const rental = rentalContext?.rental;
+  if (!rental) return "";
+  const size = rental.size_yards ? `${rental.size_yards}-yard` : "dumpster";
+  const status = rental.status || "on file";
+  const endDate = formatRentalDate(rental.scheduled_return);
+
+  return `I found your ${size} rental. Status: ${status}. Your scheduled rental end / pickup date is ${endDate}. If you need to extend, reschedule pickup, or report an issue, call or text 470-548-4733 so the team can confirm the change.`;
+}
+
 function buildDeterministicFallbackReply({ intent, zip, projectType, recommendedSizeYards, salesContext, availabilityContext, rentalContext }) {
-  if (rentalContext?.rental) {
-    return `I found your rental. The current status is ${rentalContext.rental.status || "on file"}, and the scheduled return date is ${rentalContext.rental.scheduled_return || "not listed yet"}. If you need an extension or help with pickup, call or text 470-548-4733.`;
-  }
+  const rentalReply = existingRentalReply({ rentalContext });
+  if (rentalReply) return rentalReply;
 
   if (intent === INTENTS.CUSTOMER_SERVICE) {
-    return "I can help with existing rental questions. For privacy, please provide the phone number or email used for the rental, plus the delivery ZIP code or street number.";
+    return "I can help with existing rental questions. Please provide the phone number or email used for the rental and the delivery ZIP code. A rental/order ID is helpful if you have it, but it is not required.";
   }
 
   const sizeText = `${recommendedSizeYards || 11}-yard`;
@@ -281,6 +297,41 @@ export default async function handler(req, res) {
       } catch (err) {
         console.warn("[randy] rental lookup unavailable", err.message);
       }
+    }
+
+    if (!risk.shouldRestrictActions && intent === INTENTS.CUSTOMER_SERVICE) {
+      if (!(phone || email)) {
+        return res.status(200).json({
+          reply: "I can check basic rental details. Please provide the phone number or email used for the rental, plus the delivery ZIP code. You do not need a rental/order ID.",
+          needsRentalLookupInfo: true,
+        });
+      }
+
+      if (!zip) {
+        return res.status(200).json({
+          reply: "Thanks. What ZIP code was the dumpster delivered to? That is enough for me to try the rental lookup — you do not need a rental/order ID.",
+          needsRentalLookupInfo: true,
+        });
+      }
+
+      if (rentalContext?.rental) {
+        return res.status(200).json({
+          reply: existingRentalReply({ rentalContext }),
+          rentalMatched: true,
+          intent,
+          context: {
+            zip,
+            phone: phone || null,
+            email: email || null,
+          },
+        });
+      }
+
+      return res.status(200).json({
+        reply: "I could not find an active rental with that phone/email and ZIP. Please check the phone number or ZIP, or call/text 470-548-4733 and the team can look it up manually. You do not need a rental/order ID unless you happen to have one.",
+        rentalMatched: false,
+        intent,
+      });
     }
 
     const shouldCollectLead = !risk.shouldRestrictActions && shouldCollectLeadForBooking({ lastUserMessage, previousAssistantMessage, zip, intent });
