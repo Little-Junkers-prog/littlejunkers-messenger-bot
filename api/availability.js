@@ -1,7 +1,7 @@
 // api/availability.js
 // Supabase-backed rental availability.
 // Source of truth:
-// - public.units    -> physical dumpster inventory and unit status
+// - public.units    -> physical dumpster inventory and maintenance state
 // - public.rentals  -> confirmed/active rentals and short-lived pending holds
 // - public.pricing  -> rental tier keys, durations, and day restrictions
 
@@ -84,7 +84,7 @@ function buildBlockedDates({ rentals, units, sizeYards, today, windowEnd }) {
   );
 
   const unitCapacity = activeUnitIds.size;
-  const deployedUnitIds = new Set(
+  const staleDeployedUnitIds = new Set(
     unitsForSize
       .filter((u) => u.status === "deployed")
       .map((u) => u.id)
@@ -95,7 +95,7 @@ function buildBlockedDates({ rentals, units, sizeYards, today, windowEnd }) {
 
   while (cur <= windowEnd) {
     const nextDay = addDays(cur, 1);
-    let used = deployedUnitIds.size;
+    let used = 0;
 
     for (const rental of rentals) {
       if (Number(rental.size_yards) !== sizeYards) continue;
@@ -117,7 +117,11 @@ function buildBlockedDates({ rentals, units, sizeYards, today, windowEnd }) {
     cur.setDate(cur.getDate() + 1);
   }
 
-  return blocked;
+  return {
+    blocked,
+    unitCapacity,
+    staleDeployedUnitCount: staleDeployedUnitIds.size,
+  };
 }
 
 function isWindowClear(start, durationDays, blocked, today, windowEnd) {
@@ -235,7 +239,7 @@ export default async function handler(req, res) {
       windowEnd
     );
 
-    const blocked = buildBlockedDates({
+    const { blocked, unitCapacity, staleDeployedUnitCount } = buildBlockedDates({
       rentals,
       units,
       sizeYards: normalizedSizeYards,
@@ -257,6 +261,8 @@ export default async function handler(req, res) {
         ? {
             unitCount: units.length,
             activeUnitCount: units.filter((u) => u.status !== "maintenance").length,
+            unitCapacity,
+            staleDeployedUnitCount,
             blockingRentalCount: blockingRentals.length,
             pendingHoldCount: pendingHolds.length,
             tierKeys: pricingConfig.pricing.map((t) => t.tierKey),
