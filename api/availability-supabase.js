@@ -1,5 +1,9 @@
 // api/availability-supabase.js
-import { getAvailabilitySnapshot } from "../lib/availability";
+// Legacy CSR availability endpoint kept for csr-quick-book.js.
+// It now delegates to the canonical availability service so CSR no longer
+// drops into the false "all dates shown as open" degraded state.
+
+import { getAvailabilityCalendar, evaluateWindow } from "../lib/services/availabilityService";
 
 const ALLOWED_ORIGINS = new Set([
   "https://book.littlejunkersllc.com",
@@ -7,6 +11,7 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 
 const VALID_SIZE_CODES = new Set(["11YD", "16YD", "21YD"]);
+const SIZE_CODE_TO_YARDS = { "11YD": 11, "16YD": 16, "21YD": 21 };
 
 function applyCors(req, res) {
   const origin = req.headers.origin;
@@ -26,22 +31,13 @@ function hasAllowedOrigin(req) {
 }
 
 function parseBoolean(value) {
-  if (typeof value === "boolean") {
-    return value;
-  }
-
-  if (typeof value !== "string") {
-    return false;
-  }
-
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return false;
   return value.toLowerCase() === "true";
 }
 
 function normalizeSizeCode(value) {
-  if (!value || typeof value !== "string") {
-    return null;
-  }
-
+  if (!value || typeof value !== "string") return null;
   const normalized = value.trim().toUpperCase();
   return VALID_SIZE_CODES.has(normalized) ? normalized : null;
 }
@@ -49,27 +45,17 @@ function normalizeSizeCode(value) {
 function getQueryParam(req, ...keys) {
   for (const key of keys) {
     const value = req.query[key];
-
     if (Array.isArray(value)) {
-      if (value.length > 0) {
-        return value[0];
-      }
+      if (value.length > 0) return value[0];
       continue;
     }
-
-    if (value !== undefined && value !== null && value !== "") {
-      return value;
-    }
+    if (value !== undefined && value !== null && value !== "") return value;
   }
-
   return null;
 }
 
 function isValidDateInput(value) {
-  if (!value) {
-    return false;
-  }
-
+  if (!value) return false;
   const date = new Date(value);
   return !Number.isNaN(date.getTime());
 }
@@ -78,29 +64,9 @@ function buildExample() {
   return "/api/availability-supabase?sizeCode=16YD&requestedStartAt=2026-04-21T14:00:00-04:00&requestedEndAt=2026-04-24T18:00:00-04:00";
 }
 
-function summarizeAvailability(snapshot, includeDebug = false) {
-  return {
-    success: true,
-    message: "Availability snapshot fetched successfully.",
-    request: snapshot.request,
-    availability: {
-      sizeCode: snapshot.request.sizeCode,
-      candidateUnits: snapshot.totals.candidateUnits,
-      availableUnits: snapshot.totals.availableUnits,
-      blockedUnits: snapshot.totals.blockedUnits,
-      isAvailable: snapshot.totals.availableUnits > 0,
-      isTightWindow: snapshot.totals.tightWindow,
-      hasSizeLevelBlackout: false,
-      blockingSummary: {
-        rentals: snapshot.totals.blockingRentals,
-        holds: snapshot.totals.blockingHolds,
-        unassignedBlockingRentals: snapshot.totals.unassignedBlockingRentals,
-      },
-    },
-    availableUnits: snapshot.availableUnits,
-    blockedUnits: snapshot.blockedUnits,
-    ...(includeDebug ? { debug: snapshot.debug } : {}),
-  };
+function hasAnyAvailableWindow(calendar) {
+  if (!calendar?.available) return false;
+  return Object.values(calendar.available).some((windows) => Array.isArray(windows) && windows.length > 0);
 }
 
 export default async function handler(req, res) {
@@ -113,37 +79,20 @@ export default async function handler(req, res) {
   }
 
   if (req.method !== "GET") {
-    return res.status(405).json({
-      success: false,
-      error: "Method not allowed. Use GET.",
-    });
+    return res.status(405).json({ success: false, error: "Method not allowed. Use GET." });
   }
 
   if (!hasAllowedOrigin(req)) {
-    return res.status(403).json({
-      success: false,
-      error: "Forbidden origin",
-    });
+    return res.status(403).json({ success: false, error: "Forbidden origin" });
   }
 
   try {
     const rawSizeCode = getQueryParam(req, "sizeCode", "size", "dumpsterSize");
-    const requestedStartAt = getQueryParam(
-      req,
-      "requestedStartAt",
-      "start",
-      "startAt"
-    );
-    const requestedEndAt = getQueryParam(
-      req,
-      "requestedEndAt",
-      "end",
-      "endAt"
-    );
+    const requestedStartAt = getQueryParam(req, "requestedStartAt", "start", "startAt");
+    const requestedEndAt = getQueryParam(req, "requestedEndAt", "end", "endAt");
     const includeDebug = parseBoolean(getQueryParam(req, "debug"));
 
     const sizeCode = normalizeSizeCode(rawSizeCode);
-
     if (!sizeCode) {
       return res.status(400).json({
         success: false,
@@ -151,33 +100,59 @@ export default async function handler(req, res) {
         example: buildExample(),
       });
     }
-
     if (!isValidDateInput(requestedStartAt)) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing or invalid requestedStartAt.",
-        example: buildExample(),
-      });
+      return res.status(400).json({ success: false, error: "Missing or invalid requestedStartAt.", example: buildExample() });
     }
-
     if (!isValidDateInput(requestedEndAt)) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing or invalid requestedEndAt.",
-        example: buildExample(),
-      });
+      return res.status(400).json({ success: false, error: "Missing or invalid requestedEndAt.", example: buildExample() });
     }
 
-    const snapshot = await getAvailabilitySnapshot({
-      sizeCode,
-      requestedStartAt,
-      requestedEndAt,
-    });
+    const sizeYards = SIZE_CODE_TO_YARDS[sizeCode];
+    const [windowEvaluation, calendar] = await Promise.all([
+      evaluateWindow({
+        sizeYards,
+        startDate: requestedStartAt,
+        endDate: requestedEndAt,
+        source: "availability-supabase-legacy-csr",
+      }),
+      getAvailabilityCalendar({ sizeYards }),
+    ]);
 
-    return res.status(200).json(summarizeAvailability(snapshot, includeDebug));
+    const anyAvailableWindow = hasAnyAvailableWindow(calendar);
+
+    return res.status(200).json({
+      success: true,
+      message: "Availability snapshot fetched successfully.",
+      request: {
+        sizeCode,
+        sizeYards,
+        requestedStartAt,
+        requestedEndAt,
+        evaluatedAt: new Date().toISOString(),
+      },
+      availability: {
+        sizeCode,
+        candidateUnits: windowEvaluation.capacity,
+        availableUnits: windowEvaluation.availableUnits,
+        blockedUnits: windowEvaluation.usedCapacity,
+        // CSR passes a broad 90-day range. Treat the calendar as healthy if the
+        // canonical service can find any valid bookable windows for this size.
+        // Date-level validation still happens when create-booking-hold runs.
+        isAvailable: anyAvailableWindow,
+        isTightWindow: false,
+        hasSizeLevelBlackout: false,
+        blockingSummary: {
+          rentals: windowEvaluation.blockingCommitmentCount,
+          holds: 0,
+          unassignedBlockingRentals: 0,
+        },
+      },
+      blockedDates: calendar.blockedDates || [],
+      available: calendar.available || {},
+      ...(includeDebug ? { debug: { windowEvaluation, calendar: calendar.debug } } : {}),
+    });
   } catch (error) {
     console.error("[availability-supabase] FAILED", error);
-
     return res.status(500).json({
       success: false,
       error: error.message || "Failed to fetch availability snapshot",
