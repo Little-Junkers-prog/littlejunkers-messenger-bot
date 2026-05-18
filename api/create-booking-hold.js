@@ -1,8 +1,9 @@
 // api/create-booking-hold.js
-// Sprint 2A: writes a pending rental row to public.rentals as the hold mechanism
-// booking_holds table no longer used
+// Creates a temporary booking hold in public.booking_holds.
+// Holds reduce availability through public.availability_commitments.
+
 import { getSupabaseAdmin, assertServerOnly } from "../lib/supabaseAdmin";
-import { getAvailabilitySnapshot } from "../lib/availability";
+import { createBookingHold } from "../lib/services/availabilityService";
 
 const ALLOWED_ORIGINS = new Set([
   "https://book.littlejunkersllc.com",
@@ -10,7 +11,6 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 
 const VALID_SIZE_CODES = new Set(["11YD", "16YD", "21YD"]);
-const DEFAULT_HOLD_MINUTES = 30;
 
 function applyCors(req, res) {
   const origin = req.headers.origin;
@@ -30,12 +30,6 @@ function hasAllowedOrigin(req) {
 function asString(v) {
   if (v === null || v === undefined) return "";
   return String(v).trim();
-}
-
-function asInteger(v, fallback = 0) {
-  if (v === null || v === undefined || v === "") return fallback;
-  const n = Number(v);
-  return Number.isInteger(n) ? n : fallback;
 }
 
 function firstNonEmpty(...values) {
@@ -86,6 +80,62 @@ function normalizePhone(value) {
   return raw.length === 10 ? `+1${raw}` : raw.startsWith("1") ? `+${raw}` : raw;
 }
 
+function flattenAddress(value) {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    return [value.full, value.street1, value.street2, value.city, value.state, value.zip]
+      .filter(Boolean)
+      .join(", ");
+  }
+  return "";
+}
+
+async function upsertCustomer({ supabase, customerName, customerEmail, customerPhone, deliveryAddress, zone }) {
+  let customerId = null;
+
+  if (customerPhone) {
+    const { data: existingCustomer } = await supabase
+      .from("customers")
+      .select("id")
+      .eq("phone", customerPhone)
+      .maybeSingle();
+
+    if (existingCustomer) {
+      customerId = existingCustomer.id;
+      if (customerName || customerEmail || deliveryAddress) {
+        await supabase
+          .from("customers")
+          .update({
+            ...(customerName ? { name: customerName } : {}),
+            ...(customerEmail ? { email: customerEmail } : {}),
+            ...(deliveryAddress ? { address: deliveryAddress } : {}),
+            ...(zone ? { zone } : {}),
+          })
+          .eq("id", customerId);
+      }
+    }
+  }
+
+  if (!customerId) {
+    const { data: newCustomer, error: customerError } = await supabase
+      .from("customers")
+      .insert({
+        name: customerName || "Unknown",
+        phone: customerPhone || "0000000000",
+        email: customerEmail || null,
+        address: deliveryAddress || null,
+        zone,
+      })
+      .select("id")
+      .single();
+
+    if (customerError) throw customerError;
+    customerId = newCustomer.id;
+  }
+
+  return customerId;
+}
+
 export default async function handler(req, res) {
   applyCors(req, res);
 
@@ -107,7 +157,6 @@ export default async function handler(req, res) {
     assertServerOnly();
 
     const body = req.body || {};
-
     const normalizedSizeCode = normalizeSizeCode(
       firstNonEmpty(body?.selectedSize, body?.recommendedSize, body?.sizeCode, body?.size)
     );
@@ -150,139 +199,55 @@ export default async function handler(req, res) {
       });
     }
 
-    const requestedStartAtIso = requestedStartAt.toISOString();
-    const requestedEndAtIso = requestedEndAt.toISOString();
-    const now = new Date();
-
-    // Check availability before creating hold
-    const availability = await getAvailabilitySnapshot({
-      sizeCode: normalizedSizeCode,
-      requestedStartAt: requestedStartAtIso,
-      requestedEndAt: requestedEndAtIso,
-      now,
-    });
-
-    if (availability.totals.availableUnits <= 0) {
-      return res.status(409).json({
-        success: false,
-        error: "No units available for the requested window.",
-        availability: {
-          sizeCode: availability.request.sizeCode,
-          candidateUnits: availability.totals.candidateUnits,
-          availableUnits: availability.totals.availableUnits,
-          blockedUnits: availability.totals.blockedUnits,
-          tightWindow: availability.totals.tightWindow,
-        },
-      });
-    }
-
     const supabase = getSupabaseAdmin();
-
-    // Extract customer info
     const customerName = firstNonEmpty(body?.contact?.name, body?.customerName);
     const customerEmail = firstNonEmpty(body?.contact?.email, body?.customerEmail);
-    const customerPhone = normalizePhone(
-      firstNonEmpty(body?.contact?.phone, body?.customerPhone)
-    );
-    // deliveryAddress may arrive as a flat string, a { full } string, or a
-    // { street1, street2, city, state, zip } object from the CSR manual form.
-    // Flatten all cases to a single string before storing.
-    const addrObj = body?.deliveryAddress;
-    const flattenedAddress =
-      typeof addrObj === "string"
-        ? addrObj
-        : addrObj && typeof addrObj === "object"
-          ? [addrObj.full, addrObj.street1, addrObj.street2, addrObj.city, addrObj.state, addrObj.zip]
-              .filter(Boolean).join(", ")
-          : "";
-
-    const deliveryAddress = firstNonEmpty(
-      flattenedAddress,
-      body?.address
-    );
+    const customerPhone = normalizePhone(firstNonEmpty(body?.contact?.phone, body?.customerPhone));
+    const deliveryAddress = firstNonEmpty(flattenAddress(body?.deliveryAddress), body?.address);
     const zone = inferZone(firstNonEmpty(body?.zone, "local"));
     const sizeYards = sizeCodeToYards(normalizedSizeCode);
+    const rentalDays = Math.max(1, Math.round((requestedEndAt - requestedStartAt) / (1000 * 60 * 60 * 24)));
 
-    // Upsert customer by phone (if phone provided), otherwise insert
-    let customerId = null;
-    if (customerPhone) {
-      const { data: existingCustomer } = await supabase
-        .from("customers")
-        .select("id")
-        .eq("phone", customerPhone)
-        .maybeSingle();
+    const customerId = await upsertCustomer({
+      supabase,
+      customerName,
+      customerEmail,
+      customerPhone,
+      deliveryAddress,
+      zone,
+    });
 
-      if (existingCustomer) {
-        customerId = existingCustomer.id;
-        // Update name/email if we have better data
-        if (customerName || customerEmail) {
-          await supabase
-            .from("customers")
-            .update({
-              ...(customerName ? { name: customerName } : {}),
-              ...(customerEmail ? { email: customerEmail } : {}),
-            })
-            .eq("id", customerId);
-        }
-      }
-    }
-
-    if (!customerId) {
-      const { data: newCustomer, error: customerError } = await supabase
-        .from("customers")
-        .insert({
-          name: customerName || "Unknown",
-          phone: customerPhone || "0000000000",
-          email: customerEmail || null,
-          address: deliveryAddress || null,
-          zone,
-        })
-        .select("id")
-        .single();
-
-      if (customerError) throw customerError;
-      customerId = newCustomer.id;
-    }
-
-    // Create pending rental as the hold
-    const dropoffDate = toDateOnly(requestedStartAt);
-    const scheduledReturn = toDateOnly(requestedEndAt);
-    const rentalDays = Math.max(
-      1,
-      Math.round((requestedEndAt - requestedStartAt) / (1000 * 60 * 60 * 24))
-    );
-
-    const { data: rental, error: rentalError } = await supabase
-      .from("rentals")
-      .insert({
-        customer_id: customerId,
-        status: "pending",
-        size_yards: sizeYards,
-        delivery_address: deliveryAddress || "TBD",
+    const holdType = firstNonEmpty(body?.holdType, body?.source === "manual" ? "manual_checkout_link" : "online_checkout");
+    const { hold, availability, expiresAt, holdMinutes } = await createBookingHold({
+      sizeYards,
+      startDate: toDateOnly(requestedStartAt),
+      endDate: toDateOnly(requestedEndAt),
+      customerId,
+      holdType,
+      source: firstNonEmpty(body?.source, "funnel"),
+      metadata: {
+        customerName,
+        customerEmail,
+        customerPhone,
+        deliveryAddress,
         zone,
-        dropoff_date: dropoffDate,
-        scheduled_return: scheduledReturn,
-        rental_days: rentalDays,
-        payment_source: "funnel",
-        notes: firstNonEmpty(body?.rentalOption) || null,
-      })
-      .select("id, status, size_yards, delivery_address, zone, dropoff_date, scheduled_return, rental_days, created_at")
-      .single();
+        rentalDays,
+        rentalOption: firstNonEmpty(body?.rentalOption),
+      },
+    });
 
-    if (rentalError) throw rentalError;
-
-    // Log the hold event
     await supabase.from("events").insert({
-      event_type: "availability_checked",
+      event_type: "booking_hold_created",
       source: "funnel",
-      rental_id: rental.id,
       customer_id: customerId,
       payload: {
+        hold_id: hold.id,
         sizeCode: normalizedSizeCode,
-        availableUnitsBeforeHold: availability.totals.availableUnits,
-        tightWindow: availability.totals.tightWindow,
-        requestedStartAt: requestedStartAtIso,
-        requestedEndAt: requestedEndAtIso,
+        availableUnitsBeforeHold: availability.availableUnits,
+        requestedStartAt: requestedStartAt.toISOString(),
+        requestedEndAt: requestedEndAt.toISOString(),
+        expiresAt,
+        holdMinutes,
       },
     });
 
@@ -290,27 +255,41 @@ export default async function handler(req, res) {
       success: true,
       message: "Booking hold created successfully.",
       hold: {
-        // Return as "hold" for backward compat with create-checkout.js which reads bookingHoldId
-        id: rental.id,
-        rental_id: rental.id,
+        id: hold.id,
+        booking_hold_id: hold.id,
         size_code: normalizedSizeCode,
-        size_yards: rental.size_yards,
-        dropoff_date: rental.dropoff_date,
-        scheduled_return: rental.scheduled_return,
-        rental_days: rental.rental_days,
-        status: rental.status,
+        size_yards: sizeYards,
+        dropoff_date: toDateOnly(requestedStartAt),
+        scheduled_return: toDateOnly(requestedEndAt),
+        rental_days: rentalDays,
+        status: hold.status || "active",
         customer_id: customerId,
-        created_at: rental.created_at,
+        expires_at: expiresAt,
+        created_at: hold.created_at,
       },
       availability: {
-        sizeCode: availability.request.sizeCode,
-        candidateUnits: availability.totals.candidateUnits,
-        availableUnitsBeforeHold: availability.totals.availableUnits,
-        tightWindow: availability.totals.tightWindow,
+        sizeCode: normalizedSizeCode,
+        candidateUnits: availability.capacity,
+        availableUnitsBeforeHold: availability.availableUnits,
+        tightWindow: false,
       },
     });
   } catch (error) {
     console.error("[create-booking-hold] FAILED", error);
+
+    if (error.availability) {
+      return res.status(409).json({
+        success: false,
+        error: error.message || "No units available for the requested window.",
+        availability: {
+          sizeCode: error.availability.sizeCode,
+          candidateUnits: error.availability.capacity,
+          availableUnits: error.availability.availableUnits,
+          blockedUnits: error.availability.usedCapacity,
+        },
+      });
+    }
+
     return res.status(500).json({
       success: false,
       error: error.message || "Failed to create booking hold",
