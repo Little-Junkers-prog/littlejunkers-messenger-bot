@@ -1,10 +1,12 @@
 // api/stripe-webhook.js
-// Sprint 2A: on checkout.session.completed, upgrades the pending rental row
-// to confirmed, creates a payments record, and logs the event.
+// On checkout.session.completed, converts a booking_holds row into a confirmed rental,
+// creates a payment record, logs the event, and sends confirmation SMS.
 // Odoo lead update is preserved as a non-blocking side-effect.
+
 import Stripe from "stripe";
 import smsModule from "../lib/sms";
 import { getSupabaseAdmin, assertServerOnly } from "../lib/supabaseAdmin";
+import { markBookingHoldConverted } from "../lib/services/availabilityService";
 
 const { sendSms } = smsModule;
 
@@ -26,8 +28,6 @@ async function getRawBody(req) {
     req.on("error", reject);
   });
 }
-
-// ── Odoo helpers (non-blocking, preserved from original) ─────────────────────
 
 async function xmlrpcAuth() {
   const { ODOO_URL, ODOO_DB, ODOO_USER, ODOO_API_KEY } = process.env;
@@ -88,8 +88,6 @@ async function tryMarkOdooLeadPaid(odooLeadId, stripeSessionId) {
   }
 }
 
-// ── Utility helpers ───────────────────────────────────────────────────────────
-
 function asString(value) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
@@ -114,13 +112,17 @@ function parseOptionalDateOnly(value) {
 function normalizeSizeYards(value) {
   const raw = asString(value).toUpperCase();
   const map = { "11YD": 11, "16YD": 16, "21YD": 21, "11 YARD": 11, "16 YARD": 16, "21 YARD": 21 };
-  return map[raw] || null;
+  const exact = map[raw];
+  if (exact) return exact;
+  const match = raw.match(/\d+/);
+  const yards = match ? Number(match[0]) : null;
+  return [11, 16, 21].includes(yards) ? yards : null;
 }
 
 function inferZone(value) {
   const raw = asString(value).toLowerCase();
-  if (raw === "zone2" || raw === "2") return "zone2";
-  if (raw === "zone3" || raw === "3") return "zone3";
+  if (raw === "zone2" || raw === "2" || raw === "b") return "zone2";
+  if (raw === "zone3" || raw === "3" || raw === "c") return "zone3";
   return "local";
 }
 
@@ -141,47 +143,40 @@ function formatShortDate(value) {
   return date.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" });
 }
 
-// ── Core Supabase operations ──────────────────────────────────────────────────
-
-async function findPendingRentalBySessionOrHoldId(supabase, stripeSessionId, holdId) {
-  // First: check if already converted (idempotency)
-  if (stripeSessionId) {
-    const { data } = await supabase
-      .from("rentals")
-      .select("*")
-      .eq("stripe_session_id", stripeSessionId)
-      .eq("status", "confirmed")
-      .maybeSingle();
-    if (data) return { rental: data, alreadyConfirmed: true };
+function pick(row, keys, fallback = null) {
+  for (const key of keys) {
+    if (row && row[key] !== undefined && row[key] !== null && row[key] !== "") return row[key];
   }
+  return fallback;
+}
 
-  // Find the pending rental created by create-booking-hold
-  if (holdId) {
-    const { data } = await supabase
-      .from("rentals")
-      .select("*")
-      .eq("id", holdId)
-      .eq("status", "pending")
-      .maybeSingle();
-    if (data) return { rental: data, alreadyConfirmed: false };
-  }
+async function findConvertedRentalBySession(supabase, stripeSessionId) {
+  if (!stripeSessionId) return null;
+  const { data } = await supabase
+    .from("rentals")
+    .select("*")
+    .eq("stripe_session_id", stripeSessionId)
+    .maybeSingle();
+  return data || null;
+}
 
-  return { rental: null, alreadyConfirmed: false };
+async function findBookingHold(supabase, holdId) {
+  if (!holdId) return null;
+  const { data, error } = await supabase
+    .from("booking_holds")
+    .select("*")
+    .eq("id", holdId)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
 }
 
 async function upsertCustomerFromSession(supabase, session, existingCustomerId) {
-  const customerEmail =
-    session.customer_details?.email ||
-    asString(session.metadata?.customer_email) ||
-    null;
-  const customerPhone = normalizePhone(
-    session.customer_details?.phone ||
-    asString(session.metadata?.customer_phone)
-  );
+  const customerEmail = session.customer_details?.email || asString(session.metadata?.customer_email) || null;
+  const customerPhone = normalizePhone(session.customer_details?.phone || asString(session.metadata?.customer_phone));
   const customerName = asString(session.metadata?.customer_name) || null;
 
   if (existingCustomerId) {
-    // Update with any new data from Stripe
     await supabase
       .from("customers")
       .update({
@@ -193,7 +188,6 @@ async function upsertCustomerFromSession(supabase, session, existingCustomerId) 
     return existingCustomerId;
   }
 
-  // Create new customer from Stripe session data
   const { data, error } = await supabase
     .from("customers")
     .insert({
@@ -208,37 +202,53 @@ async function upsertCustomerFromSession(supabase, session, existingCustomerId) 
   return data.id;
 }
 
-async function confirmRental(supabase, rentalId, session, customerId) {
+async function createConfirmedRental(supabase, hold, session, customerId) {
   const meta = session.metadata || {};
-  const sizeYards = normalizeSizeYards(meta.dumpster_size);
-  const zone = inferZone(meta.zone || "local");
+  const sizeYards = normalizeSizeYards(
+    pick(hold, ["size_yards", "size", "size_code"], null) ||
+    meta.size_yards ||
+    meta.size_code ||
+    meta.dumpster_size
+  );
+  const zone = inferZone(meta.zone || pick(hold, ["zone"], "local"));
   const deliveryAddress = firstNonEmpty(
     meta.delivery_address,
+    pick(hold, ["delivery_address", "address"], ""),
+    hold.metadata?.deliveryAddress,
     meta.area_label,
     "TBD"
   );
-  const dropoffDate = parseOptionalDateOnly(meta.delivery_date);
-  const scheduledReturn = parseOptionalDateOnly(meta.selected_window_end);
+  const dropoffDate =
+    parseOptionalDateOnly(pick(hold, ["start_date", "dropoff_date", "requested_start_at"], null)) ||
+    parseOptionalDateOnly(meta.delivery_date) ||
+    parseOptionalDateOnly(meta.selected_window_start);
+  const scheduledReturn =
+    parseOptionalDateOnly(pick(hold, ["return_date", "scheduled_return", "requested_end_at"], null)) ||
+    parseOptionalDateOnly(meta.selected_window_end);
   const amountPaid = session.amount_total ? session.amount_total / 100 : null;
+  const rentalDays = dropoffDate && scheduledReturn
+    ? Math.max(1, Math.round((new Date(scheduledReturn) - new Date(dropoffDate)) / (1000 * 60 * 60 * 24)))
+    : null;
 
-  const updatePayload = {
+  const payload = {
     status: "confirmed",
     customer_id: customerId,
     stripe_session_id: session.id,
     stripe_payment_id: session.payment_intent || null,
     amount_paid: amountPaid,
     payment_source: "funnel",
-    ...(sizeYards ? { size_yards: sizeYards } : {}),
-    ...(zone ? { zone } : {}),
-    ...(deliveryAddress !== "TBD" ? { delivery_address: deliveryAddress } : {}),
-    ...(dropoffDate ? { dropoff_date: dropoffDate } : {}),
-    ...(scheduledReturn ? { scheduled_return: scheduledReturn } : {}),
+    size_yards: sizeYards,
+    delivery_address: deliveryAddress,
+    zone,
+    dropoff_date: dropoffDate,
+    scheduled_return: scheduledReturn,
+    ...(rentalDays ? { rental_days: rentalDays } : {}),
+    notes: firstNonEmpty(meta.rental_option, meta.tier_key, hold.metadata?.rentalOption) || null,
   };
 
   const { data, error } = await supabase
     .from("rentals")
-    .update(updatePayload)
-    .eq("id", rentalId)
+    .insert(payload)
     .select("*")
     .single();
 
@@ -265,13 +275,14 @@ async function createPaymentRecord(supabase, rental, session, customerId) {
   if (error) throw error;
 }
 
-async function logEvent(supabase, rentalId, customerId, session) {
+async function logEvent(supabase, rentalId, customerId, session, holdId) {
   await supabase.from("events").insert({
     event_type: "payment_received",
     source: "funnel",
     rental_id: rentalId,
     customer_id: customerId,
     payload: {
+      booking_hold_id: holdId,
       stripe_session_id: session.id,
       payment_intent: session.payment_intent,
       amount_total: session.amount_total,
@@ -281,10 +292,7 @@ async function logEvent(supabase, rentalId, customerId, session) {
 }
 
 async function sendConfirmationSms(rental, session) {
-  const phone = normalizePhone(
-    session.customer_details?.phone ||
-    asString(session.metadata?.customer_phone)
-  );
+  const phone = normalizePhone(session.customer_details?.phone || asString(session.metadata?.customer_phone));
   if (!phone) return;
 
   const rentalOption = asString(session.metadata?.rental_option) || "rental";
@@ -303,8 +311,6 @@ async function sendConfirmationSms(rental, session) {
     console.error("[stripe-webhook] SMS failed (non-blocking):", err.message);
   }
 }
-
-// ── Handler ───────────────────────────────────────────────────────────────────
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -333,47 +339,33 @@ export default async function handler(req, res) {
   const meta = session.metadata || {};
   const holdId = asString(meta.booking_hold_id || meta.hold_id);
   const odooLeadId = asString(meta.odoo_lead_id);
-
   const supabase = getSupabaseAdmin();
 
   try {
-    const { rental: pendingRental, alreadyConfirmed } = await findPendingRentalBySessionOrHoldId(
-      supabase,
-      session.id,
-      holdId
-    );
-
-    if (alreadyConfirmed) {
-      console.log("[stripe-webhook] Already confirmed, skipping:", session.id);
+    const alreadyConverted = await findConvertedRentalBySession(supabase, session.id);
+    if (alreadyConverted) {
+      console.log("[stripe-webhook] Already converted, skipping:", session.id);
       return res.status(200).json({ received: true });
     }
 
-    if (!pendingRental) {
-      console.error("[stripe-webhook] No pending rental found for holdId:", holdId, "session:", session.id);
-      // Still return 200 so Stripe doesn't retry — log for manual review
-      return res.status(200).json({ received: true, warning: "No pending rental found" });
+    const hold = await findBookingHold(supabase, holdId);
+    if (!hold) {
+      console.error("[stripe-webhook] No booking_hold found for holdId:", holdId, "session:", session.id);
+      await supabase.from("events").insert({
+        event_type: "payment_received_without_hold",
+        source: "funnel",
+        payload: { booking_hold_id: holdId, stripe_session_id: session.id, metadata: meta },
+      });
+      return res.status(200).json({ received: true, warning: "No booking hold found" });
     }
 
-    // Upsert customer
-    const customerId = await upsertCustomerFromSession(
-      supabase,
-      session,
-      pendingRental.customer_id
-    );
-
-    // Confirm the rental
-    const confirmedRental = await confirmRental(supabase, pendingRental.id, session, customerId);
-
-    // Create payment audit record
+    const customerId = await upsertCustomerFromSession(supabase, session, hold.customer_id);
+    const confirmedRental = await createConfirmedRental(supabase, hold, session, customerId);
+    await markBookingHoldConverted({ holdId: hold.id, rentalId: confirmedRental.id, stripeSessionId: session.id });
     await createPaymentRecord(supabase, confirmedRental, session, customerId);
-
-    // Log event
-    await logEvent(supabase, confirmedRental.id, customerId, session);
-
-    // Send SMS confirmation (non-blocking)
+    await logEvent(supabase, confirmedRental.id, customerId, session, hold.id);
     await sendConfirmationSms(confirmedRental, session);
 
-    // Update Odoo lead (non-blocking)
     if (odooLeadId) {
       await tryMarkOdooLeadPaid(odooLeadId, session.id);
     }
@@ -381,7 +373,6 @@ export default async function handler(req, res) {
     console.log("[stripe-webhook] Rental confirmed:", confirmedRental.id);
   } catch (err) {
     console.error("[stripe-webhook] Processing failed:", err);
-    // Return 200 to prevent Stripe retries; alert via logs
   }
 
   return res.status(200).json({ received: true });
