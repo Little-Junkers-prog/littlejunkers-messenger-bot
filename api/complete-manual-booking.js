@@ -33,6 +33,30 @@ function parseOptionalDate(value) {
   return date.toISOString();
 }
 
+function dateOnly(value) {
+  const raw = asString(value);
+  if (!raw) return null;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw.slice(0, 10) || null;
+  return date.toISOString().slice(0, 10);
+}
+
+function sizeCodeToYards(value) {
+  const raw = asString(value).toUpperCase();
+  const map = { "11YD": 11, "16YD": 16, "21YD": 21 };
+  if (map[raw]) return map[raw];
+  const match = raw.match(/\d+/);
+  const yards = match ? Number(match[0]) : null;
+  return [11, 16, 21].includes(yards) ? yards : null;
+}
+
+function inferZone(value) {
+  const raw = asString(value).toLowerCase();
+  if (raw === "zone2" || raw === "2" || raw === "b") return "zone2";
+  if (raw === "zone3" || raw === "3" || raw === "c") return "zone3";
+  return "local";
+}
+
 function mergeMetadata(existingMetadata, patch) {
   return {
     ...(existingMetadata || {}),
@@ -143,6 +167,7 @@ export default async function handler(req, res) {
     const customerEmail = asString(contact.email || body.customerEmail);
     const customerPhone = asString(contact.phone || body.customerPhone);
     const street1 = asString(deliveryAddress.street1);
+    const street2 = asString(deliveryAddress.street2);
     const city = asString(deliveryAddress.city);
     const state = asString(deliveryAddress.state || "GA");
     const zip = asString(body.zip || deliveryAddress.zip);
@@ -156,22 +181,18 @@ export default async function handler(req, res) {
 
     const supabase = getSupabaseAdmin();
 
-    const { data: existingBooking, error: existingBookingError } = await supabase
-      .from("rental_bookings")
-      .select("*")
-      .eq("booking_hold_id", holdId)
-      .limit(1)
+    const { data: existingHold, error: existingHoldError } = await supabase
+      .from("booking_holds")
+      .select("id, status")
+      .eq("id", holdId)
       .maybeSingle();
 
-    if (existingBookingError) {
-      throw existingBookingError;
-    }
+    if (existingHoldError) throw existingHoldError;
 
-    if (existingBooking) {
+    if (existingHold?.status === "converted") {
       return res.status(200).json({
         success: true,
-        message: "Booking already existed for this hold.",
-        booking: existingBooking,
+        message: "Booking already processed for this hold.",
         existing: true,
       });
     }
@@ -182,9 +203,7 @@ export default async function handler(req, res) {
       .eq("id", holdId)
       .maybeSingle();
 
-    if (holdError) {
-      throw holdError;
-    }
+    if (holdError) throw holdError;
 
     if (!hold) {
       return res.status(404).json({ success: false, error: "Booking hold not found." });
@@ -198,7 +217,7 @@ export default async function handler(req, res) {
       zip,
       deliveryAddress: {
         street1,
-        street2: asString(deliveryAddress.street2),
+        street2,
         city,
         state,
         zip,
@@ -226,17 +245,29 @@ export default async function handler(req, res) {
       .select("*")
       .single();
 
-    if (updateHoldError) {
-      throw updateHoldError;
-    }
+    if (updateHoldError) throw updateHoldError;
 
-    const scheduledStartAt = hold.requested_start_at || parseOptionalDate(body.selectedWindow?.startIso);
-    const scheduledEndAt = hold.requested_end_at || parseOptionalDate(body.selectedWindow?.endIso);
+    const scheduledStartAt =
+      updatedHold.requested_start_at ||
+      updatedHold.start_at ||
+      updatedHold.delivery_date ||
+      parseOptionalDate(body.selectedWindow?.startIso);
+    const scheduledEndAt =
+      updatedHold.requested_end_at ||
+      updatedHold.end_at ||
+      parseOptionalDate(body.selectedWindow?.endIso);
 
     if (!scheduledStartAt || !scheduledEndAt) {
       throw new Error("Missing scheduled booking window for manual booking creation");
     }
 
+    const dropoffDate = dateOnly(updatedHold.delivery_date || scheduledStartAt);
+    const scheduledReturn = dateOnly(scheduledEndAt);
+    const rentalDays = dropoffDate && scheduledReturn
+      ? Math.max(1, Math.round((new Date(scheduledReturn) - new Date(dropoffDate)) / (1000 * 60 * 60 * 24)))
+      : null;
+    const sizeYards = sizeCodeToYards(updatedHold.size_code || updatedHold.size_yards);
+    const flattenedAddress = [street1, street2, city, state, zip].filter(Boolean).join(", ");
     const bookingMetadata = mergeMetadata(updatedHold.metadata, {
       source: "csr_manual_payment",
       paymentMethod,
@@ -245,31 +276,27 @@ export default async function handler(req, res) {
       manualBookingCreatedAt: new Date().toISOString(),
     });
 
-    const insertPayload = {
-      size_code: updatedHold.size_code,
-      booking_hold_id: updatedHold.id,
-      status: "reserved",
-      scheduled_start_at: scheduledStartAt,
-      scheduled_end_at: scheduledEndAt,
-      delivery_date: updatedHold.delivery_date || scheduledStartAt.slice(0, 10),
-      expected_return_date: scheduledEndAt.slice(0, 10),
-      rental_option: updatedHold.rental_option,
-      odoo_lead_id: updatedHold.odoo_lead_id || null,
-      customer_name: customerName,
-      customer_email: customerEmail || null,
-      customer_phone: customerPhone,
-      metadata: bookingMetadata,
+    const rentalPayload = {
+      customer_id: updatedHold.customer_id || null,
+      status: "confirmed",
+      size_yards: sizeYards,
+      delivery_address: flattenedAddress,
+      zone: inferZone(body.zone || updatedHold.zone || bookingMetadata.zone),
+      dropoff_date: dropoffDate,
+      scheduled_return: scheduledReturn,
+      ...(rentalDays ? { rental_days: rentalDays } : {}),
+      amount_paid: Number(body.amountPaid || body.amount || updatedHold.amount_paid || 0) || null,
+      payment_source: "manual_link",
+      notes: asString(updatedHold.rental_option || body.rentalOption || body.notes) || null,
     };
 
-    const { data: booking, error: insertError } = await supabase
-      .from("rental_bookings")
-      .insert(insertPayload)
+    const { data: rental, error: insertError } = await supabase
+      .from("rentals")
+      .insert(rentalPayload)
       .select("*")
       .single();
 
-    if (insertError) {
-      throw insertError;
-    }
+    if (insertError) throw insertError;
 
     const { error: convertError } = await supabase
       .from("booking_holds")
@@ -278,13 +305,38 @@ export default async function handler(req, res) {
         metadata: mergeMetadata(bookingMetadata, {
           convertedBy: "csr_manual_payment",
           convertedAt: new Date().toISOString(),
+          convertedRentalId: rental.id,
         }),
       })
       .eq("id", updatedHold.id);
 
-    if (convertError) {
-      throw convertError;
-    }
+    if (convertError) throw convertError;
+
+    await supabase.from("payments").insert({
+      rental_id: rental.id,
+      customer_id: rental.customer_id,
+      source: paymentMethod,
+      amount: rental.amount_paid || 0,
+      currency: "usd",
+      status: "received",
+      payload: {
+        booking_hold_id: updatedHold.id,
+        manual_payment_reference: manualPaymentReference,
+        collected_by: asString(body.paymentCollectedBy || "csr_quick_book"),
+      },
+    });
+
+    await supabase.from("events").insert({
+      event_type: "manual_payment_received",
+      source: "csr_quick_book",
+      rental_id: rental.id,
+      customer_id: rental.customer_id,
+      payload: {
+        booking_hold_id: updatedHold.id,
+        paymentMethod,
+        manualPaymentReference,
+      },
+    });
 
     if (Number.isFinite(updatedHold.odoo_lead_id)) {
       try {
@@ -300,14 +352,14 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
-      message: "Manual paid booking created successfully.",
-      booking,
+      message: "Manual paid rental created successfully.",
+      rental,
     });
   } catch (error) {
     console.error("[complete-manual-booking] FAILED", error);
     return res.status(500).json({
       success: false,
-      error: error.message || "Failed to create manual paid booking",
+      error: error.message || "Failed to create manual paid rental",
     });
   }
 }
