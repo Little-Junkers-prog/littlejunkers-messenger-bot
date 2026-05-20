@@ -869,6 +869,7 @@ export default function Funnel() {
     city:    "",
     state:   "GA",
     zip:     "",
+    deliveryNotes: "",
   });
 
   const [pricingConfig, setPricingConfig] = useState(null);
@@ -1351,6 +1352,7 @@ export default function Funnel() {
           form.zip,
         ].filter(Boolean).join(", "),
         deliveryDate: selectedWindow.start,
+        deliveryNotes: form.deliveryNotes.trim(),
         selectedWindow,
         requestedStartAt: selectedWindow.startIso,
         requestedEndAt: selectedWindow.endIso,
@@ -1741,6 +1743,13 @@ export default function Funnel() {
                         <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} style={inputStyle}>
                           <option value="">Select one</option><option>Google</option><option>Facebook</option><option>Repeat Customer</option><option>Other</option>
                         </select>
+                        <label style={labelStyle}>Delivery notes (optional)</label>
+                        <textarea
+                          placeholder="e.g. Place on driveway near garage. Wood planks needed. Gate code: 1234."
+                          value={form.deliveryNotes}
+                          onChange={(e) => setForm({ ...form, deliveryNotes: e.target.value })}
+                          style={{ ...inputStyle, minHeight: 80, resize: "vertical" }}
+                        />
                       </div>
                       <div id="turnstile-widget" style={{ marginTop: 16 }}></div>
                       {submitError && <div style={{ marginTop: 12, background: C.warningBg, border: `1px solid ${C.warningBorder}`, borderRadius: 10, padding: "12px 14px", fontSize: 13, color: C.ink }}>{submitError}</div>}

@@ -265,11 +265,14 @@ async function createConfirmedRental(supabase, hold, session, customerId) {
     dropoff_date: dropoffDate,
     scheduled_return: scheduledReturn,
     ...(rentalDays ? { rental_days: rentalDays } : {}),
-    // notes: store the rental tier label so the CSR board shows "4-Day" etc.
-    // Customer-supplied notes are not captured in the online funnel (Step 6 has no notes field).
-    // If a notes field is added to the funnel in future, wire it through Stripe metadata as
-    // meta.customer_notes and prepend here.
-    notes: firstNonEmpty(meta.rental_option, meta.tier_key, hold.metadata?.rentalOption) || null,
+    // notes: customer delivery instructions take priority over tier label.
+    // delivery_notes comes from the Step 6 funnel textarea (gate codes, wood planks, placement, etc.)
+    notes: firstNonEmpty(
+      meta.delivery_notes,
+      meta.rental_option,
+      meta.tier_key,
+      hold.metadata?.rentalOption
+    ) || null,
   };
 
   const { data, error } = await supabase
