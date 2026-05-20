@@ -150,6 +150,22 @@ function pick(row, keys, fallback = null) {
   return fallback;
 }
 
+async function markLeadConverted(supabase, supabaseLeadId, rentalId) {
+  if (!supabaseLeadId || !rentalId) return;
+  const { error } = await supabase
+    .from("leads")
+    .update({
+      converted: true,
+      converted_rental_id: rentalId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", supabaseLeadId);
+  if (error) {
+    // Non-blocking — log but do not throw. Rental is already confirmed.
+    console.error("[stripe-webhook] leads conversion update failed (non-blocking):", error.message);
+  }
+}
+
 async function findConvertedRentalBySession(supabase, stripeSessionId) {
   if (!stripeSessionId) return null;
   const { data } = await supabase
@@ -339,6 +355,7 @@ export default async function handler(req, res) {
   const meta = session.metadata || {};
   const holdId = asString(meta.booking_hold_id || meta.hold_id);
   const odooLeadId = asString(meta.odoo_lead_id);
+  const supabaseLeadId = asString(meta.supabase_lead_id);
   const supabase = getSupabaseAdmin();
 
   try {
@@ -362,6 +379,7 @@ export default async function handler(req, res) {
     const customerId = await upsertCustomerFromSession(supabase, session, hold.customer_id);
     const confirmedRental = await createConfirmedRental(supabase, hold, session, customerId);
     await markBookingHoldConverted({ holdId: hold.id, rentalId: confirmedRental.id, stripeSessionId: session.id });
+    await markLeadConverted(supabase, supabaseLeadId, confirmedRental.id);
     await createPaymentRecord(supabase, confirmedRental, session, customerId);
     await logEvent(supabase, confirmedRental.id, customerId, session, hold.id);
     await sendConfirmationSms(confirmedRental, session);

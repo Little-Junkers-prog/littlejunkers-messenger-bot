@@ -75,6 +75,7 @@ export default async function handler(req, res) {
   try {
     const {
       leadId,
+      supabaseLeadId,
       bookingHoldId,
       holdId,
       customerEmail,
@@ -178,6 +179,7 @@ export default async function handler(req, res) {
 
     const metadata = {
       odoo_lead_id: resolvedLeadId,
+      supabase_lead_id: String(supabaseLeadId || ""),
       booking_hold_id: resolvedHoldId,
       hold_id: resolvedHoldId,
       customer_name: String(customerName || ""),
