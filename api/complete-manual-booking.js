@@ -287,7 +287,8 @@ export default async function handler(req, res) {
       ...(rentalDays ? { rental_days: rentalDays } : {}),
       amount_paid: Number(body.amountPaid || body.amount || updatedHold.amount_paid || 0) || null,
       payment_source: "manual_link",
-      notes: asString(updatedHold.rental_option || body.rentalOption || body.notes) || null,
+      // Preserve CSR-entered notes. Rental option label is secondary context, not the notes field.
+      notes: asString(body.notes) || asString(updatedHold.rental_option || body.rentalOption) || null,
     };
 
     const { data: rental, error: insertError } = await supabase

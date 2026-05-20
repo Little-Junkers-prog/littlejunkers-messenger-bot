@@ -229,6 +229,12 @@ async function createConfirmedRental(supabase, hold, session, customerId) {
   const zone = inferZone(meta.zone || pick(hold, ["zone"], "local"));
   const deliveryAddress = firstNonEmpty(
     meta.delivery_address,
+    // Stripe collects billing address — use it as fallback if delivery address is missing
+    (() => {
+      const b = session.customer_details?.address;
+      if (!b) return "";
+      return [b.line1, b.line2, b.city, b.state, b.postal_code].filter(Boolean).join(", ");
+    })(),
     pick(hold, ["delivery_address", "address"], ""),
     hold.metadata?.deliveryAddress,
     meta.area_label,
@@ -259,6 +265,10 @@ async function createConfirmedRental(supabase, hold, session, customerId) {
     dropoff_date: dropoffDate,
     scheduled_return: scheduledReturn,
     ...(rentalDays ? { rental_days: rentalDays } : {}),
+    // notes: store the rental tier label so the CSR board shows "4-Day" etc.
+    // Customer-supplied notes are not captured in the online funnel (Step 6 has no notes field).
+    // If a notes field is added to the funnel in future, wire it through Stripe metadata as
+    // meta.customer_notes and prepend here.
     notes: firstNonEmpty(meta.rental_option, meta.tier_key, hold.metadata?.rentalOption) || null,
   };
 

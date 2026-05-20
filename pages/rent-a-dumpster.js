@@ -1229,6 +1229,11 @@ export default function Funnel() {
       return;
     }
 
+    if (!form.street.trim()) {
+      alert("Please enter your service address so we know where to deliver.");
+      return;
+    }
+
     if (!selectedWindow?.startIso || !selectedWindow?.endIso) {
       setSubmitError("Please choose a delivery date before checkout.");
       return;
