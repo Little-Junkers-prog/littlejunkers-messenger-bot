@@ -208,23 +208,27 @@ export default async function handler(req, res) {
     const sizeYards = sizeCodeToYards(normalizedSizeCode);
     const rentalDays = Math.max(1, Math.round((requestedEndAt - requestedStartAt) / (1000 * 60 * 60 * 24)));
 
-    const customerId = await upsertCustomer({
-      supabase,
-      customerName,
-      customerEmail,
-      customerPhone,
-      deliveryAddress,
-      zone,
-    });
+    // Only upsert a customer record if we have enough identifying info.
+    // CSR-initiated holds (phone + size + date only) skip this — the customer
+    // record is created when they complete the intake form and pay.
+    const hasEnoughForCustomer = !!(customerName && customerPhone);
+    const customerId = hasEnoughForCustomer
+      ? await upsertCustomer({ supabase, customerName, customerEmail, customerPhone, deliveryAddress, zone })
+      : null;
 
-    const holdType = firstNonEmpty(body?.holdType, body?.source === "manual" ? "manual_checkout_link" : "online_checkout");
+    // CSR-initiated holds (funnelSource: csr_quick_book) get a 24-hour expiry
+    // to give the customer time to complete intake and pay.
+    const isCsrHold = firstNonEmpty(body?.funnelSource, body?.source) === "csr_quick_book";
+    const holdType = firstNonEmpty(body?.holdType, isCsrHold ? "csr_checkout_link" : body?.source === "manual" ? "manual_checkout_link" : "online_checkout");
+    const holdMinutesOverride = isCsrHold ? 1440 : undefined; // 24 hours for CSR links
     const { hold, availability, expiresAt, holdMinutes } = await createBookingHold({
       sizeYards,
       startDate: toDateOnly(requestedStartAt),
       endDate: toDateOnly(requestedEndAt),
       customerId,
       holdType,
-      source: firstNonEmpty(body?.source, "funnel"),
+      holdMinutesOverride,
+      source: firstNonEmpty(body?.funnelSource, body?.source, "funnel"),
       metadata: {
         customerName,
         customerEmail,
@@ -233,6 +237,7 @@ export default async function handler(req, res) {
         zone,
         rentalDays,
         rentalOption: firstNonEmpty(body?.rentalOption),
+        funnelSource: firstNonEmpty(body?.funnelSource, body?.source),
       },
     });
 
