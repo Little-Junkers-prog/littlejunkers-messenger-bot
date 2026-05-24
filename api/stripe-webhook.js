@@ -1,7 +1,6 @@
 // api/stripe-webhook.js
 // On checkout.session.completed, converts a booking_holds row into a confirmed rental,
 // creates a payment record, logs the event, and sends confirmation SMS.
-// Odoo lead update is preserved as a non-blocking side-effect.
 
 import Stripe from "stripe";
 import smsModule from "../lib/sms";
@@ -27,65 +26,6 @@ async function getRawBody(req) {
     req.on("end", () => resolve(Buffer.concat(chunks)));
     req.on("error", reject);
   });
-}
-
-async function xmlrpcAuth() {
-  const { ODOO_URL, ODOO_DB, ODOO_USER, ODOO_API_KEY } = process.env;
-  const body =
-    `<?xml version="1.0"?><methodCall><methodName>authenticate</methodName><params>` +
-    `<param><value><string>${ODOO_DB}</string></value></param>` +
-    `<param><value><string>${ODOO_USER}</string></value></param>` +
-    `<param><value><string>${ODOO_API_KEY}</string></value></param>` +
-    `<param><value><struct/></value></param>` +
-    `</params></methodCall>`;
-  const r = await fetch(`${ODOO_URL}/xmlrpc/2/common`, {
-    method: "POST",
-    headers: { "Content-Type": "text/xml" },
-    body,
-  });
-  const xml = await r.text();
-  const m = xml.match(/<(?:int|i4)>(-?\d+)<\/(?:int|i4)>/);
-  const uid = m ? parseInt(m[1], 10) : null;
-  if (!uid) throw new Error("XML-RPC auth failed");
-  return uid;
-}
-
-async function odooCall(uid, model, method, args, kwargs = {}) {
-  const { ODOO_URL, ODOO_DB, ODOO_API_KEY } = process.env;
-  const r = await fetch(`${ODOO_URL}/jsonrpc`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      method: "call",
-      id: Date.now(),
-      params: {
-        service: "object",
-        method: "execute_kw",
-        args: [ODOO_DB, uid, ODOO_API_KEY, model, method, args, kwargs],
-      },
-    }),
-  });
-  const json = await r.json();
-  if (json.error) throw new Error(json.error.data?.message || JSON.stringify(json.error));
-  return json.result;
-}
-
-async function tryMarkOdooLeadPaid(odooLeadId, stripeSessionId) {
-  try {
-    const uid = await xmlrpcAuth();
-    const res = await odooCall(uid, "crm.lead", "read", [[parseInt(odooLeadId, 10)]], {
-      fields: ["x_studio_payment_status"],
-    });
-    if (res?.[0]?.x_studio_payment_status !== "Paid") {
-      await odooCall(uid, "crm.lead", "write", [[parseInt(odooLeadId, 10)], {
-        x_studio_payment_status: "Paid",
-        x_studio_stripe_payment_intent: stripeSessionId,
-      }]);
-    }
-  } catch (err) {
-    console.error("[stripe-webhook] Odoo update failed (non-blocking):", err.message);
-  }
 }
 
 function asString(value) {
@@ -367,7 +307,6 @@ export default async function handler(req, res) {
   const session = event.data.object;
   const meta = session.metadata || {};
   const holdId = asString(meta.booking_hold_id || meta.hold_id);
-  const odooLeadId = asString(meta.odoo_lead_id);
   const supabaseLeadId = asString(meta.supabase_lead_id);
   const supabase = getSupabaseAdmin();
 
@@ -396,10 +335,6 @@ export default async function handler(req, res) {
     await createPaymentRecord(supabase, confirmedRental, session, customerId);
     await logEvent(supabase, confirmedRental.id, customerId, session, hold.id);
     await sendConfirmationSms(confirmedRental, session);
-
-    if (odooLeadId) {
-      await tryMarkOdooLeadPaid(odooLeadId, session.id);
-    }
 
     console.log("[stripe-webhook] Rental confirmed:", confirmedRental.id);
   } catch (err) {
