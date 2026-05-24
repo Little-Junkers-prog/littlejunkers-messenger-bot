@@ -1410,26 +1410,46 @@ export default function Funnel() {
       return "";
     }
   })();
-  const [step, setStep] = useState(0);
+
+  // ─── step state ───────────────────────────────────────────────────────────
+  // Step 1 = product selection (landing screen)
+  // Step 2 = delivery date picker
+  // Step 3 = address + contact + ZIP resolution
+  // Step 4 = reservation review + proceed to checkout
+  const [step, setStep] = useState(1);
+
+  // ─── help-me-choose inline expansion ──────────────────────────────────────
+  const [showHelpMe, setShowHelpMe] = useState(false);
+
+  // ─── zone / service area ──────────────────────────────────────────────────
   const [zip, setZip] = useState(_urlZip || "");
   const [zipError, setZipError] = useState("");
   const [zoneKey, setZoneKey] = useState("");
   const [zoneFee, setZoneFee] = useState(0);
+  const [serviceArea, setServiceArea] = useState(null);
+  const [zoneUpdateMessage, setZoneUpdateMessage] = useState("");
+
+  // ─── customer / project (retained for lead tagging) ───────────────────────
   const [customerType, setCustomerType] = useState("");
   const [returningPath, setReturningPath] = useState("");
   const [project, setProject] = useState("");
   const [otherText, setOtherText] = useState("");
   const [showConcreteNotice, setShowConcreteNotice] = useState(false);
+
+  // ─── size / rental selection ──────────────────────────────────────────────
   const [size, setSize] = useState("");
   const [overrideSize, setOverrideSize] = useState("");
   const [duration, setDuration] = useState("");
   const [selectedPrice, setSelectedPrice] = useState(null);
+
+  // ─── availability ─────────────────────────────────────────────────────────
   const [availabilityData, setAvailabilityData] = useState(null);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityError, setAvailabilityError] = useState("");
   const [selectedWindow, setSelectedWindow] = useState(null);
-  const [showComparison, setShowComparison] = useState(false);
   const [showMoreDates, setShowMoreDates] = useState({});
+
+  // ─── checkout ─────────────────────────────────────────────────────────────
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -1446,26 +1466,36 @@ export default function Funnel() {
     zip: "",
     deliveryNotes: "",
   });
+
+  // ─── pricing ──────────────────────────────────────────────────────────────
   const [pricingConfig, setPricingConfig] = useState(null);
   const [pricingLoading, setPricingLoading] = useState(true);
   const [pricingError, setPricingError] = useState("");
-  const [serviceArea, setServiceArea] = useState(null);
+
+  // ─── lead capture ─────────────────────────────────────────────────────────
   const [capturedLeadId, setCapturedLeadId] = useState(null);
   const [capturedSupabaseLeadId, setCapturedSupabaseLeadId] = useState(null);
+
+  // ─── exit modal ───────────────────────────────────────────────────────────
   const [showExitModal, setShowExitModal] = useState(false);
   const [exitSubmitting, setExitSubmitting] = useState(false);
   const [exitError, setExitError] = useState("");
   const [exitSubmitted, setExitSubmitted] = useState(false);
   const [exitTriggered, setExitTriggered] = useState(false);
+
+  // ─── refs ─────────────────────────────────────────────────────────────────
   const stepRef = useRef(step);
   const idleTimerRef = useRef(null);
   const historyPushedRef = useRef(false);
   const checkoutStartedRef = useRef(false);
   const turnstileWidgetIdRef = useRef(null);
   const turnstileRenderedRef = useRef(false);
+
   useEffect(() => {
     stepRef.current = step;
   }, [step]);
+
+  // ─── service area helpers ─────────────────────────────────────────────────
   const applyResolvedServiceArea = useCallback((cleanZip, resolvedArea) => {
     setZip(cleanZip);
     setServiceArea(resolvedArea);
@@ -1473,6 +1503,8 @@ export default function Funnel() {
     setZoneFee(Number(resolvedArea.deliveryFee || 0));
     setForm((prev) => ({ ...prev, zip: cleanZip }));
   }, []);
+
+  // ─── load pricing on mount ────────────────────────────────────────────────
   useEffect(() => {
     let active = true;
     (async () => {
@@ -1494,7 +1526,6 @@ export default function Funnel() {
             : resolveServiceArea(json, _urlZip);
           if (resolved?.serviceable) {
             applyResolvedServiceArea(_urlZip, resolved);
-            setStep(1);
           }
         }
       } catch (err) {
@@ -1507,9 +1538,11 @@ export default function Funnel() {
       active = false;
     };
   }, [applyResolvedServiceArea, _urlZip]);
+
+  // ─── turnstile (now on step 4) ────────────────────────────────────────────
   useEffect(() => {
     if (
-      step !== 6 ||
+      step !== 4 ||
       typeof window === "undefined" ||
       !window.turnstile ||
       turnstileRenderedRef.current
@@ -1524,6 +1557,8 @@ export default function Funnel() {
     );
     turnstileRenderedRef.current = true;
   }, [step]);
+
+  // ─── derived state ────────────────────────────────────────────────────────
   const sizeMeta = useMemo(
     () => buildSizeMeta(pricingConfig?.sizes),
     [pricingConfig],
@@ -1541,31 +1576,14 @@ export default function Funnel() {
   );
   const areaLabel = getAreaLabel(serviceArea, zip);
   const effectiveSize = overrideSize || size;
-  const isQuickPath = returningPath === "quick";
+
+  // For Help Me Choose recommendation
   const recommendation = useMemo(
     () => getRecommendation(customerType, project, otherText),
     [customerType, project, otherText],
   );
-  const stepLabel =
-    {
-      0: "Service Area",
-      1: "How to Proceed",
-      3: "Project Type",
-      4: isQuickPath ? "Size Selection" : "Best Fit",
-      5: "Delivery Date",
-      6: "Contact Info",
-    }[step] || "";
-  const visibleTotalSteps = isQuickPath ? 5 : 6;
-  const currentVisualStep = (() => {
-    if (step === 0) return 1;
-    if (step === 1) return 2;
-    if (step === 3) return 3;
-    if (step === 4) return isQuickPath ? 3 : 4;
-    if (step === 5) return isQuickPath ? 4 : 5;
-    if (step === 6) return isQuickPath ? 5 : 6;
-    return 1;
-  })();
-  const progressPercent = (currentVisualStep / visibleTotalSteps) * 100;
+
+  // Prices: base + zoneFee (zoneFee is 0 until step 3 ZIP resolves)
   const calculatedPrices = useMemo(() => {
     if (!effectiveSize || !pricingConfig?.pricing) return {};
     const yards = String(extractSizeYards(effectiveSize));
@@ -1576,13 +1594,42 @@ export default function Funnel() {
     });
     return p;
   }, [effectiveSize, pricingConfig, zoneFee]);
+
+  // Lowest base price per size for product cards (no zone fee)
+  const startingPrices = useMemo(() => {
+    if (!pricingConfig?.pricing) return {};
+    const p = {};
+    allSizes.forEach((sizeKey) => {
+      const yards = String(extractSizeYards(sizeKey));
+      const prices = (pricingConfig.pricing || [])
+        .map((tier) => Number(tier.prices?.[yards] || 0))
+        .filter((v) => v > 0);
+      if (prices.length) p[sizeKey] = Math.min(...prices);
+    });
+    return p;
+  }, [pricingConfig, allSizes]);
+
   const isAvailabilityDegraded = Boolean(
     availabilityError || availabilityData?.degraded,
   );
   const availableOptions = availabilityData?.available || {};
+
+  // ─── step labels / progress ───────────────────────────────────────────────
+  const stepLabel = {
+    1: "Choose Your Size",
+    2: "Delivery Date",
+    3: "Your Details",
+    4: "Review & Reserve",
+  }[step] || "";
+
+  const visibleTotalSteps = 4;
+  const currentVisualStep = step;
+  const progressPercent = (currentVisualStep / visibleTotalSteps) * 100;
+
+  // ─── exit modal logic ─────────────────────────────────────────────────────
   const shouldShowExitModal = useCallback(
     () =>
-      stepRef.current >= 5 && !exitTriggered && !exitSubmitted && !submitted,
+      stepRef.current >= 2 && !exitTriggered && !exitSubmitted && !submitted,
     [exitTriggered, exitSubmitted, submitted],
   );
   const triggerExitModal = useCallback(() => {
@@ -1592,11 +1639,12 @@ export default function Funnel() {
   }, [shouldShowExitModal]);
   const resetIdleTimer = useCallback(() => {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    if (stepRef.current >= 5)
+    if (stepRef.current >= 2)
       idleTimerRef.current = setTimeout(() => {
         triggerExitModal();
       }, IDLE_TIMEOUT_MS);
   }, [triggerExitModal]);
+
   useEffect(() => {
     const events = [
       "touchstart",
@@ -1615,13 +1663,14 @@ export default function Funnel() {
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     };
   }, [resetIdleTimer]);
+
   useEffect(() => {
-    if (step >= 5 && !historyPushedRef.current) {
+    if (step >= 2 && !historyPushedRef.current) {
       window.history.pushState({ funnelStep: step }, "");
       historyPushedRef.current = true;
     }
     const handlePopState = () => {
-      if (stepRef.current >= 5) {
+      if (stepRef.current >= 2) {
         window.history.pushState({ funnelStep: stepRef.current }, "");
         triggerExitModal();
       }
@@ -1629,6 +1678,7 @@ export default function Funnel() {
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, [step, triggerExitModal]);
+
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden" && !checkoutStartedRef.current)
@@ -1638,11 +1688,14 @@ export default function Funnel() {
     return () =>
       document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [triggerExitModal]);
+
+  // ─── handlers ─────────────────────────────────────────────────────────────
   const handleExitModalDismiss = () => {
     setShowExitModal(false);
     setExitError("");
     resetIdleTimer();
   };
+
   const handleExitSubmit = async ({
     name,
     phone,
@@ -1693,55 +1746,45 @@ export default function Funnel() {
       setExitSubmitting(false);
     }
   };
+
   const handleClose = () => {
-    if (step >= 5) {
+    if (step >= 2) {
       if (!exitSubmitted && !submitted) setShowExitModal(true);
       else window.location.href = HOMEPAGE;
     } else window.location.href = HOMEPAGE;
   };
-  const handleZipSubmit = async () => {
-    const clean = zip.trim();
-    if (!/^\d{5}$/.test(clean)) {
-      setZipError("Please enter a valid 5-digit ZIP code.");
-      return;
-    }
-    if (pricingLoading) {
-      setZipError("Pricing is still loading. Please try again in a moment.");
-      return;
-    }
-    if (pricingError || !pricingConfig) {
-      setZipError(
-        "Pricing is temporarily unavailable. Please call or text 470-548-4733.",
-      );
-      return;
-    }
-    const resolved = resolveServiceArea(pricingConfig, clean);
-    if (!resolved.serviceable) {
-      setZipError(resolved.error || "We may not service that area right now.");
-      return;
-    }
-    setZipError("");
-    applyResolvedServiceArea(clean, resolved);
-    setStep(1);
-  };
-  const handlePath = (path, impliedCustomerType) => {
-    setCustomerType(impliedCustomerType);
-    setReturningPath(path);
-    setProject("");
-    setOtherText("");
-    setSize("");
+
+  // Select a dumpster from product cards and fetch availability
+  const handleProductSelect = (selectedSizeKey) => {
+    setSize(selectedSizeKey);
     setOverrideSize("");
     setDuration("");
     setSelectedPrice(null);
     setAvailabilityData(null);
-    setAvailabilityLoading(false);
     setAvailabilityError("");
+    setAvailabilityLoading(true);
     setSelectedWindow(null);
     setShowMoreDates({});
-    setShowConcreteNotice(false);
-    setStep(path === "quick" ? 4 : 3);
+    setStep(2);
+    fetch(AVAILABILITY_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ size: selectedSizeKey }),
+    })
+      .then((r) => r.json())
+      .then((json) => {
+        setAvailabilityData(json);
+      })
+      .catch(() => {
+        setAvailabilityError(
+          "We're having trouble checking live availability. Please call or text us at 470-548-4733 and we'll confirm the soonest delivery option.",
+        );
+      })
+      .finally(() => setAvailabilityLoading(false));
   };
-  const handleProject = (sel) => {
+
+  // Help Me Choose: project selected → set recommendation → go to product cards with pre-selection
+  const handleHelpMeProject = (sel) => {
     if (
       (customerType === "Contractor" ||
         customerType === "Contractor / Roofer") &&
@@ -1754,115 +1797,63 @@ export default function Funnel() {
     const reco = getRecommendation(customerType, sel, otherText);
     setSize(reco.size);
     setOverrideSize("");
-    setShowComparison(false);
-    setDuration("");
-    setSelectedPrice(null);
-    setAvailabilityData(null);
-    setAvailabilityLoading(false);
-    setAvailabilityError("");
-    setSelectedWindow(null);
-    setShowMoreDates({});
-    setStep(4);
+    setShowHelpMe(false);
+    setShowConcreteNotice(false);
   };
-  const handleOtherContinue = () => {
+
+  const handleHelpMeOtherContinue = () => {
     const reco = getRecommendation(customerType, "Other", otherText);
     setSize(reco.size);
     setOverrideSize("");
-    setShowComparison(false);
-    setDuration("");
-    setSelectedPrice(null);
-    setAvailabilityData(null);
-    setAvailabilityLoading(false);
-    setAvailabilityError("");
-    setSelectedWindow(null);
-    setShowMoreDates({});
-    setStep(4);
+    setShowHelpMe(false);
   };
-  const availabilityFailureMessage =
-    "We're having trouble checking live availability. Please call or text us at 470-548-4733 and we'll confirm the soonest delivery option.";
-  const handleSizeSelect = (sel) => {
-    if (isQuickPath) {
-      setSize("");
-      setOverrideSize(sel);
-      setDuration("");
-      setSelectedPrice(null);
-      setAvailabilityData(null);
-      setAvailabilityLoading(false);
-      setAvailabilityError("");
-      setSelectedWindow(null);
-      setTimeout(() => {
-        setDuration("");
-        setSelectedPrice(null);
-        setSelectedWindow(null);
-        setAvailabilityData(null);
-        setAvailabilityError("");
-        setAvailabilityLoading(true);
-        setStep(5);
-        fetch(AVAILABILITY_ENDPOINT, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ size: sel }),
-        })
-          .then((r) => r.json())
-          .then((json) => {
-            setAvailabilityData(json);
-          })
-          .catch(() => {
-            setAvailabilityError(availabilityFailureMessage);
-            setAvailabilityLoading(false);
-            return;
-          })
-          .finally(() => setAvailabilityLoading(false));
-      }, 120);
-      return;
-    }
-    setOverrideSize(sel === size ? "" : sel);
-    setDuration("");
-    setSelectedPrice(null);
-    setAvailabilityData(null);
-    setAvailabilityLoading(false);
-    setAvailabilityError("");
-    setSelectedWindow(null);
-  };
-  const handleContinueFromStep4 = async () => {
-    if (!effectiveSize) return alert("Please choose a dumpster size.");
-    setDuration("");
-    setSelectedPrice(null);
-    setSelectedWindow(null);
-    setAvailabilityData(null);
-    setAvailabilityError("");
-    setAvailabilityLoading(true);
-    setStep(5);
-    try {
-      const res = await fetch(AVAILABILITY_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ size: effectiveSize }),
-      });
-      const json = await res.json();
-      if (!res.ok || json?.error)
-        throw new Error(json?.error || "Unable to load availability.");
-      setAvailabilityData(json);
-    } catch (err) {
-      setAvailabilityError(availabilityFailureMessage);
-      setAvailabilityLoading(false);
-      return;
-    } finally {
-      setAvailabilityLoading(false);
-    }
-  };
+
+  // Window selected on date picker → advance to step 3
   const handleWindowSelect = (option, windowObj) => {
     setDuration(option.key);
     setSelectedPrice(calculatedPrices[option.key] ?? null);
     setSelectedWindow(windowObj);
-    setStep(6);
+    setStep(3);
   };
+
   const handleFallbackOptionSelect = (option) => {
     setDuration(option.key);
     setSelectedPrice(calculatedPrices[option.key] ?? null);
     setSelectedWindow(null);
-    setStep(6);
+    setStep(3);
   };
+
+  // ZIP blur in step 3 → resolve zone silently
+  const handleZipBlur = () => {
+    const clean = form.zip.trim();
+    if (!clean || !/^\d{5}$/.test(clean)) return;
+    if (!pricingConfig) return;
+    const resolved = resolveServiceArea(pricingConfig, clean);
+    if (!resolved.serviceable) {
+      setZipError(
+        "We may not service that ZIP code. Please call or text 470-548-4733 to confirm coverage.",
+      );
+      setZoneUpdateMessage("");
+      return;
+    }
+    setZipError("");
+    applyResolvedServiceArea(clean, resolved);
+    if (Number(resolved.deliveryFee || 0) > 0) {
+      const newTotal =
+        (selectedPrice !== null
+          ? selectedPrice - zoneFee + Number(resolved.deliveryFee)
+          : null);
+      setZoneUpdateMessage(
+        newTotal !== null
+          ? `${resolved.zoneLabel} delivery area · +$${resolved.deliveryFee} — Updated total: $${newTotal}`
+          : `${resolved.zoneLabel} delivery area · +$${resolved.deliveryFee}`,
+      );
+    } else {
+      setZoneUpdateMessage("");
+    }
+  };
+
+  // Partial lead capture on phone blur
   const handlePhoneBlur = async () => {
     if (capturedLeadId && capturedSupabaseLeadId) return;
     const cleanPhone = form.phone.trim();
@@ -1910,15 +1901,32 @@ export default function Funnel() {
       console.error("[handlePhoneBlur] lead capture failed:", err.message);
     }
   };
-  const handleSubmit = async () => {
+
+  // Step 3 → step 4: validate required fields
+  const handleContinueToReview = () => {
     if (!form.name.trim() || !form.email.trim() || !form.phone.trim()) {
-      alert("Please enter your name, email, and phone number.");
+      setSubmitError("Please enter your name, email, and phone number.");
       return;
     }
     if (!form.street.trim()) {
-      alert("Please enter your service address so we know where to deliver.");
+      setSubmitError(
+        "Please enter your service address so we know where to deliver.",
+      );
       return;
     }
+    setSubmitError("");
+    // If ZIP hasn't been resolved yet, attempt resolution now
+    if (!serviceArea && form.zip && pricingConfig) {
+      const resolved = resolveServiceArea(pricingConfig, form.zip.trim());
+      if (resolved.serviceable) {
+        applyResolvedServiceArea(form.zip.trim(), resolved);
+      }
+    }
+    setStep(4);
+  };
+
+  // Final submit from step 4 review
+  const handleSubmit = async () => {
     if (!selectedWindow?.startIso || !selectedWindow?.endIso) {
       setSubmitError("Please choose a delivery date before checkout.");
       return;
@@ -1928,7 +1936,7 @@ export default function Funnel() {
         ? window.turnstile.getResponse(turnstileWidgetIdRef.current)
         : "";
     if (!token) {
-      alert("Please complete the security check.");
+      setSubmitError("Please complete the security check.");
       return;
     }
     setSubmitting(true);
@@ -2050,16 +2058,17 @@ export default function Funnel() {
       setSubmitting(false);
     }
   };
+
   const goBack = () => {
-    if (step === 6) {
+    if (step === 4) {
       turnstileRenderedRef.current = false;
-      return setStep(5);
+      return setStep(3);
     }
-    if (step === 5) return setStep(4);
-    if (step === 4) return isQuickPath ? setStep(1) : setStep(3);
-    if (step === 3) return setStep(1);
-    if (step === 1) return setStep(0);
+    if (step === 3) return setStep(2);
+    if (step === 2) return setStep(1);
   };
+
+  // ─── styles ───────────────────────────────────────────────────────────────
   const inputStyle = {
     display: "block",
     width: "100%",
@@ -2084,6 +2093,15 @@ export default function Funnel() {
     fontFamily: F,
   };
   const firstLabelStyle = { ...labelStyle, marginTop: 0 };
+
+  // ─── nickname map ─────────────────────────────────────────────────────────
+  const SIZE_NICKNAMES = {
+    "11 Yard": "The Little Junker",
+    "16 Yard": "The Mighty Middler",
+    "21 Yard": "The Big Junker",
+  };
+
+  // ─── render ───────────────────────────────────────────────────────────────
   return (
     <>
       <Script
@@ -2129,7 +2147,9 @@ export default function Funnel() {
             capturedPrice={selectedPrice || null}
           />
         )}
+
         <div style={{ maxWidth: 800, margin: "0 auto" }}>
+          {/* ── header ── */}
           <header
             style={{
               display: "flex",
@@ -2195,6 +2215,8 @@ export default function Funnel() {
               </button>
             </div>
           </header>
+
+          {/* ── main card ── */}
           <main
             style={{
               background: C.cardBg,
@@ -2205,998 +2227,963 @@ export default function Funnel() {
                 "0 1px 3px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.05)",
             }}
           >
-            {step === 0 && (
-              <div>
-                <div
-                  style={{
-                    background:
-                      "radial-gradient(circle at top right, rgba(255,206,228,0.22), transparent 34%), radial-gradient(circle at bottom left, rgba(194,88,122,0.13), transparent 32%), linear-gradient(135deg,#171511 0%,#211f1a 52%,#2a2523 100%)",
-                    padding: "36px 28px 32px",
-                    position: "relative",
-                    borderRadius: "16px 16px 0 0",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 800,
-                      color: C.heroAccent,
-                      letterSpacing: "1.6px",
-                      textTransform: "uppercase",
-                      marginBottom: 14,
-                      opacity: 0.85,
-                      fontFamily: F,
-                    }}
-                  >
-                    Dumpster Rental · South Atlanta
-                  </div>
-                  <h1
-                    style={{
-                      margin: "0 0 18px",
-                      fontSize: 30,
-                      fontWeight: 900,
-                      color: C.white,
-                      letterSpacing: "-0.8px",
-                      lineHeight: 1.12,
-                      fontFamily: F,
-                    }}
-                  >
-                    Check Dumpster Availability
-                    <br />
-                    in{" "}
-                    <span style={{ color: C.heroAccent }}>Your ZIP Code</span>
-                  </h1>
-                  <p
-                    style={{
-                      margin: "0 0 6px",
-                      fontSize: 14,
-                      color: "#b8b0a6",
-                      lineHeight: 1.6,
-                      fontFamily: F,
-                      maxWidth: 480,
-                    }}
-                  >
-                    Almost there — just need your ZIP to pull up local pricing.
-                  </p>
-                  <p
-                    style={{
-                      margin: "0 0 28px",
-                      fontSize: 12,
-                      color: "rgba(255,255,255,0.4)",
-                      lineHeight: 1.5,
-                      fontFamily: F,
-                      maxWidth: 480,
-                    }}
-                  >
-                    Hey, we hate when the price changes at checkout — providing
-                    your ZIP ensures no surprises.
-                  </p>
-                  <style>{`@media (max-width:760px) {.lj-step0-grid { grid-template-columns: 1fr !important; }.lj-step0-proof { margin-top: 8px !important; }}@media (max-width:520px) {.lj-zip-row { flex-direction: column !important; }.lj-zip-btn { width: 100% !important; }}`}</style>
-                  <div
-                    className="lj-step0-grid"
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1.08fr 0.92fr",
-                      gap: 24,
-                      alignItems: "center",
-                    }}
-                  >
-                    <div>
-                      <div
-                        className="lj-zip-row"
-                        style={{
-                          display: "flex",
-                          gap: 10,
-                          alignItems: "stretch",
-                          maxWidth: 440,
-                        }}
-                      >
-                        <input
-                          placeholder="Your ZIP"
-                          value={zip}
-                          onChange={(e) => setZip(e.target.value)}
-                          onKeyDown={(e) =>
-                            e.key === "Enter" && handleZipSubmit()
-                          }
-                          maxLength={5}
-                          inputMode="numeric"
-                          style={{
-                            flex: 1,
-                            padding: "14px 16px",
-                            border: "1.5px solid rgba(255,255,255,0.12)",
-                            borderRadius: 12,
-                            background: "rgba(255,255,255,0.07)",
-                            fontSize: 15,
-                            color: C.white,
-                            boxSizing: "border-box",
-                            fontFamily: F,
-                            outline: "none",
-                            caretColor: C.heroAccent,
-                          }}
-                        />
-                        <button
-                          className="lj-zip-btn"
-                          onClick={handleZipSubmit}
-                          style={{
-                            padding: "14px 22px",
-                            background: C.heroAccent,
-                            color: "#1e1c19",
-                            border: "none",
-                            borderRadius: 12,
-                            fontSize: 14,
-                            fontWeight: 900,
-                            cursor: "pointer",
-                            fontFamily: F,
-                            whiteSpace: "nowrap",
-                            letterSpacing: "0.2px",
-                            flexShrink: 0,
-                          }}
-                        >
-                          {pricingLoading
-                            ? "Loading pricing…"
-                            : "Check Availability →"}
-                        </button>
-                      </div>
-                      {(zipError || pricingError) && (
-                        <div
-                          style={{
-                            marginTop: 10,
-                            color: "#ffb3b3",
-                            fontSize: 13,
-                            lineHeight: 1.4,
-                            fontFamily: F,
-                          }}
-                        >
-                          {zipError || pricingError}
-                        </div>
-                      )}
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 8,
-                          flexWrap: "wrap",
-                          marginTop: 24,
-                        }}
-                      >
-                        {[
-                          "✓ Delivery included",
-                          "✓ Driveway-safe trucks",
-                          "✓ Locally owned",
-                          "✓ Se habla español",
-                        ].map((t) => (
-                          <span
-                            key={t}
-                            style={{
-                              fontSize: 11,
-                              color: "rgba(255,255,255,0.65)",
-                              fontWeight: 700,
-                              background: "rgba(255,255,255,0.07)",
-                              border: "1px solid rgba(255,255,255,0.1)",
-                              borderRadius: 99,
-                              padding: "5px 12px",
-                              fontFamily: F,
-                              letterSpacing: "0.2px",
-                            }}
-                          >
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
+            <ProgressChrome
+              currentVisualStep={currentVisualStep}
+              visibleTotalSteps={visibleTotalSteps}
+              stepLabel={stepLabel}
+              progressPercent={progressPercent}
+              onBack={goBack}
+              showBack={step > 1}
+            />
+
+            <CardBody>
+              {/* ══════════════════════════════════════════════════════════════
+                  STEP 1 — Product Selection
+              ══════════════════════════════════════════════════════════════ */}
+              {step === 1 && (
+                <div>
+                  <StepHeading
+                    eyebrow="Dumpster Rental · South Atlanta"
+                    title="Pick your perfect pink bin"
+                    text="Upfront pricing. Driveway-safe trucks. No hidden fees."
+                  />
+
+                  {/* Pricing loading state */}
+                  {pricingLoading && (
                     <div
-                      className="lj-step0-proof"
                       style={{
-                        background: "rgba(255,255,255,0.07)",
-                        border: "1px solid rgba(255,255,255,0.12)",
-                        borderRadius: 18,
-                        padding: 10,
-                        boxShadow: "0 14px 36px rgba(0,0,0,0.22)",
+                        padding: "20px 0",
+                        textAlign: "center",
+                        fontSize: 13,
+                        color: C.inkFaint,
+                        fontFamily: F,
                       }}
                     >
-                      <img
-                        src="/Little_Junker_in_residential_driveway.JPEG"
-                        alt="Pink Little Junkers dumpster placed in a residential driveway"
-                        loading="eager"
-                        style={{
-                          width: "100%",
-                          height: 210,
-                          objectFit: "cover",
-                          borderRadius: 13,
-                          display: "block",
-                        }}
-                      />
-                      <div
-                        style={{
-                          marginTop: 9,
-                          fontSize: 11,
-                          lineHeight: 1.45,
-                          color: "rgba(255,255,255,0.68)",
-                          fontWeight: 800,
-                          fontFamily: F,
-                        }}
-                      >
-                        Real pink dumpsters sized for residential driveways.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <CardFooter />
-              </div>
-            )}
-            {step > 0 && (
-              <div>
-                <ProgressChrome
-                  currentVisualStep={currentVisualStep}
-                  visibleTotalSteps={visibleTotalSteps}
-                  stepLabel={stepLabel}
-                  progressPercent={progressPercent}
-                  onBack={goBack}
-                  showBack={true}
-                />
-                <CardBody>
-                  {step === 1 && (
-                    <div>
-                      <StepHeading
-                        eyebrow="Coverage confirmed"
-                        title="How do you want to proceed?"
-                        text={`${areaLabel} is in our ${serviceArea?.zoneLabel?.toLowerCase() || "service area"}.`}
-                      />
-                      <div style={{ display: "grid", gap: 10 }}>
-                        <OptionCard
-                          title="Quick Select"
-                          sub="I already know which size I need"
-                          selected={returningPath === "quick"}
-                          onClick={() => handlePath("quick", "Returning")}
-                        />
-                        <OptionCard
-                          title="Help Me Choose"
-                          sub="Walk me through sizing for my project"
-                          selected={
-                            returningPath === "recommend" &&
-                            customerType !== "Contractor / Roofer"
-                          }
-                          onClick={() =>
-                            handlePath("recommend", "New Customer")
-                          }
-                        />
-                        <OptionCard
-                          title="Contractor / Roofer"
-                          sub="Business or repeat jobsite use — help me size"
-                          selected={
-                            returningPath === "recommend" &&
-                            customerType === "Contractor / Roofer"
-                          }
-                          onClick={() =>
-                            handlePath("recommend", "Contractor / Roofer")
-                          }
-                        />
-                      </div>
+                      Loading pricing…
                     </div>
                   )}
-                  {step === 3 && (
-                    <div>
-                      <StepHeading
-                        eyebrow="Step 3"
-                        title={
-                          customerType === "Contractor" ||
-                          customerType === "Contractor / Roofer"
-                            ? "What type of debris are you dealing with?"
-                            : "What kind of cleanup are you tackling?"
-                        }
-                        text="Choose the option closest to your current project."
-                      />
-                      <div style={{ display: "grid", gap: 10 }}>
-                        {(customerType === "Contractor" ||
-                        customerType === "Contractor / Roofer"
-                          ? [
-                              "General Cleanup",
-                              "Renovation / demo",
-                              "Roofing",
-                              "Concrete",
-                              "Other",
-                            ]
-                          : [
-                              "Cleaning the garage / basement",
-                              "Moving / decluttering",
-                              "Renovation / demo",
-                              "Other",
-                            ]
-                        ).map((type) => (
-                          <OptionCard
-                            key={type}
-                            title={type}
-                            selected={project === type}
-                            onClick={() =>
-                              type === "Other"
-                                ? setProject("Other")
-                                : handleProject(type)
-                            }
-                          />
-                        ))}
-                      </div>
-                      {project === "Other" && (
-                        <div style={{ marginTop: 16 }}>
-                          <label style={firstLabelStyle}>
-                            Tell us a little more
-                          </label>
-                          <textarea
-                            value={otherText}
-                            onChange={(e) => setOtherText(e.target.value)}
-                            placeholder="Describe your project..."
-                            style={{
-                              ...inputStyle,
-                              minHeight: 90,
-                              resize: "vertical",
-                            }}
-                          />
-                          <PrimaryButton onClick={handleOtherContinue}>
-                            Continue
-                          </PrimaryButton>
-                        </div>
-                      )}
-                      {showConcreteNotice && (
-                        <div
-                          style={{
-                            marginTop: 16,
-                            background: C.warningBg,
-                            border: `1px solid ${C.warningBorder}`,
-                            borderRadius: 12,
-                            padding: 16,
-                            fontFamily: F,
-                          }}
-                        >
-                          <div
-                            style={{
-                              fontWeight: 800,
-                              color: C.ink,
-                              marginBottom: 6,
-                            }}
-                          >
-                            Concrete isn't something we haul right now
-                          </div>
-                          <p
-                            style={{
-                              margin: 0,
-                              color: C.inkMid,
-                              lineHeight: 1.5,
-                              fontSize: 14,
-                            }}
-                          >
-                            We can still help with general cleanup, renovation
-                            debris, and roofing.
-                          </p>
-                          <button
-                            onClick={() => setShowConcreteNotice(false)}
-                            style={{
-                              marginTop: 12,
-                              padding: "9px 16px",
-                              background: C.ink,
-                              color: C.white,
-                              border: "none",
-                              borderRadius: 10,
-                              cursor: "pointer",
-                              fontWeight: 700,
-                              fontFamily: F,
-                              fontSize: 13,
-                            }}
-                          >
-                            Got it
-                          </button>
-                        </div>
-                      )}
+
+                  {pricingError && (
+                    <div
+                      style={{
+                        marginBottom: 16,
+                        padding: "12px 14px",
+                        background: C.warningBg,
+                        border: `1px solid ${C.warningBorder}`,
+                        borderRadius: 10,
+                        fontSize: 13,
+                        color: C.ink,
+                        fontFamily: F,
+                      }}
+                    >
+                      {pricingError} Please call or text{" "}
+                      <a href="tel:4705484733" style={{ color: C.ink }}>
+                        470-548-4733
+                      </a>
+                      .
                     </div>
                   )}
-                  {step === 4 && (
-                    <div>
-                      <StepHeading
-                        eyebrow={
-                          isQuickPath ? "Quick select" : "Based on your project"
-                        }
-                        title={
-                          isQuickPath
-                            ? "Choose your rental size"
-                            : "Best fit for your project"
-                        }
-                        text={
-                          isQuickPath
-                            ? "Select the size you want."
-                            : "This is the strongest fit based on what you described."
-                        }
-                      />
-                      {!isQuickPath && effectiveSize && (
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: 14,
-                            alignItems: "stretch",
-                            marginBottom: 18,
-                            flexWrap: "wrap",
-                          }}
-                        >
+
+                  {/* Product cards */}
+                  {!pricingLoading && !pricingError && (
+                    <div style={{ display: "grid", gap: 14 }}>
+                      {allSizes.map((sizeKey) => {
+                        const meta = sizeMeta[sizeKey];
+                        const hints = {
+                          truckLoads: meta?.truckLoads,
+                          bestUse: meta?.bestUse,
+                        };
+                        const startingPrice = startingPrices[sizeKey];
+                        const nickname = SIZE_NICKNAMES[sizeKey] || sizeKey;
+                        const isRecommended =
+                          size === sizeKey && showHelpMe === false && size;
+                        return (
                           <div
-                            onClick={handleContinueFromStep4}
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={(e) =>
-                              e.key === "Enter" && handleContinueFromStep4()
-                            }
+                            key={sizeKey}
                             style={{
-                              flex: "1 1 300px",
-                              background: C.surfaceBg,
-                              border: `1px solid ${C.surfaceBorder}`,
+                              border: isRecommended
+                                ? `2px solid ${C.pinkText}`
+                                : `1.5px solid ${C.surfaceBorder}`,
                               borderRadius: 14,
-                              padding: 20,
-                              cursor: "pointer",
+                              background: isRecommended
+                                ? C.pinkBg
+                                : C.surfaceBg,
+                              overflow: "hidden",
                             }}
                           >
-                            <div
-                              style={{
-                                fontSize: 36,
-                                fontWeight: 900,
-                                color: C.ink,
-                                letterSpacing: "-1.5px",
-                                lineHeight: 1,
-                                marginBottom: 8,
-                              }}
-                            >
-                              {effectiveSize}
-                            </div>
-                            <div style={{ marginBottom: 14 }}>
-                              <TonnagePill
-                                label={sizeMeta[effectiveSize]?.label || ""}
-                              />
-                            </div>
-                            <ul
-                              style={{
-                                margin: "0 0 16px",
-                                paddingLeft: 18,
-                                lineHeight: 1.75,
-                                color: C.inkMid,
-                                fontSize: 13,
-                              }}
-                            >
-                              {recommendation.holds.map((item) => (
-                                <li key={item}>{item}</li>
-                              ))}
-                            </ul>
-                            <div
-                              style={{
-                                background: C.white,
-                                border: `1px solid ${C.surfaceBorder}`,
-                                borderRadius: 10,
-                                padding: "12px 14px",
-                              }}
-                            >
-                              <p
-                                style={{
-                                  margin: "0 0 6px",
-                                  fontSize: 13,
-                                  lineHeight: 1.55,
-                                  color: C.ink,
-                                }}
-                              >
-                                {recommendation.reason}
-                              </p>
-                              <div style={{ fontSize: 12, color: C.inkMuted }}>
-                                {recommendation.note}
-                              </div>
-                            </div>
-                            <div
-                              style={{
-                                marginTop: 14,
-                                fontSize: 12,
-                                fontWeight: 700,
-                                color: C.pinkText,
-                                textAlign: "center",
-                              }}
-                            >
-                              Tap to continue →
-                            </div>
-                          </div>
-                          <div
-                            style={{
-                              flex: "1 1 200px",
-                              display: "flex",
-                              flexDirection: "column",
-                              gap: 12,
-                            }}
-                          >
-                            <div
-                              style={{
-                                background: C.surfaceBg,
-                                border: `1px solid ${C.surfaceBorder}`,
-                                borderRadius: 14,
-                                padding: 14,
-                                flex: 1,
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                minHeight: 160,
-                              }}
-                            >
-                              <img
-                                src={DUMPSTER_IMAGES[effectiveSize]}
-                                alt={`${effectiveSize} dumpster`}
-                                style={{
-                                  width: "100%",
-                                  maxWidth: 260,
-                                  height: "auto",
-                                  objectFit: "contain",
-                                }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      {!isQuickPath && effectiveSize && (
-                        <div style={{ marginBottom: 8 }}>
-                          <button
-                            onClick={() => setShowComparison((v) => !v)}
-                            style={{
-                              width: "100%",
-                              background: "none",
-                              border: `1px solid ${C.surfaceBorder}`,
-                              borderRadius: 10,
-                              padding: "10px 16px",
-                              cursor: "pointer",
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                            }}
-                          >
-                            <span
-                              style={{
-                                fontSize: 13,
-                                fontWeight: 700,
-                                color: C.inkMid,
-                              }}
-                            >
-                              {showComparison
-                                ? "Hide size comparison"
-                                : "Compare other sizes"}
-                            </span>
-                            <span style={{ fontSize: 14, color: C.inkMuted }}>
-                              {showComparison ? "▲" : "▼"}
-                            </span>
-                          </button>
-                          {showComparison && (
-                            <div
-                              style={{
-                                background: C.white,
-                                border: `1px solid ${C.surfaceBorder}`,
-                                borderRadius: 14,
-                                padding: 18,
-                                marginTop: 10,
-                              }}
-                            >
+                            <div style={{ padding: "18px 20px 14px" }}>
                               <div
                                 style={{
-                                  display: "grid",
-                                  gridTemplateColumns:
-                                    "repeat(auto-fit, minmax(180px, 1fr))",
-                                  gap: 10,
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "flex-start",
+                                  marginBottom: 6,
                                 }}
                               >
-                                {allSizes.map((sizeKey) => {
-                                  const isMatch = sizeKey === size;
-                                  const isSelected = effectiveSize === sizeKey;
-                                  return (
-                                    <div
-                                      key={sizeKey}
-                                      style={{
-                                        background: isSelected
-                                          ? C.white
-                                          : C.surfaceBg,
-                                        border: isSelected
-                                          ? `1.5px solid ${C.ink}`
-                                          : `1px solid ${C.surfaceBorder}`,
-                                        borderRadius: 12,
-                                        padding: 14,
-                                      }}
-                                    >
-                                      <div
-                                        style={{
-                                          display: "flex",
-                                          justifyContent: "space-between",
-                                          marginBottom: 10,
-                                        }}
-                                      >
-                                        <div
-                                          style={{
-                                            fontSize: 17,
-                                            fontWeight: 900,
-                                          }}
-                                        >
-                                          {sizeKey}
-                                        </div>
-                                        {isMatch && (
-                                          <span
-                                            style={{
-                                              background: C.pinkBg,
-                                              color: C.pinkText,
-                                              fontSize: 10,
-                                              fontWeight: 800,
-                                              padding: "3px 8px",
-                                              borderRadius: 99,
-                                            }}
-                                          >
-                                            Best Fit
-                                          </span>
-                                        )}
-                                      </div>
-                                      <div
-                                        style={{
-                                          fontSize: 13,
-                                          fontWeight: 700,
-                                          marginBottom: 8,
-                                        }}
-                                      >
-                                        {sizeMeta[sizeKey].label}
-                                      </div>
-                                      {isSelected ? (
-                                        <div
-                                          style={{
-                                            fontSize: 12,
-                                            fontWeight: 800,
-                                          }}
-                                        >
-                                          Selected
-                                        </div>
-                                      ) : (
-                                        <button
-                                          onClick={() =>
-                                            handleSizeSelect(sizeKey)
-                                          }
-                                          style={{
-                                            width: "100%",
-                                            padding: "9px",
-                                            background: C.white,
-                                            border: `1px solid ${C.surfaceBorder}`,
-                                            borderRadius: 10,
-                                            fontSize: 12,
-                                            fontWeight: 800,
-                                          }}
-                                        >
-                                          Select
-                                        </button>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                          <PrimaryButton onClick={handleContinueFromStep4}>
-                            Continue with {effectiveSize}
-                          </PrimaryButton>
-                        </div>
-                      )}
-                      {(isQuickPath || !effectiveSize) && (
-                        <div style={{ display: "grid", gap: 12 }}>
-                          {allSizes.map((sizeKey) => {
-                            const meta = sizeMeta[sizeKey];
-                            const hints = {
-                              truckLoads: meta?.truckLoads,
-                              projectScale: meta?.projectScale,
-                              bestUse: meta?.bestUse,
-                            };
-                            const isSelected = effectiveSize === sizeKey;
-                            return (
-                              <div
-                                key={sizeKey}
-                                onClick={() => handleSizeSelect(sizeKey)}
-                                role="button"
-                                tabIndex={0}
-                                onKeyDown={(e) =>
-                                  e.key === "Enter" && handleSizeSelect(sizeKey)
-                                }
-                                style={{
-                                  padding: "18px 20px",
-                                  borderRadius: 14,
-                                  cursor: "pointer",
-                                  transition: "border 0.15s",
-                                  border: isSelected
-                                    ? `2px solid ${C.ink}`
-                                    : `1.5px solid ${C.surfaceBorder}`,
-                                  background: isSelected
-                                    ? C.white
-                                    : C.surfaceBg,
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    alignItems: "flex-start",
-                                    marginBottom: 8,
-                                  }}
-                                >
+                                <div>
                                   <div
                                     style={{
-                                      fontSize: 22,
+                                      fontSize: 20,
                                       fontWeight: 900,
                                       color: C.ink,
                                       letterSpacing: "-0.5px",
+                                      lineHeight: 1.1,
                                     }}
                                   >
                                     {sizeKey}
                                   </div>
-                                  <TonnagePill label={meta.label} />
+                                  <div
+                                    style={{
+                                      fontSize: 12,
+                                      color: C.pinkText,
+                                      fontWeight: 700,
+                                      marginTop: 2,
+                                    }}
+                                  >
+                                    {nickname}
+                                  </div>
                                 </div>
-                                <ul
-                                  style={{
-                                    margin: "0 0 10px",
-                                    paddingLeft: 18,
-                                    lineHeight: 1.75,
-                                    color: C.inkMid,
-                                    fontSize: 13,
-                                  }}
-                                >
-                                  <li>{hints.truckLoads}</li>
-                                  <li>{hints.bestUse}</li>
-                                </ul>
-                                <div
-                                  style={{
-                                    fontSize: 12,
-                                    color: C.inkMuted,
-                                    fontStyle: "italic",
-                                  }}
-                                >
-                                  {meta.bestFor}
+                                <div style={{ textAlign: "right" }}>
+                                  <TonnagePill label={meta?.label || ""} />
+                                  {startingPrice ? (
+                                    <div
+                                      style={{
+                                        fontSize: 13,
+                                        fontWeight: 700,
+                                        color: C.ink,
+                                        marginTop: 6,
+                                      }}
+                                    >
+                                      Starting at ${startingPrice}
+                                    </div>
+                                  ) : null}
                                 </div>
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {(isQuickPath || !effectiveSize) && (
-                        <PrimaryButton onClick={handleContinueFromStep4}>
-                          Continue
-                        </PrimaryButton>
-                      )}
+                              <ul
+                                style={{
+                                  margin: "8px 0 12px",
+                                  paddingLeft: 18,
+                                  lineHeight: 1.75,
+                                  color: C.inkMid,
+                                  fontSize: 13,
+                                }}
+                              >
+                                {hints.truckLoads && (
+                                  <li>{hints.truckLoads}</li>
+                                )}
+                                {hints.bestUse && <li>{hints.bestUse}</li>}
+                              </ul>
+                              {isRecommended && (
+                                <div
+                                  style={{
+                                    marginBottom: 10,
+                                    fontSize: 12,
+                                    color: C.pinkText,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  ✓ Recommended for your project
+                                </div>
+                              )}
+                            </div>
+                            <div
+                              style={{
+                                padding: "0 20px 18px",
+                              }}
+                            >
+                              <button
+                                onClick={() => handleProductSelect(sizeKey)}
+                                style={{
+                                  display: "block",
+                                  width: "100%",
+                                  padding: "13px",
+                                  background: C.ink,
+                                  color: C.white,
+                                  border: "none",
+                                  borderRadius: 10,
+                                  fontSize: 14,
+                                  fontWeight: 800,
+                                  cursor: "pointer",
+                                  fontFamily: F,
+                                  letterSpacing: "0.1px",
+                                }}
+                              >
+                                Reserve This Dumpster →
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
-                  {step === 5 && (
-                    <Step5DatePicker
-                      effectiveSize={effectiveSize}
-                      availabilityLoading={availabilityLoading}
-                      isAvailabilityDegraded={isAvailabilityDegraded}
-                      availableOptions={availableOptions}
-                      calculatedPrices={calculatedPrices}
-                      selectedWindow={selectedWindow}
-                      duration={duration}
-                      showMoreDates={showMoreDates}
-                      setShowMoreDates={setShowMoreDates}
-                      handleWindowSelect={handleWindowSelect}
-                      handleFallbackOptionSelect={handleFallbackOptionSelect}
-                      sizeMeta={sizeMeta}
-                      rentalOptions={rentalOptions}
-                      blockedDates={availabilityData?.blockedDates || []}
-                    />
-                  )}
-                  {step === 6 && !submitted && (
-                    <div>
-                      <StepHeading
-                        eyebrow="Almost done"
-                        title="Complete your booking"
-                        text="Enter your service address and contact details."
-                      />
-                      <div
+
+                  {/* Help Me Choose secondary link */}
+                  {!pricingLoading && !pricingError && (
+                    <div style={{ marginTop: 20 }}>
+                      <button
+                        onClick={() => setShowHelpMe((v) => !v)}
                         style={{
-                          marginBottom: 18,
+                          display: "block",
+                          width: "100%",
+                          background: "none",
                           border: `1px solid ${C.surfaceBorder}`,
-                          borderRadius: 14,
-                          overflow: "hidden",
+                          borderRadius: 10,
+                          padding: "11px 16px",
+                          cursor: "pointer",
+                          fontSize: 13,
+                          fontWeight: 700,
+                          color: C.inkMid,
+                          fontFamily: F,
+                          textAlign: "center",
                         }}
                       >
-                        <div
-                          style={{
-                            background: C.surfaceBg,
-                            padding: "9px 16px",
-                            fontSize: 10,
-                            fontWeight: 800,
-                            color: C.inkFaint,
-                            borderBottom: `1px solid ${C.surfaceBorder}`,
-                          }}
-                        >
-                          Rental Summary
-                        </div>
-                        {[
-                          { label: "Service Area", value: areaLabel },
-                          { label: "Dumpster", value: effectiveSize },
-                          {
-                            label: "Rental",
-                            value: getRentalDisplayLabel(
-                              duration,
-                              rentalOptions,
-                            ),
-                          },
-                          {
-                            label: "Delivery date",
-                            value: selectedWindow
-                              ? `${selectedWindow.startLabel}`
-                              : "Subject to confirmation",
-                          },
-                        ].map((row) => (
-                          <div
-                            key={row.label}
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              padding: "10px 16px",
-                              borderBottom: `1px solid ${C.surfaceBorder}`,
-                            }}
-                          >
-                            <span style={{ fontSize: 13, color: C.inkMuted }}>
-                              {row.label}
-                            </span>
-                            <span style={{ fontSize: 13, fontWeight: 700 }}>
-                              {row.value}
-                            </span>
-                          </div>
-                        ))}
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            padding: "12px 16px",
-                            background: C.surfaceBg,
-                          }}
-                        >
-                          <span style={{ fontSize: 13, color: C.inkMuted }}>
-                            Total
-                          </span>
-                          <span style={{ fontSize: 20, fontWeight: 900 }}>
-                            ${selectedPrice}
-                          </span>
-                        </div>
-                      </div>
-                      <div
-                        style={{
-                          background: C.surfaceBg,
-                          border: `1px solid ${C.surfaceBorder}`,
-                          borderRadius: 14,
-                          padding: "18px",
-                        }}
-                      >
-                        <label style={firstLabelStyle}>Name *</label>
-                        <input
-                          placeholder="Your name"
-                          value={form.name}
-                          onChange={(e) =>
-                            setForm({ ...form, name: e.target.value })
-                          }
-                          style={inputStyle}
-                        />
-                        <label style={labelStyle}>Email *</label>
-                        <input
-                          placeholder="you@example.com"
-                          value={form.email}
-                          onChange={(e) =>
-                            setForm({ ...form, email: e.target.value })
-                          }
-                          style={inputStyle}
-                        />
-                        <label style={labelStyle}>Phone *</label>
-                        <input
-                          placeholder="Phone number"
-                          value={form.phone}
-                          onChange={(e) =>
-                            setForm({ ...form, phone: e.target.value })
-                          }
-                          onBlur={handlePhoneBlur}
-                          type="tel"
-                          style={inputStyle}
-                        />
-                        <label style={labelStyle}>Service address *</label>
-                        <input
-                          placeholder="Street address"
-                          value={form.street}
-                          onChange={(e) =>
-                            setForm({ ...form, street: e.target.value })
-                          }
-                          style={inputStyle}
-                        />
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "1.4fr 0.8fr 0.8fr",
-                            gap: 10,
-                            marginTop: 14,
-                          }}
-                        >
-                          <input
-                            placeholder="City"
-                            value={form.city}
-                            onChange={(e) =>
-                              setForm({ ...form, city: e.target.value })
-                            }
-                            style={inputStyle}
-                          />
-                          <select
-                            value={form.state}
-                            onChange={(e) =>
-                              setForm({ ...form, state: e.target.value })
-                            }
-                            style={inputStyle}
-                          >
-                            <option value="GA">GA</option>
-                          </select>
-                          <input
-                            value={form.zip}
-                            readOnly
-                            style={{
-                              ...inputStyle,
-                              background: C.surfaceBg,
-                              color: C.inkMuted,
-                            }}
-                          />
-                        </div>
-                        <label style={labelStyle}>
-                          How did you hear about us?
-                        </label>
-                        <select
-                          value={form.source}
-                          onChange={(e) =>
-                            setForm({ ...form, source: e.target.value })
-                          }
-                          style={inputStyle}
-                        >
-                          <option value="">Select one</option>
-                          <option>Google</option>
-                          <option>Facebook</option>
-                          <option>Repeat Customer</option>
-                          <option>Other</option>
-                        </select>
-                        <label style={labelStyle}>
-                          Delivery notes (optional)
-                        </label>
-                        <textarea
-                          placeholder="e.g. Place on driveway near garage. Wood planks needed. Gate code: 1234."
-                          value={form.deliveryNotes}
-                          onChange={(e) =>
-                            setForm({ ...form, deliveryNotes: e.target.value })
-                          }
-                          style={{
-                            ...inputStyle,
-                            minHeight: 80,
-                            resize: "vertical",
-                          }}
-                        />
-                      </div>
-                      <div
-                        id="turnstile-widget"
-                        style={{ marginTop: 16 }}
-                      ></div>
-                      {submitError && (
+                        {showHelpMe
+                          ? "Hide recommendations ▲"
+                          : "Not sure which size? Get a recommendation →"}
+                      </button>
+
+                      {showHelpMe && (
                         <div
                           style={{
                             marginTop: 12,
-                            background: C.warningBg,
-                            border: `1px solid ${C.warningBorder}`,
-                            borderRadius: 10,
-                            padding: "12px 14px",
-                            fontSize: 13,
-                            color: C.ink,
+                            border: `1px solid ${C.surfaceBorder}`,
+                            borderRadius: 12,
+                            padding: "18px 16px",
+                            background: C.white,
                           }}
                         >
-                          {submitError}
+                          <div
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 700,
+                              color: C.ink,
+                              marginBottom: 12,
+                              fontFamily: F,
+                            }}
+                          >
+                            What type of project is this?
+                          </div>
+
+                          {/* Customer type selection */}
+                          <div
+                            style={{
+                              display: "grid",
+                              gap: 8,
+                              marginBottom: 14,
+                            }}
+                          >
+                            {[
+                              {
+                                key: "New Customer",
+                                label: "Homeowner / DIY",
+                                sub: "Cleanout, moving, renovation",
+                              },
+                              {
+                                key: "Contractor / Roofer",
+                                label: "Contractor / Roofer",
+                                sub: "Jobsite or repeat commercial use",
+                              },
+                            ].map((ct) => (
+                              <OptionCard
+                                key={ct.key}
+                                title={ct.label}
+                                sub={ct.sub}
+                                selected={customerType === ct.key}
+                                onClick={() => {
+                                  setCustomerType(ct.key);
+                                  setReturningPath("recommend");
+                                  setProject("");
+                                  setOtherText("");
+                                  setShowConcreteNotice(false);
+                                }}
+                              />
+                            ))}
+                          </div>
+
+                          {/* Project type selection */}
+                          {customerType && (
+                            <div>
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  color: C.inkMuted,
+                                  marginBottom: 8,
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.5px",
+                                  fontFamily: F,
+                                }}
+                              >
+                                What kind of cleanup?
+                              </div>
+                              <div style={{ display: "grid", gap: 8 }}>
+                                {(customerType === "Contractor / Roofer"
+                                  ? [
+                                      "General Cleanup",
+                                      "Renovation / demo",
+                                      "Roofing",
+                                      "Concrete",
+                                      "Other",
+                                    ]
+                                  : [
+                                      "Cleaning the garage / basement",
+                                      "Moving / decluttering",
+                                      "Renovation / demo",
+                                      "Other",
+                                    ]
+                                ).map((type) => (
+                                  <OptionCard
+                                    key={type}
+                                    title={type}
+                                    selected={project === type}
+                                    onClick={() =>
+                                      type === "Other"
+                                        ? setProject("Other")
+                                        : handleHelpMeProject(type)
+                                    }
+                                  />
+                                ))}
+                              </div>
+
+                              {project === "Other" && (
+                                <div style={{ marginTop: 12 }}>
+                                  <textarea
+                                    value={otherText}
+                                    onChange={(e) =>
+                                      setOtherText(e.target.value)
+                                    }
+                                    placeholder="Describe your project..."
+                                    style={{
+                                      ...inputStyle,
+                                      minHeight: 80,
+                                      resize: "vertical",
+                                    }}
+                                  />
+                                  <PrimaryButton
+                                    onClick={handleHelpMeOtherContinue}
+                                  >
+                                    Get Recommendation
+                                  </PrimaryButton>
+                                </div>
+                              )}
+
+                              {showConcreteNotice && (
+                                <div
+                                  style={{
+                                    marginTop: 12,
+                                    background: C.warningBg,
+                                    border: `1px solid ${C.warningBorder}`,
+                                    borderRadius: 12,
+                                    padding: 16,
+                                    fontFamily: F,
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      fontWeight: 800,
+                                      color: C.ink,
+                                      marginBottom: 6,
+                                    }}
+                                  >
+                                    Concrete isn't something we haul right now
+                                  </div>
+                                  <p
+                                    style={{
+                                      margin: 0,
+                                      color: C.inkMid,
+                                      lineHeight: 1.5,
+                                      fontSize: 14,
+                                    }}
+                                  >
+                                    We can still help with general cleanup,
+                                    renovation debris, and roofing.
+                                  </p>
+                                  <button
+                                    onClick={() =>
+                                      setShowConcreteNotice(false)
+                                    }
+                                    style={{
+                                      marginTop: 12,
+                                      padding: "9px 16px",
+                                      background: C.ink,
+                                      color: C.white,
+                                      border: "none",
+                                      borderRadius: 10,
+                                      cursor: "pointer",
+                                      fontWeight: 700,
+                                      fontFamily: F,
+                                      fontSize: 13,
+                                    }}
+                                  >
+                                    Got it
+                                  </button>
+                                </div>
+                              )}
+
+                              {/* Show recommendation result */}
+                              {project &&
+                                project !== "Other" &&
+                                !showConcreteNotice && (
+                                  <div
+                                    style={{
+                                      marginTop: 14,
+                                      padding: "14px 16px",
+                                      background: C.pinkBg,
+                                      border: `1px solid ${C.pinkBorder}`,
+                                      borderRadius: 12,
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        fontSize: 13,
+                                        fontWeight: 800,
+                                        color: C.pinkText,
+                                        marginBottom: 4,
+                                      }}
+                                    >
+                                      We recommend: {recommendation.size}
+                                    </div>
+                                    <div
+                                      style={{
+                                        fontSize: 12,
+                                        color: C.inkMid,
+                                        lineHeight: 1.5,
+                                        marginBottom: 10,
+                                      }}
+                                    >
+                                      {recommendation.reason}
+                                    </div>
+                                    <button
+                                      onClick={() =>
+                                        handleProductSelect(recommendation.size)
+                                      }
+                                      style={{
+                                        display: "block",
+                                        width: "100%",
+                                        padding: "12px",
+                                        background: C.ink,
+                                        color: C.white,
+                                        border: "none",
+                                        borderRadius: 10,
+                                        fontSize: 13,
+                                        fontWeight: 800,
+                                        cursor: "pointer",
+                                        fontFamily: F,
+                                      }}
+                                    >
+                                      Reserve the {recommendation.size} →
+                                    </button>
+                                  </div>
+                                )}
+                            </div>
+                          )}
                         </div>
                       )}
-                      <PrimaryButton
-                        onClick={handleSubmit}
-                        disabled={submitting}
-                      >
-                        {submitting
-                          ? "Preparing Checkout..."
-                          : "Proceed to Checkout"}
-                      </PrimaryButton>
                     </div>
                   )}
-                </CardBody>
-                <CardFooter />
-              </div>
-            )}
+                </div>
+              )}
+
+              {/* ══════════════════════════════════════════════════════════════
+                  STEP 2 — Delivery Date
+              ══════════════════════════════════════════════════════════════ */}
+              {step === 2 && (
+                <div>
+                  <Step5DatePicker
+                    effectiveSize={effectiveSize}
+                    availabilityLoading={availabilityLoading}
+                    isAvailabilityDegraded={isAvailabilityDegraded}
+                    availableOptions={availableOptions}
+                    calculatedPrices={calculatedPrices}
+                    selectedWindow={selectedWindow}
+                    duration={duration}
+                    showMoreDates={showMoreDates}
+                    setShowMoreDates={setShowMoreDates}
+                    handleWindowSelect={handleWindowSelect}
+                    handleFallbackOptionSelect={handleFallbackOptionSelect}
+                    sizeMeta={sizeMeta}
+                    rentalOptions={rentalOptions}
+                    blockedDates={availabilityData?.blockedDates || []}
+                  />
+                  <div
+                    style={{
+                      marginTop: 14,
+                      padding: "10px 14px",
+                      background: C.surfaceBg,
+                      border: `1px solid ${C.surfaceBorder}`,
+                      borderRadius: 10,
+                      fontSize: 12,
+                      color: C.inkMuted,
+                      fontFamily: F,
+                      textAlign: "center",
+                    }}
+                  >
+                    Prices shown are base rental only. Delivery fee, if any,
+                    will be confirmed at the next step based on your address.
+                  </div>
+                </div>
+              )}
+
+              {/* ══════════════════════════════════════════════════════════════
+                  STEP 3 — Address + Contact + ZIP Resolution
+              ══════════════════════════════════════════════════════════════ */}
+              {step === 3 && (
+                <div>
+                  <StepHeading
+                    eyebrow="Step 3 of 4"
+                    title="Where are we delivering?"
+                    text="Enter your address and contact details."
+                  />
+
+                  {/* Rental summary bar */}
+                  <div
+                    style={{
+                      marginBottom: 18,
+                      border: `1px solid ${C.surfaceBorder}`,
+                      borderRadius: 14,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        background: C.surfaceBg,
+                        padding: "9px 16px",
+                        fontSize: 10,
+                        fontWeight: 800,
+                        color: C.inkFaint,
+                        borderBottom: `1px solid ${C.surfaceBorder}`,
+                      }}
+                    >
+                      Rental Summary
+                    </div>
+                    {[
+                      { label: "Dumpster", value: effectiveSize },
+                      {
+                        label: "Rental",
+                        value: getRentalDisplayLabel(duration, rentalOptions),
+                      },
+                      {
+                        label: "Delivery date",
+                        value: selectedWindow
+                          ? `${selectedWindow.startLabel}`
+                          : "Subject to confirmation",
+                      },
+                    ].map((row) => (
+                      <div
+                        key={row.label}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          padding: "10px 16px",
+                          borderBottom: `1px solid ${C.surfaceBorder}`,
+                        }}
+                      >
+                        <span style={{ fontSize: 13, color: C.inkMuted }}>
+                          {row.label}
+                        </span>
+                        <span style={{ fontSize: 13, fontWeight: 700 }}>
+                          {row.value}
+                        </span>
+                      </div>
+                    ))}
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        padding: "12px 16px",
+                        background: C.surfaceBg,
+                      }}
+                    >
+                      <span style={{ fontSize: 13, color: C.inkMuted }}>
+                        Base price
+                      </span>
+                      <span style={{ fontSize: 18, fontWeight: 900 }}>
+                        ${selectedPrice !== null ? selectedPrice - zoneFee : "—"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      background: C.surfaceBg,
+                      border: `1px solid ${C.surfaceBorder}`,
+                      borderRadius: 14,
+                      padding: "18px",
+                    }}
+                  >
+                    <label style={firstLabelStyle}>Name *</label>
+                    <input
+                      placeholder="Your name"
+                      value={form.name}
+                      onChange={(e) =>
+                        setForm({ ...form, name: e.target.value })
+                      }
+                      style={inputStyle}
+                    />
+                    <label style={labelStyle}>Email *</label>
+                    <input
+                      placeholder="you@example.com"
+                      value={form.email}
+                      onChange={(e) =>
+                        setForm({ ...form, email: e.target.value })
+                      }
+                      style={inputStyle}
+                    />
+                    <label style={labelStyle}>Phone *</label>
+                    <input
+                      placeholder="Phone number"
+                      value={form.phone}
+                      onChange={(e) =>
+                        setForm({ ...form, phone: e.target.value })
+                      }
+                      onBlur={handlePhoneBlur}
+                      type="tel"
+                      style={inputStyle}
+                    />
+                    <label style={labelStyle}>Service address *</label>
+                    <input
+                      placeholder="Street address"
+                      value={form.street}
+                      onChange={(e) =>
+                        setForm({ ...form, street: e.target.value })
+                      }
+                      style={inputStyle}
+                    />
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1.4fr 0.8fr 0.8fr",
+                        gap: 10,
+                        marginTop: 14,
+                      }}
+                    >
+                      <input
+                        placeholder="City"
+                        value={form.city}
+                        onChange={(e) =>
+                          setForm({ ...form, city: e.target.value })
+                        }
+                        style={inputStyle}
+                      />
+                      <select
+                        value={form.state}
+                        onChange={(e) =>
+                          setForm({ ...form, state: e.target.value })
+                        }
+                        style={inputStyle}
+                      >
+                        <option value="GA">GA</option>
+                      </select>
+                      <input
+                        placeholder="ZIP"
+                        value={form.zip}
+                        onChange={(e) =>
+                          setForm({ ...form, zip: e.target.value })
+                        }
+                        onBlur={handleZipBlur}
+                        maxLength={5}
+                        inputMode="numeric"
+                        style={inputStyle}
+                      />
+                    </div>
+
+                    {/* ZIP error / zone fee update */}
+                    {zipError && (
+                      <div
+                        style={{
+                          marginTop: 8,
+                          fontSize: 13,
+                          color: "#b45309",
+                          fontFamily: F,
+                        }}
+                      >
+                        {zipError}
+                      </div>
+                    )}
+                    {zoneUpdateMessage && !zipError && (
+                      <div
+                        style={{
+                          marginTop: 8,
+                          padding: "10px 12px",
+                          background: C.pinkBg,
+                          border: `1px solid ${C.pinkBorder}`,
+                          borderRadius: 8,
+                          fontSize: 13,
+                          color: C.pinkText,
+                          fontWeight: 700,
+                          fontFamily: F,
+                        }}
+                      >
+                        {zoneUpdateMessage}
+                      </div>
+                    )}
+
+                    <label style={labelStyle}>
+                      How did you hear about us?
+                    </label>
+                    <select
+                      value={form.source}
+                      onChange={(e) =>
+                        setForm({ ...form, source: e.target.value })
+                      }
+                      style={inputStyle}
+                    >
+                      <option value="">Select one</option>
+                      <option>Google</option>
+                      <option>Facebook</option>
+                      <option>Repeat Customer</option>
+                      <option>Other</option>
+                    </select>
+                    <label style={labelStyle}>
+                      Delivery notes (optional)
+                    </label>
+                    <textarea
+                      placeholder="e.g. Place on driveway near garage. Wood planks needed. Gate code: 1234."
+                      value={form.deliveryNotes}
+                      onChange={(e) =>
+                        setForm({ ...form, deliveryNotes: e.target.value })
+                      }
+                      style={{ ...inputStyle, minHeight: 80, resize: "vertical" }}
+                    />
+
+                    {/* SMS opt-in */}
+                    {form.phone.trim().length > 0 && (
+                      <label
+                        style={{
+                          display: "flex",
+                          gap: 10,
+                          alignItems: "flex-start",
+                          fontFamily: F,
+                          marginTop: 14,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={smsOptIn}
+                          onChange={(e) => setSmsOptIn(e.target.checked)}
+                          style={{ marginTop: 3, flexShrink: 0 }}
+                        />
+                        <span
+                          style={{
+                            fontSize: 13,
+                            color: C.inkMid,
+                            lineHeight: 1.45,
+                          }}
+                        >
+                          I agree to receive text messages from Little Junkers
+                          about my booking and rental.
+                        </span>
+                      </label>
+                    )}
+                  </div>
+
+                  {submitError && (
+                    <div
+                      style={{
+                        marginTop: 12,
+                        background: C.warningBg,
+                        border: `1px solid ${C.warningBorder}`,
+                        borderRadius: 10,
+                        padding: "12px 14px",
+                        fontSize: 13,
+                        color: C.ink,
+                      }}
+                    >
+                      {submitError}
+                    </div>
+                  )}
+
+                  <PrimaryButton onClick={handleContinueToReview}>
+                    Review My Reservation →
+                  </PrimaryButton>
+                </div>
+              )}
+
+              {/* ══════════════════════════════════════════════════════════════
+                  STEP 4 — Reservation Review + Checkout
+              ══════════════════════════════════════════════════════════════ */}
+              {step === 4 && !submitted && (
+                <div>
+                  <StepHeading
+                    eyebrow="Almost done"
+                    title="Review your reservation"
+                    text="Confirm the details below, then complete your booking."
+                  />
+
+                  {/* Full reservation summary */}
+                  <div
+                    style={{
+                      marginBottom: 18,
+                      border: `1px solid ${C.surfaceBorder}`,
+                      borderRadius: 14,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        background: C.surfaceBg,
+                        padding: "9px 16px",
+                        fontSize: 10,
+                        fontWeight: 800,
+                        color: C.inkFaint,
+                        borderBottom: `1px solid ${C.surfaceBorder}`,
+                      }}
+                    >
+                      Reservation Summary
+                    </div>
+                    {[
+                      {
+                        label: "Dumpster",
+                        value: `${effectiveSize} — ${SIZE_NICKNAMES[effectiveSize] || ""}`,
+                      },
+                      {
+                        label: "Rental",
+                        value: getRentalDisplayLabel(duration, rentalOptions),
+                      },
+                      {
+                        label: "Delivery date",
+                        value: selectedWindow
+                          ? selectedWindow.startLabel
+                          : "Subject to confirmation",
+                      },
+                      {
+                        label: "Pickup",
+                        value: selectedWindow
+                          ? selectedWindow.endLabel
+                          : "Per rental duration",
+                      },
+                      {
+                        label: "Delivery address",
+                        value: [
+                          form.street,
+                          form.city,
+                          form.state,
+                          form.zip,
+                        ]
+                          .filter(Boolean)
+                          .join(", "),
+                      },
+                      ...(form.deliveryNotes.trim()
+                        ? [
+                            {
+                              label: "Placement notes",
+                              value: form.deliveryNotes.trim(),
+                            },
+                          ]
+                        : []),
+                    ].map((row) => (
+                      <div
+                        key={row.label}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          padding: "10px 16px",
+                          borderBottom: `1px solid ${C.surfaceBorder}`,
+                          gap: 16,
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: 13,
+                            color: C.inkMuted,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {row.label}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 700,
+                            textAlign: "right",
+                          }}
+                        >
+                          {row.value}
+                        </span>
+                      </div>
+                    ))}
+
+                    {/* Pricing breakdown */}
+                    <div
+                      style={{
+                        padding: "10px 16px",
+                        borderBottom:
+                          zoneFee > 0
+                            ? `1px solid ${C.surfaceBorder}`
+                            : undefined,
+                        display: "flex",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <span style={{ fontSize: 13, color: C.inkMuted }}>
+                        Base rental
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 700 }}>
+                        ${selectedPrice !== null ? selectedPrice - zoneFee : "—"}
+                      </span>
+                    </div>
+                    {zoneFee > 0 && (
+                      <div
+                        style={{
+                          padding: "10px 16px",
+                          borderBottom: `1px solid ${C.surfaceBorder}`,
+                          display: "flex",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <span style={{ fontSize: 13, color: C.inkMuted }}>
+                          Delivery fee ({areaLabel})
+                        </span>
+                        <span style={{ fontSize: 13, fontWeight: 700 }}>
+                          +${zoneFee}
+                        </span>
+                      </div>
+                    )}
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        padding: "12px 16px",
+                        background: C.surfaceBg,
+                      }}
+                    >
+                      <span style={{ fontSize: 13, color: C.inkMuted }}>
+                        Total
+                      </span>
+                      <span style={{ fontSize: 22, fontWeight: 900 }}>
+                        ${selectedPrice}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Turnstile */}
+                  <div id="turnstile-widget" style={{ marginTop: 16 }} />
+
+                  {submitError && (
+                    <div
+                      style={{
+                        marginTop: 12,
+                        background: C.warningBg,
+                        border: `1px solid ${C.warningBorder}`,
+                        borderRadius: 10,
+                        padding: "12px 14px",
+                        fontSize: 13,
+                        color: C.ink,
+                      }}
+                    >
+                      {submitError}
+                    </div>
+                  )}
+
+                  <PrimaryButton onClick={handleSubmit} disabled={submitting}>
+                    {submitting
+                      ? "Preparing Checkout..."
+                      : "Reserve My Dumpster →"}
+                  </PrimaryButton>
+                </div>
+              )}
+            </CardBody>
+            <CardFooter />
           </main>
         </div>
       </div>
