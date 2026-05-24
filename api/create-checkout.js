@@ -128,6 +128,41 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Invalid Supabase pricing configuration." });
     }
 
+    // ── Server-side tier / delivery-day eligibility enforcement ──────────────
+    // This is the authoritative pricing integrity check. The UI calendar also
+    // blocks invalid dates, but this server validation is the final gate before
+    // any money moves. If a client bypasses the UI, this catches it.
+    const tierConfig = pricingConfig.pricingByTierKey[quote.tierKey];
+    const dayRestriction = tierConfig?.dayRestriction;
+    if (dayRestriction) {
+      const DAY_RESTRICTION_MAP = {
+        mon_tue: [1, 2], "mon/tue": [1, 2], montue: [1, 2], monday_tuesday: [1, 2],
+        weekday: [1, 2, 3, 4, 5],
+        mon: [1], tue: [2], wed: [3], thu: [4], fri: [5],
+      };
+      const validDays = DAY_RESTRICTION_MAP[String(dayRestriction).toLowerCase().trim()];
+      if (validDays) {
+        const deliveryDateStr =
+          selectedWindow?.startIso ||
+          selectedWindow?.start ||
+          requestedStartAt;
+        if (deliveryDateStr) {
+          const deliveryDate = new Date(deliveryDateStr);
+          const dayOfWeek = deliveryDate.getUTCDay();
+          if (!validDays.includes(dayOfWeek)) {
+            const dayNames = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+            const eligible = validDays.map((d) => dayNames[d]).join(" or ");
+            console.error(`[create-checkout] Tier/day violation: tier=${quote.tierKey} restriction=${dayRestriction} deliveryDay=${dayNames[dayOfWeek]}`);
+            return res.status(400).json({
+              error: `The "${quote.displayLabel}" pricing is only available for ${eligible} delivery. Please select a valid delivery date.`,
+              code: "TIER_DAY_INELIGIBLE",
+            });
+          }
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     const selectedWindowStart =
       parseOptionalDate(selectedWindow?.startIso) ||
       parseOptionalDate(selectedWindow?.startDateTime) ||
