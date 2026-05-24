@@ -117,19 +117,65 @@ function buildSizeMeta(sizes) {
   }, {});
 }
 
+// Maps raw Supabase day_restriction strings to JS getDay() integers (0=Sun).
+// All known restriction values must be listed here. Add new ones as tiers are
+// added in Supabase — do NOT add fallback logic that silently allows any day.
+const DAY_RESTRICTION_MAP = {
+  mon_tue: [1, 2],
+  "mon/tue": [1, 2],
+  montue: [1, 2],
+  monday_tuesday: [1, 2],
+  weekday: [1, 2, 3, 4, 5],
+  mon: [1],
+  tue: [2],
+  wed: [3],
+  thu: [4],
+  fri: [5],
+};
+
+// Human-readable labels for raw restriction strings shown in UI sublabels.
+const DAY_RESTRICTION_LABEL = {
+  mon_tue: "Mon or Tue delivery only",
+  "mon/tue": "Mon or Tue delivery only",
+  montue: "Mon or Tue delivery only",
+  monday_tuesday: "Mon or Tue delivery only",
+  weekday: "Weekday delivery only",
+  mon: "Monday delivery only",
+  tue: "Tuesday delivery only",
+  wed: "Wednesday delivery only",
+  thu: "Thursday delivery only",
+  fri: "Friday delivery only",
+};
+
+function parseDayRestriction(dayRestriction) {
+  if (!dayRestriction) return null;
+  const key = String(dayRestriction).toLowerCase().trim();
+  return DAY_RESTRICTION_MAP[key] || null;
+}
+
+function dayRestrictionLabel(dayRestriction) {
+  if (!dayRestriction) return null;
+  const key = String(dayRestriction).toLowerCase().trim();
+  return DAY_RESTRICTION_LABEL[key] || null;
+}
+
 function buildRentalOptions(pricingRows) {
-  return (pricingRows || []).map((tier) => ({
-    key: tier.tierKey,
-    label: tier.displayLabel || tier.tierKey,
-    displayLabel: tier.displayLabel || tier.tierKey,
-    sub: tier.dayRestriction
-      ? `${tier.durationDays}-day rental · ${tier.dayRestriction}`
-      : `${tier.durationDays}-day rental`,
-    tag: tier.badgeTag || "",
-    validDays: null,
-    durationDays: Number(tier.durationDays || 0),
-    dayRestriction: tier.dayRestriction,
-  }));
+  return (pricingRows || []).map((tier) => {
+    const validDays = parseDayRestriction(tier.dayRestriction);
+    const restrictionLabel = dayRestrictionLabel(tier.dayRestriction);
+    return {
+      key: tier.tierKey,
+      label: tier.displayLabel || tier.tierKey,
+      displayLabel: tier.displayLabel || tier.tierKey,
+      sub: restrictionLabel
+        ? `${tier.durationDays}-day rental · ${restrictionLabel}`
+        : `${tier.durationDays}-day rental`,
+      tag: tier.badgeTag || "",
+      validDays,
+      durationDays: Number(tier.durationDays || 0),
+      dayRestriction: tier.dayRestriction,
+    };
+  });
 }
 
 function normalizeRentalOption(key, rentalOptions = []) {
@@ -909,6 +955,10 @@ function Step5DatePicker({
   sizeMeta,
   rentalOptions,
   blockedDates,
+  recommendedTierKey,
+  economyTierKeys,
+  showEconomyTiers,
+  setShowEconomyTiers,
 }) {
   const TIERS = useMemo(
     () =>
@@ -937,7 +987,8 @@ function Step5DatePicker({
     d.setDate(d.getDate() + 90);
     return d;
   }, [today]);
-  const [selectedTierKey, setSelectedTierKey] = useState(duration || null);
+  // Pre-expand the recommended tier on mount so customer sees it open immediately.
+  const [selectedTierKey, setSelectedTierKey] = useState(duration || recommendedTierKey || null);
   const [calendarMonth, setCalendarMonth] = useState(() => ({
     year: tomorrow.getFullYear(),
     month: tomorrow.getMonth(),
@@ -1279,9 +1330,11 @@ function Step5DatePicker({
         </span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {TIERS.map((tier) => {
+        {/* Primary tiers — shown always */}
+        {TIERS.filter((t) => !economyTierKeys?.has(t.key)).map((tier) => {
           const price = calculatedPrices[tier.key];
           const isActive = selectedTierKey === tier.key;
+          const isRecommended = tier.key === recommendedTierKey;
           return (
             <div key={tier.key}>
               <button
@@ -1326,7 +1379,22 @@ function Step5DatePicker({
                     >
                       {tier.label}
                     </span>
-                    {tier.tag && (
+                    {isRecommended && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 800,
+                          color: C.white,
+                          background: C.pinkText,
+                          borderRadius: 99,
+                          padding: "2px 9px",
+                          fontFamily: F,
+                        }}
+                      >
+                        Recommended
+                      </span>
+                    )}
+                    {tier.tag && !isRecommended && (
                       <span
                         style={{
                           fontSize: 10,
@@ -1396,6 +1464,94 @@ function Step5DatePicker({
             </div>
           );
         })}
+
+        {/* Economy tiers — collapsed behind expandable to de-emphasize */}
+        {economyTierKeys && economyTierKeys.size > 0 && (
+          <div style={{ marginTop: 4 }}>
+            <button
+              onClick={() => setShowEconomyTiers((v) => !v)}
+              style={{
+                width: "100%",
+                background: "none",
+                border: `1px dashed ${C.surfaceBorder}`,
+                borderRadius: 10,
+                padding: "11px 16px",
+                cursor: "pointer",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                fontFamily: F,
+              }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.inkMuted }}>
+                {showEconomyTiers ? "Hide economy options ▲" : "Looking for the lowest price? ▼"}
+              </span>
+              <span style={{ fontSize: 11, color: C.inkFaint, fontFamily: F }}>
+                Mon/Tue delivery required
+              </span>
+            </button>
+
+            {showEconomyTiers &&
+              TIERS.filter((t) => economyTierKeys.has(t.key)).map((tier) => {
+                const price = calculatedPrices[tier.key];
+                const isActive = selectedTierKey === tier.key;
+                return (
+                  <div key={tier.key} style={{ marginTop: 8 }}>
+                    <button
+                      onClick={() => handleTierSelect(tier.key)}
+                      style={{
+                        width: "100%",
+                        textAlign: "left",
+                        padding: "14px 18px",
+                        borderRadius: isActive ? "12px 12px 0 0" : 12,
+                        cursor: "pointer",
+                        fontFamily: F,
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        border: isActive
+                          ? `2px solid ${C.pinkText}`
+                          : `1px solid ${C.surfaceBorder}`,
+                        borderBottom: isActive ? "none" : undefined,
+                        background: isActive ? C.pinkBg : C.white,
+                        opacity: 0.85,
+                        transition: "border-color 150ms, background 150ms",
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: isActive ? C.pinkText : C.ink, fontFamily: F }}>
+                            {tier.label}
+                          </span>
+                          {tier.tag && (
+                            <span style={{ fontSize: 10, fontWeight: 800, color: C.pinkText, background: C.pinkBg, border: `1px solid ${C.pinkBorder}`, borderRadius: 99, padding: "2px 8px", fontFamily: F }}>
+                              {tier.tag}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 12, color: isActive ? C.pinkText : C.inkMuted, fontFamily: F }}>
+                          {tier.sublabel}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 12 }}>
+                        <div style={{ fontSize: 22, fontWeight: 900, color: isActive ? C.pinkText : C.ink, letterSpacing: "-0.5px", fontFamily: F }}>
+                          {typeof price === "number" ? `$${price}` : "—"}
+                        </div>
+                        <div style={{ fontSize: 11, color: isActive ? C.pinkText : C.inkFaint, fontFamily: F, marginTop: 2 }}>
+                          {isActive ? "select a date ↓" : "Mon/Tue only"}
+                        </div>
+                      </div>
+                    </button>
+                    {isActive && (
+                      <div style={{ border: `2px solid ${C.pinkText}`, borderTop: "none", borderRadius: "0 0 12px 12px", overflow: "hidden", boxShadow: `0 0 0 3px ${C.pinkBorder}`, marginBottom: 2 }}>
+                        <CalendarWidget tier={tier} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1613,6 +1769,31 @@ export default function Funnel() {
     availabilityError || availabilityData?.degraded,
   );
   const availableOptions = availabilityData?.available || {};
+
+  // ─── recommended tier logic ───────────────────────────────────────────────
+  // Priority: 4-day → 2-day standard → anything else.
+  // Economy (day-restricted) tiers are de-emphasized, never the default.
+  const recommendedTierKey = useMemo(() => {
+    if (!rentalOptions.length) return null;
+    const priority = ["4day", "2day_standard", "7day", "2day_montue"];
+    for (const key of priority) {
+      if (rentalOptions.find((o) => o.key === key)) return key;
+    }
+    return rentalOptions[0]?.key || null;
+  }, [rentalOptions]);
+
+  // Economy tiers (day-restricted) are collapsed behind an expandable.
+  const economyTierKeys = useMemo(
+    () =>
+      new Set(
+        rentalOptions
+          .filter((o) => o.validDays && o.validDays.length <= 2)
+          .map((o) => o.key),
+      ),
+    [rentalOptions],
+  );
+
+  const [showEconomyTiers, setShowEconomyTiers] = useState(false);
 
   // ─── step labels / progress ───────────────────────────────────────────────
   const stepLabel = {
@@ -1931,6 +2112,26 @@ export default function Funnel() {
       setSubmitError("Please choose a delivery date before checkout.");
       return;
     }
+
+    // ── Tier / delivery-day eligibility validation (client layer) ────────────
+    // This is a REQUIRED pricing integrity check. Even if the calendar
+    // correctly blocks invalid dates, we re-validate here before any API call.
+    // The server-side check in create-checkout.js is the final enforcement.
+    const selectedTier = rentalOptions.find((o) => o.key === duration);
+    if (selectedTier?.validDays) {
+      const deliveryDate = new Date(selectedWindow.startIso);
+      const deliveryDayOfWeek = deliveryDate.getDay();
+      if (!selectedTier.validDays.includes(deliveryDayOfWeek)) {
+        const dayNames = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+        const eligible = selectedTier.validDays.map((d) => dayNames[d]).join(" or ");
+        setSubmitError(
+          `The "${selectedTier.label}" pricing is only available for ${eligible} delivery. Please go back and select a different date or rental option.`
+        );
+        return;
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     const token =
       window.turnstile && turnstileWidgetIdRef.current
         ? window.turnstile.getResponse(turnstileWidgetIdRef.current)
@@ -2704,6 +2905,10 @@ export default function Funnel() {
                     sizeMeta={sizeMeta}
                     rentalOptions={rentalOptions}
                     blockedDates={availabilityData?.blockedDates || []}
+                    recommendedTierKey={recommendedTierKey}
+                    economyTierKeys={economyTierKeys}
+                    showEconomyTiers={showEconomyTiers}
+                    setShowEconomyTiers={setShowEconomyTiers}
                   />
                   <div
                     style={{
@@ -2811,6 +3016,10 @@ export default function Funnel() {
                       padding: "18px",
                     }}
                   >
+                    {/* Contact Information group */}
+                    <div style={{ fontSize: 11, fontWeight: 800, color: C.inkFaint, letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: 12, fontFamily: F }}>
+                      Contact Information
+                    </div>
                     <label style={firstLabelStyle}>Name *</label>
                     <input
                       placeholder="Your name"
@@ -2840,7 +3049,11 @@ export default function Funnel() {
                       type="tel"
                       style={inputStyle}
                     />
-                    <label style={labelStyle}>Service address *</label>
+                    {/* Delivery Address group */}
+                    <div style={{ fontSize: 11, fontWeight: 800, color: C.inkFaint, letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: 12, marginTop: 22, paddingTop: 18, borderTop: `1px solid ${C.surfaceBorder}`, fontFamily: F }}>
+                      Delivery Address
+                    </div>
+                    <label style={firstLabelStyle}>Street address *</label>
                     <input
                       placeholder="Street address"
                       value={form.street}
@@ -2918,23 +3131,7 @@ export default function Funnel() {
                       </div>
                     )}
 
-                    <label style={labelStyle}>
-                      How did you hear about us?
-                    </label>
-                    <select
-                      value={form.source}
-                      onChange={(e) =>
-                        setForm({ ...form, source: e.target.value })
-                      }
-                      style={inputStyle}
-                    >
-                      <option value="">Select one</option>
-                      <option>Google</option>
-                      <option>Facebook</option>
-                      <option>Repeat Customer</option>
-                      <option>Other</option>
-                    </select>
-                    <label style={labelStyle}>
+                    <label style={{ ...labelStyle, marginTop: 18 }}>
                       Delivery notes (optional)
                     </label>
                     <textarea
@@ -2943,8 +3140,28 @@ export default function Funnel() {
                       onChange={(e) =>
                         setForm({ ...form, deliveryNotes: e.target.value })
                       }
-                      style={{ ...inputStyle, minHeight: 80, resize: "vertical" }}
+                      style={{ ...inputStyle, minHeight: 72, resize: "vertical" }}
                     />
+
+                    {/* Attribution — retained for marketing analysis, visually deprioritized */}
+                    <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.surfaceBorder}` }}>
+                      <label style={{ ...labelStyle, marginTop: 0, fontSize: 9, color: C.inkFaint }}>
+                        How did you hear about us? (optional)
+                      </label>
+                      <select
+                        value={form.source}
+                        onChange={(e) =>
+                          setForm({ ...form, source: e.target.value })
+                        }
+                        style={{ ...inputStyle, fontSize: 13, color: C.inkMuted, border: `1px solid ${C.surfaceBorder}` }}
+                      >
+                        <option value="">Select one</option>
+                        <option>Google</option>
+                        <option>Facebook</option>
+                        <option>Repeat Customer</option>
+                        <option>Other</option>
+                      </select>
+                    </div>
 
                     {/* SMS opt-in */}
                     {form.phone.trim().length > 0 && (
