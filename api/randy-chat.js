@@ -235,6 +235,39 @@ async function createBookingContext({ name, phone, email, zip, projectType, reco
     projectType,
   });
 
+  // Write to leads table — Randy has contact info at this point so this
+  // is a qualified lead, not an anonymous intent record.
+  // Non-blocking: a lead write failure must never break the booking link flow.
+  try {
+    const baseUrl =
+      process.env.NEXT_PUBLIC_BOOKING_URL ||
+      "https://book.littlejunkersllc.com";
+    const apiBase = baseUrl.replace(/\/rent-a-dumpster\/?$/, "").replace(/\/randy-booking\/?$/, "");
+    await fetch(`${apiBase}/api/submit-lead`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        funnelSource: "randy_chat",
+        leadSourceName: "Randy Chatbot",
+        selectedSize: recommendedSizeYards ? `${recommendedSizeYards} Yard` : null,
+        recommendedSize: recommendedSizeYards ? `${recommendedSizeYards} Yard` : null,
+        zip: zip || null,
+        customerType: projectType || null,
+        smsOptIn: Boolean(optIn?.smsOptIn),
+        smsOptInDate: optIn?.smsOptInTimestamp || null,
+        contact: {
+          name: name || null,
+          phone: phone || null,
+          email: email || null,
+          source: "Randy Chatbot",
+        },
+      }),
+    });
+  } catch (leadErr) {
+    // Non-blocking — log only, never surface to customer
+    console.warn("[randy] submit-lead write failed (non-blocking):", leadErr.message);
+  }
+
   return { randySession, url };
 }
 
