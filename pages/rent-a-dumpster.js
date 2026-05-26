@@ -1710,6 +1710,18 @@ export default function Funnel() {
     }
   })();
 
+  // Pre-selected size from URL ?size=11|16|21 — used by website product card CTAs
+  // to drop the customer directly into the date picker for their intended size.
+  const _urlSize = (() => {
+    try {
+      const p = new URLSearchParams(window.location.search).get("size");
+      const n = Number(p);
+      return [11, 16, 21].includes(n) ? `${n} Yard` : "";
+    } catch {
+      return "";
+    }
+  })();
+
   // ─── step state ───────────────────────────────────────────────────────────
   // Step 1 = product selection (landing screen)
   // Step 2 = delivery date picker
@@ -1844,6 +1856,16 @@ export default function Funnel() {
       active = false;
     };
   }, [applyResolvedServiceArea, _urlZip]);
+
+  // ─── URL size pre-selection ───────────────────────────────────────────────
+  // Fires once after pricing loads. If ?size=11|16|21 is in the URL, call
+  // handleProductSelect automatically to skip Step 1 and land on the date picker.
+  // Guard: only fires when step is still 1 (user hasn't already navigated).
+  useEffect(() => {
+    if (!_urlSize || pricingLoading || pricingError || step !== 1) return;
+    handleProductSelect(_urlSize);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pricingLoading]);
 
   // ─── turnstile (Phase A of Step 4 only) ─────────────────────────────────
   // Turnstile gates entry to Phase B (payment). It renders when the customer
@@ -3587,4 +3609,5 @@ export default function Funnel() {
     </>
   );
 }
+
 
