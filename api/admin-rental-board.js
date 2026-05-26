@@ -158,7 +158,7 @@ export default async function handler(req, res) {
           return res.status(400).json({ success: false, error: "Rental cannot be marked delivered from current status" });
         }
         newRentalStatus = "active";
-        unitStatusUpdate = { size_yards: rental.size_yards, fromStatus: "available", toStatus: "deployed" };
+        unitStatusUpdate = { size_yards: rental.size_yards, fromStatus: "ready", toStatus: "deployed" };
         eventType = "dropoff_completed";
 
       } else if (action === "return") {
@@ -167,7 +167,7 @@ export default async function handler(req, res) {
           return res.status(400).json({ success: false, error: "Only active rentals can be marked returned" });
         }
         newRentalStatus = "returned";
-        unitStatusUpdate = { size_yards: rental.size_yards, fromStatus: "deployed", toStatus: "available" };
+        unitStatusUpdate = { size_yards: rental.size_yards, fromStatus: "deployed", toStatus: "ready" };
         eventType = "return_completed";
 
       } else if (action === "cancel") {
@@ -176,7 +176,7 @@ export default async function handler(req, res) {
         }
         // If unit was deployed for this rental, return it
         if (rental.status === "active") {
-          unitStatusUpdate = { size_yards: rental.size_yards, fromStatus: "deployed", toStatus: "available" };
+          unitStatusUpdate = { size_yards: rental.size_yards, fromStatus: "deployed", toStatus: "ready" };
         }
         newRentalStatus = "cancelled";
         eventType = "rental_confirmed"; // reuse closest event type
@@ -199,18 +199,21 @@ export default async function handler(req, res) {
 
       // Flip one unit of the right size (no specific unit assignment in v1)
       if (unitStatusUpdate) {
-        const { data: units } = await supabase
-          .from("units")
+        // dumpster_units uses size_code (e.g. "11YD") and readiness_status, not "units"/"status"
+        const sizeCodeMap = { 11: "11YD", 16: "16YD", 21: "21YD" };
+        const sizeCode = sizeCodeMap[unitStatusUpdate.size_yards];
+        const { data: unitRows } = sizeCode ? await supabase
+          .from("dumpster_units")
           .select("id")
-          .eq("size_yards", unitStatusUpdate.size_yards)
-          .eq("status", unitStatusUpdate.fromStatus)
-          .limit(1);
+          .eq("size_code", sizeCode)
+          .eq("readiness_status", unitStatusUpdate.fromStatus)
+          .limit(1) : { data: [] };
 
-        if (units && units.length > 0) {
+        if (unitRows && unitRows.length > 0) {
           await supabase
-            .from("units")
-            .update({ status: unitStatusUpdate.toStatus })
-            .eq("id", units[0].id);
+            .from("dumpster_units")
+            .update({ readiness_status: unitStatusUpdate.toStatus })
+            .eq("id", unitRows[0].id);
         }
         // If no matching unit found we don't hard-fail —
         // status counts may be manually mismatched, operator can correct via Update Unit panel
