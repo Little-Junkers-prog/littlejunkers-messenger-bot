@@ -1,6 +1,11 @@
 // api/stripe-webhook.js
-// On checkout.session.completed, converts a booking_holds row into a confirmed rental,
-// creates a payment record, logs the event, and sends confirmation SMS.
+// Handles two Stripe event types:
+//   checkout.session.completed  — legacy hosted Checkout (create-checkout.js path)
+//   payment_intent.succeeded    — embedded Payment Element (create-payment-intent.js path)
+//
+// Both paths converge on the same createConfirmedRental / markLeadConverted /
+// confirmationSMS logic. The branching happens only in how metadata is extracted
+// from the Stripe event object.
 
 import Stripe from "stripe";
 import smsModule from "../lib/sms";
@@ -90,28 +95,33 @@ function pick(row, keys, fallback = null) {
   return fallback;
 }
 
-async function markLeadConverted(supabase, supabaseLeadId, rentalId) {
-  if (!supabaseLeadId || !rentalId) return;
+async function markLeadConverted(supabase, supabaseLeadId, rentalId, stripeSessionId) {
+  if (!supabaseLeadId) return;
+  const updates = {
+    converted: true,
+    updated_at: new Date().toISOString(),
+  };
+  if (rentalId) updates.converted_rental_id = rentalId;
+  // For PaymentIntent path, stripe_session_id stores the PI id for traceability
+  if (stripeSessionId) updates.stripe_session_id = stripeSessionId;
+
   const { error } = await supabase
     .from("leads")
-    .update({
-      converted: true,
-      converted_rental_id: rentalId,
-      updated_at: new Date().toISOString(),
-    })
+    .update(updates)
     .eq("id", supabaseLeadId);
+
   if (error) {
-    // Non-blocking — log but do not throw. Rental is already confirmed.
+    // Non-blocking — rental is already confirmed; log and continue.
     console.error("[stripe-webhook] leads conversion update failed (non-blocking):", error.message);
   }
 }
 
-async function findConvertedRentalBySession(supabase, stripeSessionId) {
-  if (!stripeSessionId) return null;
+async function findConvertedRentalBySession(supabase, stripeId) {
+  if (!stripeId) return null;
   const { data } = await supabase
     .from("rentals")
     .select("*")
-    .eq("stripe_session_id", stripeSessionId)
+    .eq("stripe_session_id", stripeId)
     .maybeSingle();
   return data || null;
 }
@@ -127,9 +137,15 @@ async function findBookingHold(supabase, holdId) {
   return data || null;
 }
 
+// ── upsertCustomerFromSession ─────────────────────────────────────────────────
+// Works for both event types: session = checkout.session | paymentIntent object.
+// The caller normalises the shape before passing it in.
 async function upsertCustomerFromSession(supabase, session, existingCustomerId) {
-  const customerEmail = session.customer_details?.email || asString(session.metadata?.customer_email) || null;
-  const customerPhone = normalizePhone(session.customer_details?.phone || asString(session.metadata?.customer_phone));
+  const customerEmail =
+    session.customer_details?.email || asString(session.metadata?.customer_email) || null;
+  const customerPhone = normalizePhone(
+    session.customer_details?.phone || asString(session.metadata?.customer_phone)
+  );
   const customerName = asString(session.metadata?.customer_name) || null;
 
   if (existingCustomerId) {
@@ -158,7 +174,10 @@ async function upsertCustomerFromSession(supabase, session, existingCustomerId) 
   return data.id;
 }
 
-async function createConfirmedRental(supabase, hold, session, customerId) {
+// ── createConfirmedRental ─────────────────────────────────────────────────────
+// Shared by both event paths. `stripeId` is the Checkout Session ID or
+// PaymentIntent ID depending on which path fired.
+async function createConfirmedRental(supabase, hold, session, customerId, stripeId, amountTotal) {
   const meta = session.metadata || {};
   const sizeYards = normalizeSizeYards(
     pick(hold, ["size_yards", "size", "size_code"], null) ||
@@ -169,7 +188,6 @@ async function createConfirmedRental(supabase, hold, session, customerId) {
   const zone = inferZone(meta.zone || pick(hold, ["zone"], "local"));
   const deliveryAddress = firstNonEmpty(
     meta.delivery_address,
-    // Stripe collects billing address — use it as fallback if delivery address is missing
     (() => {
       const b = session.customer_details?.address;
       if (!b) return "";
@@ -187,16 +205,18 @@ async function createConfirmedRental(supabase, hold, session, customerId) {
   const scheduledReturn =
     parseOptionalDateOnly(pick(hold, ["return_date", "scheduled_return", "requested_end_at"], null)) ||
     parseOptionalDateOnly(meta.selected_window_end);
-  const amountPaid = session.amount_total ? session.amount_total / 100 : null;
-  const rentalDays = dropoffDate && scheduledReturn
-    ? Math.max(1, Math.round((new Date(scheduledReturn) - new Date(dropoffDate)) / (1000 * 60 * 60 * 24)))
-    : null;
+  const amountPaid = amountTotal ? amountTotal / 100 : null;
+  const rentalDays =
+    dropoffDate && scheduledReturn
+      ? Math.max(1, Math.round((new Date(scheduledReturn) - new Date(dropoffDate)) / (1000 * 60 * 60 * 24)))
+      : null;
 
   const payload = {
     status: "confirmed",
     customer_id: customerId,
-    stripe_session_id: session.id,
-    stripe_payment_id: session.payment_intent || null,
+    // stripe_session_id stores either Checkout Session ID or PaymentIntent ID
+    stripe_session_id: stripeId,
+    stripe_payment_id: session.payment_intent || stripeId || null,
     amount_paid: amountPaid,
     payment_source: "funnel",
     size_yards: sizeYards,
@@ -205,8 +225,6 @@ async function createConfirmedRental(supabase, hold, session, customerId) {
     dropoff_date: dropoffDate,
     scheduled_return: scheduledReturn,
     ...(rentalDays ? { rental_days: rentalDays } : {}),
-    // notes: customer delivery instructions take priority over tier label.
-    // delivery_notes comes from the Step 6 funnel textarea (gate codes, wood planks, placement, etc.)
     notes: firstNonEmpty(
       meta.delivery_notes,
       meta.rental_option,
@@ -225,26 +243,26 @@ async function createConfirmedRental(supabase, hold, session, customerId) {
   return data;
 }
 
-async function createPaymentRecord(supabase, rental, session, customerId) {
+async function createPaymentRecord(supabase, rental, session, customerId, stripeId, amountTotal, currency) {
   const { error } = await supabase.from("payments").insert({
     rental_id: rental.id,
     customer_id: customerId,
     source: "stripe",
-    stripe_session_id: session.id,
-    stripe_payment_id: session.payment_intent || null,
-    amount: session.amount_total ? session.amount_total / 100 : 0,
-    currency: session.currency || "usd",
+    stripe_session_id: stripeId,
+    stripe_payment_id: session.payment_intent || stripeId || null,
+    amount: amountTotal ? amountTotal / 100 : 0,
+    currency: currency || "usd",
     status: "received",
     payload: {
-      stripe_session_id: session.id,
-      payment_status: session.payment_status,
-      customer_email: session.customer_details?.email || null,
+      stripe_session_id: stripeId,
+      payment_status: session.payment_status || "succeeded",
+      customer_email: session.customer_details?.email || session.metadata?.customer_email || null,
     },
   });
   if (error) throw error;
 }
 
-async function logEvent(supabase, rentalId, customerId, session, holdId) {
+async function logEvent(supabase, rentalId, customerId, session, holdId, stripeId) {
   await supabase.from("events").insert({
     event_type: "payment_received",
     source: "funnel",
@@ -252,25 +270,28 @@ async function logEvent(supabase, rentalId, customerId, session, holdId) {
     customer_id: customerId,
     payload: {
       booking_hold_id: holdId,
-      stripe_session_id: session.id,
-      payment_intent: session.payment_intent,
-      amount_total: session.amount_total,
-      payment_status: session.payment_status,
+      stripe_session_id: stripeId,
+      payment_intent: session.payment_intent || stripeId,
+      amount_total: session.amount_total || session.amount,
+      payment_status: session.payment_status || "succeeded",
     },
   });
 }
 
 async function sendConfirmationSms(rental, session) {
-  const phone = normalizePhone(session.customer_details?.phone || asString(session.metadata?.customer_phone));
+  const phone = normalizePhone(
+    session.customer_details?.phone || asString(session.metadata?.customer_phone)
+  );
   if (!phone) return;
 
   const rentalOption = asString(session.metadata?.rental_option) || "rental";
   const sizeLabel = asString(session.metadata?.dumpster_size) || "dumpster";
   const dropoffText = formatShortDate(rental.dropoff_date || session.metadata?.delivery_date);
   const returnText = formatShortDate(rental.scheduled_return || session.metadata?.selected_window_end);
-  const windowText = dropoffText && returnText
-    ? `${dropoffText} to ${returnText}`
-    : dropoffText || "your scheduled window";
+  const windowText =
+    dropoffText && returnText
+      ? `${dropoffText} to ${returnText}`
+      : dropoffText || "your scheduled window";
 
   const body = `Little Junkers: Your dumpster booking is confirmed. We have you scheduled for your ${sizeLabel} ${rentalOption}. Delivery window: ${windowText}. Reply here or call 470-548-4733 with questions.`;
 
@@ -281,6 +302,57 @@ async function sendConfirmationSms(rental, session) {
   }
 }
 
+// ── Shared booking confirmation pipeline ─────────────────────────────────────
+// Called by both event handlers after extracting holdId, supabaseLeadId,
+// stripeId, amountTotal, currency, and the session-shaped object.
+async function processBookingConfirmation({
+  supabase,
+  holdId,
+  supabaseLeadId,
+  stripeId,
+  session,
+  amountTotal,
+  currency,
+  eventLabel,
+}) {
+  const alreadyConverted = await findConvertedRentalBySession(supabase, stripeId);
+  if (alreadyConverted) {
+    console.log(`[stripe-webhook][${eventLabel}] Already converted, skipping:`, stripeId);
+    return;
+  }
+
+  const hold = await findBookingHold(supabase, holdId);
+  if (!hold) {
+    console.error(
+      `[stripe-webhook][${eventLabel}] No booking_hold found for holdId:`, holdId,
+      "stripeId:", stripeId
+    );
+    await supabase.from("events").insert({
+      event_type: "payment_received_without_hold",
+      source: "funnel",
+      payload: {
+        booking_hold_id: holdId,
+        stripe_session_id: stripeId,
+        metadata: session.metadata,
+      },
+    });
+    return;
+  }
+
+  const customerId = await upsertCustomerFromSession(supabase, session, hold.customer_id);
+  const confirmedRental = await createConfirmedRental(
+    supabase, hold, session, customerId, stripeId, amountTotal
+  );
+  await markBookingHoldConverted({ holdId: hold.id, rentalId: confirmedRental.id, stripeSessionId: stripeId });
+  await markLeadConverted(supabase, supabaseLeadId, confirmedRental.id, stripeId);
+  await createPaymentRecord(supabase, confirmedRental, session, customerId, stripeId, amountTotal, currency);
+  await logEvent(supabase, confirmedRental.id, customerId, session, hold.id, stripeId);
+  await sendConfirmationSms(confirmedRental, session);
+
+  console.log(`[stripe-webhook][${eventLabel}] Rental confirmed:`, confirmedRental.id);
+}
+
+// ── Main handler ─────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -300,46 +372,74 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Invalid signature" });
   }
 
-  if (event.type !== "checkout.session.completed") {
+  const supabase = getSupabaseAdmin();
+
+  // ── checkout.session.completed (hosted Checkout / legacy path) ─────────────
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    const meta = session.metadata || {};
+    const holdId = asString(meta.booking_hold_id || meta.hold_id);
+    const supabaseLeadId = asString(meta.supabase_lead_id);
+    const stripeId = session.id;
+
+    try {
+      await processBookingConfirmation({
+        supabase,
+        holdId,
+        supabaseLeadId,
+        stripeId,
+        session,
+        amountTotal: session.amount_total,
+        currency: session.currency,
+        eventLabel: "checkout.session.completed",
+      });
+    } catch (err) {
+      console.error("[stripe-webhook][checkout.session.completed] Processing failed:", err);
+    }
+
     return res.status(200).json({ received: true });
   }
 
-  const session = event.data.object;
-  const meta = session.metadata || {};
-  const holdId = asString(meta.booking_hold_id || meta.hold_id);
-  const supabaseLeadId = asString(meta.supabase_lead_id);
-  const supabase = getSupabaseAdmin();
+  // ── payment_intent.succeeded (embedded Payment Element / Sprint 3+ path) ───
+  if (event.type === "payment_intent.succeeded") {
+    const pi = event.data.object;
+    const meta = pi.metadata || {};
+    const holdId = asString(meta.booking_hold_id);
+    const supabaseLeadId = asString(meta.supabase_lead_id);
+    const stripeId = pi.id; // PaymentIntent ID used as the idempotency key
 
-  try {
-    const alreadyConverted = await findConvertedRentalBySession(supabase, session.id);
-    if (alreadyConverted) {
-      console.log("[stripe-webhook] Already converted, skipping:", session.id);
-      return res.status(200).json({ received: true });
-    }
+    // Normalise PaymentIntent into the session-shaped object that the shared
+    // pipeline expects. customer_details is not available on PI events, so we
+    // fall back to metadata fields that were written at PI creation time.
+    const sessionLike = {
+      metadata: meta,
+      // PI has no customer_details; SMS phone and email come from metadata.
+      customer_details: null,
+      payment_intent: pi.id,
+      amount_total: pi.amount,
+      amount: pi.amount,
+      currency: pi.currency,
+      payment_status: "succeeded",
+    };
 
-    const hold = await findBookingHold(supabase, holdId);
-    if (!hold) {
-      console.error("[stripe-webhook] No booking_hold found for holdId:", holdId, "session:", session.id);
-      await supabase.from("events").insert({
-        event_type: "payment_received_without_hold",
-        source: "funnel",
-        payload: { booking_hold_id: holdId, stripe_session_id: session.id, metadata: meta },
+    try {
+      await processBookingConfirmation({
+        supabase,
+        holdId,
+        supabaseLeadId,
+        stripeId,
+        session: sessionLike,
+        amountTotal: pi.amount,
+        currency: pi.currency,
+        eventLabel: "payment_intent.succeeded",
       });
-      return res.status(200).json({ received: true, warning: "No booking hold found" });
+    } catch (err) {
+      console.error("[stripe-webhook][payment_intent.succeeded] Processing failed:", err);
     }
 
-    const customerId = await upsertCustomerFromSession(supabase, session, hold.customer_id);
-    const confirmedRental = await createConfirmedRental(supabase, hold, session, customerId);
-    await markBookingHoldConverted({ holdId: hold.id, rentalId: confirmedRental.id, stripeSessionId: session.id });
-    await markLeadConverted(supabase, supabaseLeadId, confirmedRental.id);
-    await createPaymentRecord(supabase, confirmedRental, session, customerId);
-    await logEvent(supabase, confirmedRental.id, customerId, session, hold.id);
-    await sendConfirmationSms(confirmedRental, session);
-
-    console.log("[stripe-webhook] Rental confirmed:", confirmedRental.id);
-  } catch (err) {
-    console.error("[stripe-webhook] Processing failed:", err);
+    return res.status(200).json({ received: true });
   }
 
+  // All other event types — acknowledge and ignore.
   return res.status(200).json({ received: true });
 }
