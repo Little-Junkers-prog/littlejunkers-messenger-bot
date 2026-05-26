@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Script from "next/script";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
+
+// Stripe publishable key loaded once at module level (not per render)
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
 
 const C = {
   pageBg: "#edeae4",
@@ -1557,6 +1562,144 @@ function Step5DatePicker({
   );
 }
 
+
+// ── PaymentPhaseB ─────────────────────────────────────────────────────────────
+// Must be rendered inside an <Elements> provider. Uses useStripe/useElements
+// hooks to call stripe.confirmPayment() on submit.
+function PaymentPhaseB({
+  selectedPrice,
+  effectiveSize,
+  duration,
+  rentalOptions,
+  paymentError,
+  setPaymentError,
+  paymentElementReady,
+  setPaymentElementReady,
+  C,
+  F,
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [paying, setPaying] = useState(false);
+
+  const handlePay = async () => {
+    if (!stripe || !elements) return;
+    setPaying(true);
+    setPaymentError("");
+
+    const { error } = await stripe.confirmPayment({
+      elements,
+      confirmParams: {
+        return_url: `${window.location.origin}/complete-booking`,
+      },
+    });
+
+    // confirmPayment only returns here if there was an immediate error.
+    // A successful payment redirects to return_url — this code won't run.
+    if (error) {
+      setPaymentError(
+        error.message ||
+          "Payment could not be completed. Please try again or call 470-548-4733."
+      );
+      setPaying(false);
+    }
+  };
+
+  const rentalLabel = getRentalDisplayLabel(duration, rentalOptions);
+
+  return (
+    <div style={{ fontFamily: F }}>
+      <div style={{ marginBottom: 18 }}>
+        <div
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            color: C.pinkText,
+            letterSpacing: "1.2px",
+            textTransform: "uppercase",
+            marginBottom: 5,
+          }}
+        >
+          Secure Checkout
+        </div>
+        <h2
+          style={{
+            margin: "0 0 6px",
+            fontSize: 22,
+            fontWeight: 900,
+            color: C.ink,
+            letterSpacing: "-0.5px",
+            lineHeight: 1.15,
+          }}
+        >
+          Complete your reservation
+        </h2>
+        <p style={{ margin: 0, fontSize: 14, color: C.inkMid }}>
+          {effectiveSize} · {rentalLabel} · <strong>${selectedPrice}</strong>
+        </p>
+      </div>
+
+      {/* Spinner shown while Payment Element mounts */}
+      {!paymentElementReady && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "32px 0",
+            color: C.inkMuted,
+            fontSize: 14,
+          }}
+        >
+          <span style={{ marginRight: 10 }}>Loading secure payment form…</span>
+        </div>
+      )}
+
+      <div style={{ display: paymentElementReady ? "block" : "none" }}>
+        <PaymentElement
+          onReady={() => setPaymentElementReady(true)}
+          options={{ layout: "tabs" }}
+        />
+      </div>
+
+      {paymentError && (
+        <div
+          style={{
+            marginTop: 14,
+            background: "#fff0f0",
+            border: "1px solid #fca5a5",
+            borderRadius: 10,
+            padding: "12px 14px",
+            fontSize: 13,
+            color: "#991b1b",
+          }}
+        >
+          {paymentError}
+        </div>
+      )}
+
+      <PrimaryButton
+        onClick={handlePay}
+        disabled={paying || !stripe || !paymentElementReady}
+        style={{ marginTop: 20 }}
+      >
+        {paying ? "Processing…" : "Complete Reservation"}
+      </PrimaryButton>
+
+      <p
+        style={{
+          textAlign: "center",
+          fontSize: 12,
+          color: C.inkMuted,
+          marginTop: 14,
+        }}
+      >
+        🔒 Secured by Stripe. We never store your card details.
+      </p>
+    </div>
+  );
+}
+
 export default function Funnel() {
   const _urlZip = (() => {
     try {
@@ -1610,6 +1753,13 @@ export default function Funnel() {
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [smsOptIn, setSmsOptIn] = useState(false);
+
+  // ─── Payment Element (Sprint 3) ──────────────────────────────────────────
+  // step4Phase: "review" (Phase A) | "payment" (Phase B — PE rendered)
+  const [step4Phase, setStep4Phase] = useState("review");
+  const [clientSecret, setClientSecret] = useState(null);
+  const [paymentElementReady, setPaymentElementReady] = useState(false);
+  const [paymentError, setPaymentError] = useState("");
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -1695,10 +1845,13 @@ export default function Funnel() {
     };
   }, [applyResolvedServiceArea, _urlZip]);
 
-  // ─── turnstile (now on step 4) ────────────────────────────────────────────
+  // ─── turnstile (Phase A of Step 4 only) ─────────────────────────────────
+  // Turnstile gates entry to Phase B (payment). It renders when the customer
+  // is on the review screen and is reset when they go back from Step 4.
   useEffect(() => {
     if (
       step !== 4 ||
+      step4Phase !== "review" ||
       typeof window === "undefined" ||
       !window.turnstile ||
       turnstileRenderedRef.current
@@ -1712,7 +1865,7 @@ export default function Funnel() {
       { sitekey: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY, theme: "light" },
     );
     turnstileRenderedRef.current = true;
-  }, [step]);
+  }, [step, step4Phase]);
 
   // ─── derived state ────────────────────────────────────────────────────────
   const sizeMeta = useMemo(
@@ -2106,17 +2259,16 @@ export default function Funnel() {
     setStep(4);
   };
 
-  // Final submit from step 4 review
-  const handleSubmit = async () => {
+  // ── Phase A CTA: "Continue to Secure Checkout →" ───────────────────────────
+  // Validates Turnstile, submits lead, creates booking hold, creates PaymentIntent,
+  // then advances to Phase B to render the embedded Payment Element.
+  const handleContinueToPayment = async () => {
     if (!selectedWindow?.startIso || !selectedWindow?.endIso) {
       setSubmitError("Please choose a delivery date before checkout.");
       return;
     }
 
-    // ── Tier / delivery-day eligibility validation (client layer) ────────────
-    // This is a REQUIRED pricing integrity check. Even if the calendar
-    // correctly blocks invalid dates, we re-validate here before any API call.
-    // The server-side check in create-checkout.js is the final enforcement.
+    // ── Tier / delivery-day eligibility (client layer) ───────────────────────
     const selectedTier = rentalOptions.find((o) => o.key === duration);
     if (selectedTier?.validDays) {
       const deliveryDate = new Date(selectedWindow.startIso);
@@ -2130,7 +2282,6 @@ export default function Funnel() {
         return;
       }
     }
-    // ────────────────────────────────────────────────────────────────────────
 
     const token =
       window.turnstile && turnstileWidgetIdRef.current
@@ -2140,9 +2291,21 @@ export default function Funnel() {
       setSubmitError("Please complete the security check.");
       return;
     }
+
     setSubmitting(true);
     setSubmitError("");
-    const payload = {
+
+    const deliveryAddressString = [
+      form.street.trim(),
+      form.street2.trim(),
+      form.city.trim(),
+      form.state,
+      form.zip,
+    ]
+      .filter(Boolean)
+      .join(", ");
+
+    const leadPayload = {
       supabaseLeadId: capturedSupabaseLeadId,
       leadId: capturedLeadId,
       zip,
@@ -2180,26 +2343,29 @@ export default function Funnel() {
         zip: form.zip,
       },
     };
+
     try {
-      const resOdoo = await fetch("/api/submit-lead", {
+      // Step 1 — Submit lead to Supabase
+      const resLead = await fetch("/api/submit-lead", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(leadPayload),
       });
-      const odooJson = await resOdoo.json();
-      if (!resOdoo.ok || !odooJson?.success)
-        throw new Error(odooJson?.error || "Lead submission failed.");
-      const finalLeadId = odooJson.leadId || capturedLeadId;
-      const finalSupabaseLeadId =
-        odooJson.supabaseLeadId || capturedSupabaseLeadId;
+      const leadJson = await resLead.json();
+      if (!resLead.ok || !leadJson?.success)
+        throw new Error(leadJson?.error || "Lead submission failed.");
+
+      const finalLeadId = leadJson.leadId || capturedLeadId;
+      const finalSupabaseLeadId = leadJson.supabaseLeadId || capturedSupabaseLeadId;
+
+      // Step 2 — Create booking hold
       const holdPayload = {
-        ...payload,
+        ...leadPayload,
         leadId: finalLeadId,
         supabaseLeadId: finalSupabaseLeadId,
         customerName: form.name.trim(),
         customerEmail: form.email.trim(),
-        sizeCode:
-          sizeMeta[effectiveSize]?.sizeCode || sizeCodeFromLabel(effectiveSize),
+        sizeCode: sizeMeta[effectiveSize]?.sizeCode || sizeCodeFromLabel(effectiveSize),
         requestedStartAt: selectedWindow.startIso,
         requestedEndAt: selectedWindow.endIso,
       };
@@ -2211,58 +2377,68 @@ export default function Funnel() {
       const holdJson = await resHold.json();
       if (!resHold.ok || !holdJson?.success || !holdJson?.hold?.id)
         throw new Error(holdJson?.error || "Unable to create booking hold.");
-      const stripePayload = {
-        leadId: finalLeadId,
-        supabaseLeadId: finalSupabaseLeadId,
+
+      // Step 3 — Create PaymentIntent (embedded Payment Element flow)
+      const piPayload = {
         bookingHoldId: holdJson.hold.id,
+        supabaseLeadId: finalSupabaseLeadId,
+        leadId: finalLeadId,
         customerEmail: form.email.trim(),
         customerName: form.name.trim(),
         customerPhone: form.phone.trim(),
         dumpsterSize: effectiveSize,
         tierKey: duration,
-        rentalOption: duration,
         basePrice: selectedPrice - zoneFee,
         deliveryFee: zoneFee,
         zone: zoneKey,
         zip,
-        areaLabel,
-        deliveryAddress: [
-          form.street.trim(),
-          form.street2.trim(),
-          form.city.trim(),
-          form.state,
-          form.zip,
-        ]
-          .filter(Boolean)
-          .join(", "),
         deliveryDate: selectedWindow.start,
+        deliveryAddress: deliveryAddressString,
         deliveryNotes: form.deliveryNotes.trim(),
         selectedWindow,
         requestedStartAt: selectedWindow.startIso,
         requestedEndAt: selectedWindow.endIso,
       };
-      checkoutStartedRef.current = true;
-      const resStripe = await fetch("/api/create-checkout", {
+      const resPI = await fetch("/api/create-payment-intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(stripePayload),
+        body: JSON.stringify(piPayload),
       });
-      const stripeJson = await resStripe.json();
-      if (!resStripe.ok || !stripeJson?.url)
-        throw new Error(stripeJson?.error || "Stripe Checkout failed.");
-      window.location.href = stripeJson.url;
+      const piJson = await resPI.json();
+      if (!resPI.ok || !piJson?.clientSecret)
+        throw new Error(piJson?.error || "We were unable to prepare your payment. Please call or text 470-548-4733.");
+
+      // Advance to Phase B — Payment Element renders with the clientSecret
+      checkoutStartedRef.current = true;
+      setClientSecret(piJson.clientSecret);
+      setStep4Phase("payment");
+      setSubmitting(false);
     } catch (err) {
       setSubmitError(
         err.message ||
-          "Something went wrong preparing your checkout. Please try again or call 470-548-4733.",
+          "We were unable to prepare your payment. Please call or text 470-548-4733.",
       );
       setSubmitting(false);
     }
   };
 
+  // handleSubmit is the no-longer-used legacy name. Kept as a no-op so any
+  // accidental reference doesn't crash. Real Phase A CTA calls handleContinueToPayment.
+  const handleSubmit = handleContinueToPayment;
+
   const goBack = () => {
     if (step === 4) {
+      // If in Phase B, go back to Phase A (re-show review) rather than Step 3
+      if (step4Phase === "payment") {
+        setStep4Phase("review");
+        setClientSecret(null);
+        setPaymentElementReady(false);
+        setPaymentError("");
+        return;
+      }
       turnstileRenderedRef.current = false;
+      setStep4Phase("review");
+      setClientSecret(null);
       return setStep(3);
     }
     if (step === 3) return setStep(2);
@@ -3217,186 +3393,190 @@ export default function Funnel() {
               )}
 
               {/* ══════════════════════════════════════════════════════════════
-                  STEP 4 — Reservation Review + Checkout
+                  STEP 4 — Two-phase: Review (Phase A) → Payment Element (Phase B)
               ══════════════════════════════════════════════════════════════ */}
               {step === 4 && !submitted && (
                 <div>
-                  <StepHeading
-                    eyebrow="Almost done"
-                    title="Review your reservation"
-                    text="Confirm the details below, then complete your booking."
-                  />
+                  {/* ── PHASE A: Reservation review ───────────────────────── */}
+                  {step4Phase === "review" && (
+                    <>
+                      <StepHeading
+                        eyebrow="Almost done"
+                        title="Review your reservation"
+                        text="Confirm the details below, then proceed to secure checkout."
+                      />
 
-                  {/* Full reservation summary */}
-                  <div
-                    style={{
-                      marginBottom: 18,
-                      border: `1px solid ${C.surfaceBorder}`,
-                      borderRadius: 14,
-                      overflow: "hidden",
-                    }}
-                  >
-                    <div
-                      style={{
-                        background: C.surfaceBg,
-                        padding: "9px 16px",
-                        fontSize: 10,
-                        fontWeight: 800,
-                        color: C.inkFaint,
-                        borderBottom: `1px solid ${C.surfaceBorder}`,
-                      }}
-                    >
-                      Reservation Summary
-                    </div>
-                    {[
-                      {
-                        label: "Dumpster",
-                        value: `${effectiveSize} — ${SIZE_NICKNAMES[effectiveSize] || ""}`,
-                      },
-                      {
-                        label: "Rental",
-                        value: getRentalDisplayLabel(duration, rentalOptions),
-                      },
-                      {
-                        label: "Delivery date",
-                        value: selectedWindow
-                          ? selectedWindow.startLabel
-                          : "Subject to confirmation",
-                      },
-                      {
-                        label: "Pickup",
-                        value: selectedWindow
-                          ? selectedWindow.endLabel
-                          : "Per rental duration",
-                      },
-                      {
-                        label: "Delivery address",
-                        value: [
-                          form.street,
-                          form.city,
-                          form.state,
-                          form.zip,
-                        ]
-                          .filter(Boolean)
-                          .join(", "),
-                      },
-                      ...(form.deliveryNotes.trim()
-                        ? [
-                            {
-                              label: "Placement notes",
-                              value: form.deliveryNotes.trim(),
-                            },
-                          ]
-                        : []),
-                    ].map((row) => (
-                      <div
-                        key={row.label}
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          padding: "10px 16px",
-                          borderBottom: `1px solid ${C.surfaceBorder}`,
-                          gap: 16,
-                        }}
-                      >
-                        <span
-                          style={{
-                            fontSize: 13,
-                            color: C.inkMuted,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {row.label}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: 13,
-                            fontWeight: 700,
-                            textAlign: "right",
-                          }}
-                        >
-                          {row.value}
-                        </span>
-                      </div>
-                    ))}
-
-                    {/* Pricing breakdown */}
-                    <div
-                      style={{
-                        padding: "10px 16px",
-                        borderBottom:
-                          zoneFee > 0
-                            ? `1px solid ${C.surfaceBorder}`
-                            : undefined,
-                        display: "flex",
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      <span style={{ fontSize: 13, color: C.inkMuted }}>
-                        Base rental
-                      </span>
-                      <span style={{ fontSize: 13, fontWeight: 700 }}>
-                        ${selectedPrice !== null ? selectedPrice - zoneFee : "—"}
-                      </span>
-                    </div>
-                    {zoneFee > 0 && (
+                      {/* Full reservation summary */}
                       <div
                         style={{
-                          padding: "10px 16px",
-                          borderBottom: `1px solid ${C.surfaceBorder}`,
-                          display: "flex",
-                          justifyContent: "space-between",
+                          marginBottom: 18,
+                          border: `1px solid ${C.surfaceBorder}`,
+                          borderRadius: 14,
+                          overflow: "hidden",
                         }}
                       >
-                        <span style={{ fontSize: 13, color: C.inkMuted }}>
-                          Delivery fee ({areaLabel})
-                        </span>
-                        <span style={{ fontSize: 13, fontWeight: 700 }}>
-                          +${zoneFee}
-                        </span>
+                        <div
+                          style={{
+                            background: C.surfaceBg,
+                            padding: "9px 16px",
+                            fontSize: 10,
+                            fontWeight: 800,
+                            color: C.inkFaint,
+                            borderBottom: `1px solid ${C.surfaceBorder}`,
+                          }}
+                        >
+                          Reservation Summary
+                        </div>
+                        {[
+                          {
+                            label: "Dumpster",
+                            value: `${effectiveSize} — ${SIZE_NICKNAMES[effectiveSize] || ""}`,
+                          },
+                          {
+                            label: "Rental",
+                            value: getRentalDisplayLabel(duration, rentalOptions),
+                          },
+                          {
+                            label: "Delivery date",
+                            value: selectedWindow
+                              ? selectedWindow.startLabel
+                              : "Subject to confirmation",
+                          },
+                          {
+                            label: "Pickup",
+                            value: selectedWindow
+                              ? selectedWindow.endLabel
+                              : "Per rental duration",
+                          },
+                          {
+                            label: "Delivery address",
+                            value: [form.street, form.city, form.state, form.zip]
+                              .filter(Boolean)
+                              .join(", "),
+                          },
+                          ...(form.deliveryNotes.trim()
+                            ? [{ label: "Placement notes", value: form.deliveryNotes.trim() }]
+                            : []),
+                        ].map((row) => (
+                          <div
+                            key={row.label}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              padding: "10px 16px",
+                              borderBottom: `1px solid ${C.surfaceBorder}`,
+                              gap: 16,
+                            }}
+                          >
+                            <span style={{ fontSize: 13, color: C.inkMuted, flexShrink: 0 }}>
+                              {row.label}
+                            </span>
+                            <span style={{ fontSize: 13, fontWeight: 700, textAlign: "right" }}>
+                              {row.value}
+                            </span>
+                          </div>
+                        ))}
+
+                        {/* Pricing breakdown */}
+                        <div
+                          style={{
+                            padding: "10px 16px",
+                            borderBottom: zoneFee > 0 ? `1px solid ${C.surfaceBorder}` : undefined,
+                            display: "flex",
+                            justifyContent: "space-between",
+                          }}
+                        >
+                          <span style={{ fontSize: 13, color: C.inkMuted }}>Base rental</span>
+                          <span style={{ fontSize: 13, fontWeight: 700 }}>
+                            ${selectedPrice !== null ? selectedPrice - zoneFee : "—"}
+                          </span>
+                        </div>
+                        {zoneFee > 0 && (
+                          <div
+                            style={{
+                              padding: "10px 16px",
+                              borderBottom: `1px solid ${C.surfaceBorder}`,
+                              display: "flex",
+                              justifyContent: "space-between",
+                            }}
+                          >
+                            <span style={{ fontSize: 13, color: C.inkMuted }}>
+                              Delivery fee ({areaLabel})
+                            </span>
+                            <span style={{ fontSize: 13, fontWeight: 700 }}>+${zoneFee}</span>
+                          </div>
+                        )}
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            padding: "12px 16px",
+                            background: C.surfaceBg,
+                          }}
+                        >
+                          <span style={{ fontSize: 13, color: C.inkMuted }}>Total</span>
+                          <span style={{ fontSize: 22, fontWeight: 900 }}>${selectedPrice}</span>
+                        </div>
                       </div>
-                    )}
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        padding: "12px 16px",
-                        background: C.surfaceBg,
-                      }}
-                    >
-                      <span style={{ fontSize: 13, color: C.inkMuted }}>
-                        Total
-                      </span>
-                      <span style={{ fontSize: 22, fontWeight: 900 }}>
-                        ${selectedPrice}
-                      </span>
-                    </div>
-                  </div>
 
-                  {/* Turnstile */}
-                  <div id="turnstile-widget" style={{ marginTop: 16 }} />
+                      {/* Turnstile — gates entry to Phase B */}
+                      <div id="turnstile-widget" style={{ marginTop: 16 }} />
 
-                  {submitError && (
-                    <div
-                      style={{
-                        marginTop: 12,
-                        background: C.warningBg,
-                        border: `1px solid ${C.warningBorder}`,
-                        borderRadius: 10,
-                        padding: "12px 14px",
-                        fontSize: 13,
-                        color: C.ink,
-                      }}
-                    >
-                      {submitError}
-                    </div>
+                      {submitError && (
+                        <div
+                          style={{
+                            marginTop: 12,
+                            background: C.warningBg,
+                            border: `1px solid ${C.warningBorder}`,
+                            borderRadius: 10,
+                            padding: "12px 14px",
+                            fontSize: 13,
+                            color: C.ink,
+                          }}
+                        >
+                          {submitError}
+                        </div>
+                      )}
+
+                      <PrimaryButton onClick={handleContinueToPayment} disabled={submitting}>
+                        {submitting ? "Preparing Checkout..." : "Continue to Secure Checkout →"}
+                      </PrimaryButton>
+                    </>
                   )}
 
-                  <PrimaryButton onClick={handleSubmit} disabled={submitting}>
-                    {submitting
-                      ? "Preparing Checkout..."
-                      : "Reserve My Dumpster →"}
-                  </PrimaryButton>
+                  {/* ── PHASE B: Embedded Stripe Payment Element ──────────── */}
+                  {step4Phase === "payment" && clientSecret && (
+                    <Elements
+                      stripe={stripePromise}
+                      options={{
+                        clientSecret,
+                        appearance: {
+                          theme: "stripe",
+                          variables: {
+                            colorPrimary: C.pinkText,
+                            colorBackground: C.white,
+                            colorText: C.ink,
+                            colorDanger: "#e53e3e",
+                            fontFamily: F,
+                            borderRadius: "10px",
+                          },
+                        },
+                      }}
+                    >
+                      <PaymentPhaseB
+                        selectedPrice={selectedPrice}
+                        effectiveSize={effectiveSize}
+                        duration={duration}
+                        rentalOptions={rentalOptions}
+                        paymentError={paymentError}
+                        setPaymentError={setPaymentError}
+                        paymentElementReady={paymentElementReady}
+                        setPaymentElementReady={setPaymentElementReady}
+                        C={C}
+                        F={F}
+                      />
+                    </Elements>
+                  )}
                 </div>
               )}
             </CardBody>
@@ -3407,3 +3587,4 @@ export default function Funnel() {
     </>
   );
 }
+
