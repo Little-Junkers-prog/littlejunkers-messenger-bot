@@ -7,15 +7,16 @@ import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
 
 const C = {
-  pageBg: "#edeae4",
+  // Sprint 4: matched to littlejunkersllc.com live palette (May 2026)
+  pageBg: "#ffffff",        // website page background (was #edeae4)
   cardBg: "#ffffff",
   cardBorder: "#e5e0d8",
   heroBg: "#1e1c19",
   heroAccent: "#ffcee4",
-  surfaceBg: "#faf8f5",
-  surfaceBorder: "#e8e3db",
+  surfaceBg: "#f0ece6",     // warm gray section bg matching website (was #faf8f5)
+  surfaceBorder: "#e5e0d8", // tightened to match website card borders (was #e8e3db)
   ink: "#1a1a1a",
-  inkMid: "#555555",
+  inkMid: "#212529",        // website body text rgb(33,37,41) (was #555555)
   inkMuted: "#999999",
   inkFaint: "#b8b0a6",
   pink: "#ffcee4",
@@ -28,7 +29,11 @@ const C = {
   white: "#ffffff",
 };
 
-const F = "system-ui, -apple-system, sans-serif";
+// Sprint 4: brand fonts matching littlejunkersllc.com
+// FH = headings (Poppins), FB = body (Questrial), F = default fallback
+const FH = "Poppins, system-ui, -apple-system, sans-serif";
+const FB = "Questrial, system-ui, -apple-system, sans-serif";
+const F = FB; // default — body font used throughout; override with FH on headings
 const HOMEPAGE = "https://www.littlejunkersllc.com";
 const IDLE_TIMEOUT_MS = 12 * 60 * 1000; // 12 minutes
 const AVAILABILITY_ENDPOINT = "/api/availability";
@@ -511,6 +516,7 @@ function StepHeading({ eyebrow, title, text }) {
             letterSpacing: "1.2px",
             textTransform: "uppercase",
             marginBottom: 5,
+            fontFamily: FH,
           }}
         >
           {eyebrow}
@@ -524,7 +530,7 @@ function StepHeading({ eyebrow, title, text }) {
           color: C.ink,
           letterSpacing: "-0.5px",
           lineHeight: 1.15,
-          fontFamily: F,
+          fontFamily: FH,
         }}
       >
         {title}
@@ -579,7 +585,7 @@ function OptionCard({ title, sub, tag, selected, onClick }) {
               fontSize: 16,
               fontWeight: 800,
               color: C.ink,
-              fontFamily: F,
+              fontFamily: FH,
             }}
           >
             {title}
@@ -636,7 +642,7 @@ function PrimaryButton({ onClick, children, style, disabled = false }) {
         fontSize: 15,
         fontWeight: 800,
         cursor: disabled ? "not-allowed" : "pointer",
-        fontFamily: F,
+        fontFamily: FH,
         letterSpacing: "0.1px",
         marginTop: 18,
         ...style,
@@ -1435,7 +1441,7 @@ function Step5DatePicker({
                       fontWeight: 900,
                       color: isActive ? C.pinkText : C.ink,
                       letterSpacing: "-0.5px",
-                      fontFamily: F,
+                      fontFamily: FH,
                     }}
                   >
                     {typeof price === "number" ? `$${price}` : "—"}
@@ -1618,6 +1624,7 @@ function PaymentPhaseB({
             letterSpacing: "1.2px",
             textTransform: "uppercase",
             marginBottom: 5,
+            fontFamily: FH,
           }}
         >
           Secure Checkout
@@ -1630,6 +1637,7 @@ function PaymentPhaseB({
             color: C.ink,
             letterSpacing: "-0.5px",
             lineHeight: 1.15,
+            fontFamily: FH,
           }}
         >
           Complete your reservation
@@ -2503,6 +2511,14 @@ export default function Funnel() {
   // ─── render ───────────────────────────────────────────────────────────────
   return (
     <>
+      {/* Sprint 4: brand fonts — Poppins (headings) + Questrial (body) */}
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
+      <link
+        href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800;900&family=Questrial&display=swap"
+        rel="stylesheet"
+      />
       <Script
         src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
         strategy="afterInteractive"
@@ -3609,5 +3625,6 @@ export default function Funnel() {
     </>
   );
 }
+
 
 
