@@ -14,14 +14,7 @@
 // POST /api/survey/booking-feedback
 // Body: { questionKey, answer, rentalId?, paymentIntentId?, bookingHoldId? }
 
-import { createClient } from "@supabase/supabase-js";
-
-function getServiceClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-  );
-}
+import { getSupabaseAdmin, assertServerOnly } from "../../lib/supabaseAdmin";
 
 const ALLOWED_QUESTIONS = ["how_found", "project_type", "nps_response"];
 
@@ -86,7 +79,8 @@ export default async function handler(req, res) {
   // ── Upsert booking_surveys row ─────────────────────────────────────────────
   // Build the survey identifier — prefer rental_id, fall back to payment_intent,
   // then booking_hold_id. If none, store as an anonymous survey.
-  const supabase = getServiceClient();
+  assertServerOnly();
+  const supabase = getSupabaseAdmin();
 
   try {
     // Find existing survey row to update if possible
