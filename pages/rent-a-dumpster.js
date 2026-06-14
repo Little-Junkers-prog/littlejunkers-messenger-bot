@@ -1596,7 +1596,7 @@ function PaymentPhaseB({
     const { error } = await stripe.confirmPayment({
       elements,
       confirmParams: {
-        return_url: `${window.location.origin}/complete-booking`,
+        return_url: `${window.location.origin}/book`,
       },
     });
 
@@ -1784,7 +1784,6 @@ export default function Funnel() {
     name: "",
     email: "",
     phone: "",
-    source: "",
     street: "",
     street2: "",
     city: "",
@@ -2246,7 +2245,6 @@ export default function Funnel() {
         email: form.email.trim(),
         phone: cleanPhone,
         mobile: cleanPhone,
-        source: form.source,
       },
     };
     try {
@@ -2363,7 +2361,6 @@ export default function Funnel() {
         email: form.email.trim(),
         phone: form.phone.trim(),
         mobile: form.phone.trim(),
-        source: form.source,
       },
       deliveryAddress: {
         street: form.street.trim(),
@@ -3356,26 +3353,6 @@ export default function Funnel() {
                       }
                       style={{ ...inputStyle, minHeight: 72, resize: "vertical" }}
                     />
-
-                    {/* Attribution — retained for marketing analysis, visually deprioritized */}
-                    <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.surfaceBorder}` }}>
-                      <label style={{ ...labelStyle, marginTop: 0, fontSize: 9, color: C.inkFaint }}>
-                        How did you hear about us? (optional)
-                      </label>
-                      <select
-                        value={form.source}
-                        onChange={(e) =>
-                          setForm({ ...form, source: e.target.value })
-                        }
-                        style={{ ...inputStyle, fontSize: 13, color: C.inkMuted, border: `1px solid ${C.surfaceBorder}` }}
-                      >
-                        <option value="">Select one</option>
-                        <option>Google</option>
-                        <option>Facebook</option>
-                        <option>Repeat Customer</option>
-                        <option>Other</option>
-                      </select>
-                    </div>
 
                     {/* SMS opt-in */}
                     {form.phone.trim().length > 0 && (
