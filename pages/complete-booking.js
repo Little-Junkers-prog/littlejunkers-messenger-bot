@@ -44,6 +44,10 @@ function formatMoney(value) {
 
 function getRentalDisplayLabel(key) {
   const map = {
+    "2day_standard": "2-Day Basic",
+    "2day_montue": "2-Day Budget",
+    "4day": "4-Day",
+    "7day": "7-Day",
     "Base Rental": "2-Day Basic",
     "Early Bird": "2-Day Budget",
     "Weekend Warrior": "4-Day",
@@ -90,6 +94,75 @@ function formatShortDateLabel(value) {
   const date = parseCustomerDate(value);
   if (!date) return asText(value);
   return date.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" });
+}
+
+function parseAddressPrefill(value) {
+  if (!value) {
+    return {
+      street1: "",
+      street2: "",
+      city: "",
+      state: "GA",
+      zip: "",
+    };
+  }
+
+  if (typeof value === "string") {
+    return {
+      street1: asText(value),
+      street2: "",
+      city: "",
+      state: "GA",
+      zip: "",
+    };
+  }
+
+  return {
+    street1: asText(value.street1 || value.street || value.address || value.full),
+    street2: asText(value.street2),
+    city: asText(value.city),
+    state: asText(value.state, "GA"),
+    zip: asText(value.zip),
+  };
+}
+
+function buildFormPrefillFromQuery(query) {
+  return {
+    name: asText(query.name),
+    email: asText(query.email),
+    phone: asText(query.phone),
+    street1: asText(query.street1 || query.address),
+    street2: asText(query.street2),
+    city: asText(query.city),
+    state: asText(query.state, "GA"),
+    zip: asText(query.zip),
+    notes: asText(query.notes),
+  };
+}
+
+function buildFormPrefillFromHold(hold) {
+  const metadata = hold?.metadata || {};
+  const address = parseAddressPrefill(metadata.deliveryAddress || metadata.delivery_address);
+
+  return {
+    name: asText(hold?.customer_name || metadata.customerName),
+    email: asText(hold?.customer_email || metadata.customerEmail),
+    phone: asText(hold?.customer_phone || metadata.customerPhone),
+    street1: asText(address.street1),
+    street2: asText(address.street2),
+    city: asText(address.city),
+    state: asText(address.state, "GA"),
+    zip: asText(hold?.zip || metadata.zip || address.zip),
+    notes: asText(metadata.notes || metadata.deliveryNotes),
+  };
+}
+
+function mergeFormPrefill(prev, prefill) {
+  const next = { ...prev };
+  Object.entries(prefill || {}).forEach(([key, value]) => {
+    if (!asText(next[key]) && asText(value)) next[key] = value;
+  });
+  return next;
 }
 
 function buildSummaryFromQuery(query) {
@@ -150,6 +223,7 @@ function buildSummaryFromHold(hold) {
 export default function CompleteBookingPage() {
   const router = useRouter();
   const query = router.query || {};
+  const queryPrefill = useMemo(() => buildFormPrefillFromQuery(query), [query]);
   const [holdSummary, setHoldSummary] = useState(null);
   const [loadingHold, setLoadingHold] = useState(false);
   const [form, setForm] = useState({
@@ -170,6 +244,10 @@ export default function CompleteBookingPage() {
   const summary = holdSummary || querySummary;
 
   useEffect(() => {
+    setForm((prev) => mergeFormPrefill(prev, queryPrefill));
+  }, [queryPrefill]);
+
+  useEffect(() => {
     if (!router.isReady) return;
 
     const holdId = asText(query.holdId);
@@ -185,7 +263,12 @@ export default function CompleteBookingPage() {
         if (response.ok && json.success && json.hold) {
           const nextSummary = buildSummaryFromHold(json.hold);
           setHoldSummary(nextSummary);
-          setForm((prev) => ({ ...prev, zip: prev.zip || nextSummary.zip || "" }));
+          setForm((prev) =>
+            mergeFormPrefill(
+              { ...prev, zip: prev.zip || nextSummary.zip || "" },
+              buildFormPrefillFromHold(json.hold),
+            ),
+          );
         }
       } catch (err) {
         if (active) setError("We could not load all booking details. You can still continue if the summary looks correct.");
