@@ -96,46 +96,94 @@ function formatShortDateLabel(value) {
   return date.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" });
 }
 
-function parseAddressPrefill(value) {
-  if (!value) {
+function emptyAddress() {
+  return {
+    street1: "",
+    street2: "",
+    city: "",
+    state: "GA",
+    zip: "",
+  };
+}
+
+function parseCityStateZip(value) {
+  const raw = asText(value).replace(/\s+/g, " ");
+  if (!raw) return null;
+
+  const commaMatch = raw.match(/^([^,]+),\s*(GA|Georgia),?\s*(\d{5}(?:-\d{4})?)$/i);
+  if (commaMatch) {
     return {
-      street1: "",
-      street2: "",
-      city: "",
+      city: asText(commaMatch[1]),
       state: "GA",
-      zip: "",
+      zip: asText(commaMatch[3]),
     };
   }
+
+  const looseMatch = raw.match(/^([A-Za-z][A-Za-z .'-]+)\s+(GA|Georgia)\s+(\d{5}(?:-\d{4})?)$/i);
+  if (looseMatch) {
+    return {
+      city: asText(looseMatch[1]),
+      state: "GA",
+      zip: asText(looseMatch[3]),
+    };
+  }
+
+  return null;
+}
+
+function looksLikeStreetAddress(value) {
+  const raw = asText(value);
+  if (!raw) return false;
+  if (parseCityStateZip(raw)) return false;
+  if (raw.split(",").length >= 3) return false;
+  return /\d/.test(raw) && /[A-Za-z]/.test(raw);
+}
+
+function parseAddressPrefill(value) {
+  if (!value) return emptyAddress();
 
   if (typeof value === "string") {
+    const parsedLocation = parseCityStateZip(value);
+    if (parsedLocation) {
+      return {
+        ...emptyAddress(),
+        ...parsedLocation,
+      };
+    }
+
     return {
-      street1: asText(value),
-      street2: "",
-      city: "",
-      state: "GA",
-      zip: "",
+      ...emptyAddress(),
+      street1: looksLikeStreetAddress(value) ? asText(value) : "",
     };
   }
 
+  const candidateStreet = asText(value.street1 || value.street || value.address || value.full);
+  const parsedLocation = parseCityStateZip(candidateStreet);
+  const city = asText(value.city || parsedLocation?.city);
+  const state = asText(value.state || parsedLocation?.state, "GA");
+  const zip = asText(value.zip || parsedLocation?.zip);
+
   return {
-    street1: asText(value.street1 || value.street || value.address || value.full),
+    street1: looksLikeStreetAddress(candidateStreet) ? candidateStreet : "",
     street2: asText(value.street2),
-    city: asText(value.city),
-    state: asText(value.state, "GA"),
-    zip: asText(value.zip),
+    city,
+    state,
+    zip,
   };
 }
 
 function buildFormPrefillFromQuery(query) {
+  const address = parseAddressPrefill(query.street1 || query.address);
+
   return {
     name: asText(query.name),
     email: asText(query.email),
     phone: asText(query.phone),
-    street1: asText(query.street1 || query.address),
-    street2: asText(query.street2),
-    city: asText(query.city),
-    state: asText(query.state, "GA"),
-    zip: asText(query.zip),
+    street1: asText(address.street1),
+    street2: asText(query.street2 || address.street2),
+    city: asText(query.city || address.city),
+    state: asText(query.state || address.state, "GA"),
+    zip: asText(query.zip || address.zip),
     notes: asText(query.notes),
   };
 }
