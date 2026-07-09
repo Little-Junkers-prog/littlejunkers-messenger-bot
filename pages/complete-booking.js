@@ -106,6 +106,24 @@ function emptyAddress() {
   };
 }
 
+function parseFullStreetAddress(value) {
+  const raw = asText(value).replace(/\s+/g, " ");
+  if (!raw) return null;
+
+  const commaMatch = raw.match(/^(.+?),\s*([^,]+),\s*(GA|Georgia),?\s*(\d{5}(?:-\d{4})?)$/i);
+  if (!commaMatch) return null;
+
+  const street1 = asText(commaMatch[1]);
+  if (!/\d/.test(street1) || !/[A-Za-z]/.test(street1)) return null;
+
+  return {
+    street1,
+    city: asText(commaMatch[2]),
+    state: "GA",
+    zip: asText(commaMatch[4]),
+  };
+}
+
 function parseCityStateZip(value) {
   const raw = asText(value).replace(/\s+/g, " ");
   if (!raw) return null;
@@ -134,6 +152,7 @@ function parseCityStateZip(value) {
 function looksLikeStreetAddress(value) {
   const raw = asText(value);
   if (!raw) return false;
+  if (parseFullStreetAddress(raw)) return true;
   if (parseCityStateZip(raw)) return false;
   if (raw.split(",").length >= 3) return false;
   return /\d/.test(raw) && /[A-Za-z]/.test(raw);
@@ -143,6 +162,14 @@ function parseAddressPrefill(value) {
   if (!value) return emptyAddress();
 
   if (typeof value === "string") {
+    const parsedFullAddress = parseFullStreetAddress(value);
+    if (parsedFullAddress) {
+      return {
+        ...emptyAddress(),
+        ...parsedFullAddress,
+      };
+    }
+
     const parsedLocation = parseCityStateZip(value);
     if (parsedLocation) {
       return {
@@ -158,7 +185,20 @@ function parseAddressPrefill(value) {
   }
 
   const candidateStreet = asText(value.street1 || value.street || value.address || value.full);
+  const parsedFullAddress = parseFullStreetAddress(candidateStreet);
   const parsedLocation = parseCityStateZip(candidateStreet);
+
+  if (parsedFullAddress) {
+    return {
+      ...emptyAddress(),
+      ...parsedFullAddress,
+      street2: asText(value.street2),
+      city: asText(value.city || parsedFullAddress.city),
+      state: asText(value.state || parsedFullAddress.state, "GA"),
+      zip: asText(value.zip || parsedFullAddress.zip),
+    };
+  }
+
   const city = asText(value.city || parsedLocation?.city);
   const state = asText(value.state || parsedLocation?.state, "GA");
   const zip = asText(value.zip || parsedLocation?.zip);
