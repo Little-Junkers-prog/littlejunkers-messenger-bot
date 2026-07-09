@@ -1,0 +1,11 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "next build",
+  "devCommand": "next dev",
+  "installCommand": "npm install",
+  "regions": ["iad1"],
+  "env": {
+    "BUSINESS_TIME_ZONE": "America/New_York",
+    "NEXT_PUBLIC_BUSINESS_TIME_ZONE": "America/New_York"
+  }
+}

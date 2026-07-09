@@ -4,6 +4,8 @@ import {
   getPricingConfig,
   resolveTierPrice,
 } from "../lib/pricingService";
+import { getSupabaseAdmin, assertServerOnly } from "../lib/supabaseAdmin";
+import { evaluateWindow } from "../lib/services/availabilityService";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: "2025-01-27.acacia",
@@ -13,6 +15,8 @@ const ALLOWED_ORIGINS = new Set([
   "https://book.littlejunkersllc.com",
   "https://www.littlejunkersllc.com",
 ]);
+
+const DEFAULT_RECHECK_HOLD_MINUTES = 30;
 
 function applyCors(req, res) {
   const origin = req.headers.origin;
@@ -55,6 +59,188 @@ function parseOptionalDate(value) {
   return date.toISOString();
 }
 
+function dateOnly(value) {
+  const raw = asString(value);
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
+}
+
+function holdSizeYards(hold = {}) {
+  const direct = Number(hold.size_yards || hold.dumpster_size || hold.size);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const code = asString(hold.size_code).toUpperCase();
+  if (code === "11YD") return 11;
+  if (code === "16YD") return 16;
+  if (code === "21YD") return 21;
+  return null;
+}
+
+function holdStartDate(hold = {}) {
+  const metadata = hold.metadata || {};
+  const selectedWindow = metadata.selectedWindow || metadata.selected_window || {};
+  return dateOnly(
+    hold.start_date ||
+    hold.delivery_date ||
+    hold.dropoff_date ||
+    hold.requested_start_at ||
+    selectedWindow.start ||
+    selectedWindow.startIso ||
+    selectedWindow.start_at
+  );
+}
+
+function holdEndDate(hold = {}) {
+  const metadata = hold.metadata || {};
+  const selectedWindow = metadata.selectedWindow || metadata.selected_window || {};
+  return dateOnly(
+    hold.return_date ||
+    hold.scheduled_return ||
+    hold.requested_end_at ||
+    selectedWindow.end ||
+    selectedWindow.endIso ||
+    selectedWindow.end_at
+  );
+}
+
+function isTerminalHoldStatus(status) {
+  return ["cancelled", "canceled", "converted", "completed", "released"].includes(asString(status).toLowerCase());
+}
+
+function isExpiredHold(hold = {}, now = new Date()) {
+  const status = asString(hold.status).toLowerCase();
+  if (status === "expired") return true;
+  const expiresAt = hold.expires_at ? new Date(hold.expires_at) : null;
+  return Boolean(expiresAt && !Number.isNaN(expiresAt.getTime()) && expiresAt <= now);
+}
+
+async function getRecheckHoldMinutes(supabase) {
+  try {
+    const { data, error } = await supabase
+      .from("availability_settings")
+      .select("setting_key, setting_value, active")
+      .eq("setting_key", "hold_expiry_minutes")
+      .eq("active", true)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+    const minutes = Number(data?.setting_value);
+    return Number.isFinite(minutes) && minutes > 0 ? minutes : DEFAULT_RECHECK_HOLD_MINUTES;
+  } catch (error) {
+    console.warn("[create-checkout] availability_settings lookup skipped:", error.message);
+    return DEFAULT_RECHECK_HOLD_MINUTES;
+  }
+}
+
+async function validateCheckoutHold({ supabase, holdId, quote, selectedWindowStart, selectedWindowEnd }) {
+  const { data: hold, error } = await supabase
+    .from("booking_holds")
+    .select("*")
+    .eq("id", holdId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!hold) {
+    const err = new Error("Booking hold not found. Please restart checkout so we can confirm availability.");
+    err.statusCode = 404;
+    err.code = "BOOKING_HOLD_NOT_FOUND";
+    throw err;
+  }
+
+  if (isTerminalHoldStatus(hold.status)) {
+    const err = new Error("This booking link has already been completed or released. Please start a fresh booking request.");
+    err.statusCode = 409;
+    err.code = "BOOKING_HOLD_CLOSED";
+    throw err;
+  }
+
+  const requestStart = dateOnly(selectedWindowStart);
+  const requestEnd = dateOnly(selectedWindowEnd);
+  const storedStart = holdStartDate(hold);
+  const storedEnd = holdEndDate(hold);
+  const storedSize = holdSizeYards(hold);
+
+  if ((storedSize && storedSize !== Number(quote.sizeYards)) ||
+    (storedStart && requestStart && storedStart !== requestStart) ||
+    (storedEnd && requestEnd && storedEnd !== requestEnd)) {
+    const err = new Error("This booking link no longer matches the selected dumpster window. Please restart checkout so we can confirm availability.");
+    err.statusCode = 409;
+    err.code = "BOOKING_HOLD_CONTEXT_MISMATCH";
+    throw err;
+  }
+
+  if (!isExpiredHold(hold)) {
+    return {
+      hold,
+      refreshed: false,
+      availability: null,
+      checkoutHoldState: "active_hold",
+    };
+  }
+
+  if (!requestStart || !requestEnd) {
+    const err = new Error("This booking link needs a fresh availability check, but the selected window is missing. Please choose a drop-off date again.");
+    err.statusCode = 409;
+    err.code = "HOLD_EXPIRED_WINDOW_MISSING";
+    throw err;
+  }
+
+  const availability = await evaluateWindow({
+    sizeYards: quote.sizeYards,
+    startDate: requestStart,
+    endDate: requestEnd,
+    source: "stripe-checkout-expired-hold-recheck",
+    audit: true,
+  });
+
+  if (!availability.available) {
+    const err = new Error("Your original reservation window has passed, and that dumpster/date is no longer available. Please choose another available date.");
+    err.statusCode = 409;
+    err.code = "HOLD_EXPIRED_WINDOW_UNAVAILABLE";
+    err.availability = availability;
+    throw err;
+  }
+
+  const recheckHoldMinutes = await getRecheckHoldMinutes(supabase);
+  const refreshedExpiresAt = new Date(Date.now() + recheckHoldMinutes * 60 * 1000).toISOString();
+  const metadata = hold.metadata && typeof hold.metadata === "object" ? hold.metadata : {};
+  const nextMetadata = {
+    ...metadata,
+    lateIntentRecoveredAt: new Date().toISOString(),
+    priorExpiresAt: hold.expires_at || null,
+    recheckedAvailability: {
+      availableUnits: availability.availableUnits,
+      reason: availability.reason,
+      source: "stripe-checkout-expired-hold-recheck",
+    },
+  };
+
+  const { data: refreshedHold, error: updateError } = await supabase
+    .from("booking_holds")
+    .update({
+      status: "active",
+      expires_at: refreshedExpiresAt,
+      metadata: nextMetadata,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", holdId)
+    .select("*")
+    .single();
+
+  if (updateError) throw updateError;
+
+  return {
+    hold: refreshedHold,
+    refreshed: true,
+    refreshedExpiresAt,
+    recheckHoldMinutes,
+    availability,
+    checkoutHoldState: "expired_hold_rechecked_available",
+  };
+}
+
 export default async function handler(req, res) {
   applyCors(req, res);
 
@@ -73,6 +259,8 @@ export default async function handler(req, res) {
   }
 
   try {
+    assertServerOnly();
+
     const {
       leadId,
       supabaseLeadId,
@@ -128,7 +316,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Invalid Supabase pricing configuration." });
     }
 
-    // ── Server-side tier / delivery-day eligibility enforcement ──────────────
+    // Server-side tier / delivery-day eligibility enforcement.
     // This is the authoritative pricing integrity check. The UI calendar also
     // blocks invalid dates, but this server validation is the final gate before
     // any money moves. If a client bypasses the UI, this catches it.
@@ -150,7 +338,7 @@ export default async function handler(req, res) {
           const deliveryDate = new Date(deliveryDateStr);
           const dayOfWeek = deliveryDate.getUTCDay();
           if (!validDays.includes(dayOfWeek)) {
-            const dayNames = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+            const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
             const eligible = validDays.map((d) => dayNames[d]).join(" or ");
             console.error(`[create-checkout] Tier/day violation: tier=${quote.tierKey} restriction=${dayRestriction} deliveryDay=${dayNames[dayOfWeek]}`);
             return res.status(400).json({
@@ -161,7 +349,6 @@ export default async function handler(req, res) {
         }
       }
     }
-    // ─────────────────────────────────────────────────────────────────────────
 
     const selectedWindowStart =
       parseOptionalDate(selectedWindow?.startIso) ||
@@ -177,6 +364,15 @@ export default async function handler(req, res) {
       parseOptionalDate(selectedWindow?.end) ||
       parseOptionalDate(requestedEndAt);
 
+    const supabase = getSupabaseAdmin();
+    const holdValidation = await validateCheckoutHold({
+      supabase,
+      holdId: resolvedHoldId,
+      quote,
+      selectedWindowStart,
+      selectedWindowEnd,
+    });
+
     const resolvedSaleOrderName = asString(saleOrderName || orderName);
     const resolvedLeadId = asString(leadId);
     const resolvedAreaLabel = asString(areaLabel || quote.serviceArea?.areaLabel);
@@ -189,7 +385,7 @@ export default async function handler(req, res) {
         price_data: {
           currency: "usd",
           product_data: {
-            name: `${quote.sizeLabel} — ${quote.displayLabel}`,
+            name: `${quote.sizeLabel} - ${quote.displayLabel}`,
             description: "Includes delivery, pickup, and allotted tonnage.",
           },
           unit_amount: basePriceCents,
@@ -218,6 +414,9 @@ export default async function handler(req, res) {
       supabase_lead_id: String(supabaseLeadId || ""),
       booking_hold_id: resolvedHoldId,
       hold_id: resolvedHoldId,
+      checkout_hold_state: String(holdValidation.checkoutHoldState || ""),
+      hold_rechecked_at: holdValidation.refreshed ? String(new Date().toISOString()) : "",
+      hold_recheck_expires_at: String(holdValidation.refreshedExpiresAt || ""),
       customer_name: String(customerName || ""),
       customer_phone: String(customerPhone || ""),
       customer_email: String(customerEmail || ""),
@@ -264,6 +463,12 @@ export default async function handler(req, res) {
       url: session.url,
       sessionId: session.id,
       bookingHoldId: resolvedHoldId,
+      hold: {
+        id: holdValidation.hold?.id || resolvedHoldId,
+        checkoutHoldState: holdValidation.checkoutHoldState,
+        refreshed: holdValidation.refreshed,
+        expiresAt: holdValidation.refreshedExpiresAt || holdValidation.hold?.expires_at || null,
+      },
       quote: {
         tierKey: quote.tierKey,
         displayLabel: quote.displayLabel,
@@ -278,8 +483,10 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error("[Stripe Checkout Error]:", error);
 
-    return res.status(500).json({
+    return res.status(error.statusCode || 500).json({
       error: error.message || "Failed to create checkout session",
+      code: error.code || "CHECKOUT_CREATE_FAILED",
+      availability: error.availability || null,
     });
   }
 }
