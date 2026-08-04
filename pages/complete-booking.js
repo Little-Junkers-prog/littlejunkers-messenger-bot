@@ -225,6 +225,7 @@ function buildFormPrefillFromQuery(query) {
     state: asText(query.state || address.state, "GA"),
     zip: asText(query.zip || address.zip),
     notes: asText(query.notes),
+    smsOptIn: query.sms_opt_in === "true" || query.smsOptIn === "true",
   };
 }
 
@@ -324,6 +325,7 @@ export default function CompleteBookingPage() {
     state: "GA",
     zip: "",
     notes: "",
+    smsOptIn: false,
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -415,6 +417,7 @@ export default function CompleteBookingPage() {
           },
           deliveryAddress,
           notes: form.notes.trim(),
+          smsOptIn: Boolean(form.smsOptIn),
           funnelSource: "csr_quick_book",
         }),
       });
@@ -442,6 +445,7 @@ export default function CompleteBookingPage() {
             startIso: summary.startIso,
             endIso: summary.endIso,
           },
+          smsOptIn: Boolean(form.smsOptIn),
         }),
       });
 
@@ -492,6 +496,10 @@ export default function CompleteBookingPage() {
                 <Field label="ZIP *"><input value={form.zip} onChange={(e) => setForm({ ...form, zip: e.target.value })} style={inputStyle()} /></Field>
               </div>
               <Field label="Delivery notes"><textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} style={inputStyle({ minHeight: 96, resize: "vertical" })} /></Field>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 8, color: C.inkMid, fontSize: 13, lineHeight: 1.45 }}>
+                <input type="checkbox" checked={Boolean(form.smsOptIn)} onChange={(e) => setForm({ ...form, smsOptIn: e.target.checked })} style={{ marginTop: 3 }} />
+                <span>I agree to receive SMS messages from Little Junkers about my booking and service updates. Message and data rates may apply. Reply STOP to opt out.</span>
+              </label>
             </div>
           </div>
 
