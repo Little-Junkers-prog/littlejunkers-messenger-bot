@@ -285,6 +285,7 @@ export default async function handler(req, res) {
       odooRentalOrderId,
       deliveryAddress,
       deliveryNotes,
+      smsOptIn,
     } = req.body || {};
 
     const resolvedHoldId = asString(bookingHoldId || holdId);
@@ -440,6 +441,7 @@ export default async function handler(req, res) {
       sale_order_name: String(resolvedSaleOrderName || ""),
       odoo_order_id: String(odooOrderId || ""),
       odoo_rental_order_id: String(odooRentalOrderId || ""),
+      sms_opt_in: String(smsOptIn === true || smsOptIn === "true"),
     };
 
     const session = await stripe.checkout.sessions.create({
