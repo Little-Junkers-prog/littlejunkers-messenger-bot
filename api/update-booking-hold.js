@@ -154,6 +154,10 @@ async function updateCanonicalBookingHold({ supabase, holdId, body }) {
   const serviceArea = await resolveServiceArea(zip);
   const flattenedAddress = buildDeliveryAddress(addressObject) || asString(metadata.deliveryAddress) || "";
   const notes = asString(body.notes || metadata.notes || metadata.deliveryNotes);
+  const smsOptInProvided = body.smsOptIn !== undefined || body.sms_opt_in !== undefined;
+  const smsOptIn = smsOptInProvided
+    ? (body.smsOptIn === true || body.smsOptIn === "true" || body.sms_opt_in === true || body.sms_opt_in === "true")
+    : null;
   const handoffStage = classifyHandoffStage({
     customerName,
     customerEmail,
@@ -177,6 +181,8 @@ async function updateCanonicalBookingHold({ supabase, holdId, body }) {
     deliveryAddressObject: addressObject,
     notes,
     deliveryNotes: notes,
+    smsOptIn: smsOptIn === null ? metadata.smsOptIn : smsOptIn,
+    sms_opt_in: smsOptIn === null ? metadata.sms_opt_in : smsOptIn,
     handoffStage,
     customerConfirmedAt: new Date().toISOString(),
   };
@@ -208,6 +214,13 @@ async function updateCanonicalBookingHold({ supabase, holdId, body }) {
       ...(zip ? { zip } : {}),
       ...(serviceArea?.rentalZone ? { zone: serviceArea.rentalZone } : {}),
     };
+
+    if (smsOptInProvided) {
+      customerPatch.sms_opt_in = smsOptIn;
+      customerPatch.sms_opt_in_source = "online_booking";
+      customerPatch.sms_opt_in_date = smsOptIn ? new Date().toISOString() : null;
+      customerPatch.sms_opt_out_date = smsOptIn ? null : new Date().toISOString();
+    }
 
     if (Object.keys(customerPatch).length) {
       const { error: customerUpdateError } = await supabase
