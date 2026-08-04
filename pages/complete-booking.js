@@ -243,6 +243,7 @@ function buildFormPrefillFromHold(hold) {
     state: asText(address.state, "GA"),
     zip: asText(hold?.zip || metadata.zip || address.zip),
     notes: asText(metadata.notes || metadata.deliveryNotes),
+    smsOptIn: metadata.smsOptIn === true || metadata.smsOptIn === "true" || metadata.sms_opt_in === true || metadata.sms_opt_in === "true",
   };
 }
 
