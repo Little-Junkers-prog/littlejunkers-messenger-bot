@@ -147,6 +147,8 @@ async function upsertCustomerFromSession(supabase, session, existingCustomerId) 
     session.customer_details?.phone || asString(session.metadata?.customer_phone)
   );
   const customerName = asString(session.metadata?.customer_name) || null;
+  const smsOptInProvided = session.metadata?.sms_opt_in !== undefined;
+  const smsOptIn = session.metadata?.sms_opt_in === true || session.metadata?.sms_opt_in === "true";
 
   if (existingCustomerId) {
     await supabase
@@ -155,6 +157,12 @@ async function upsertCustomerFromSession(supabase, session, existingCustomerId) 
         ...(customerEmail ? { email: customerEmail } : {}),
         ...(customerPhone ? { phone: customerPhone } : {}),
         ...(customerName ? { name: customerName } : {}),
+        ...(smsOptInProvided ? {
+          sms_opt_in: smsOptIn,
+          sms_opt_in_source: "online_booking",
+          sms_opt_in_date: smsOptIn ? new Date().toISOString() : null,
+          sms_opt_out_date: smsOptIn ? null : new Date().toISOString(),
+        } : {}),
       })
       .eq("id", existingCustomerId);
     return existingCustomerId;
@@ -166,6 +174,11 @@ async function upsertCustomerFromSession(supabase, session, existingCustomerId) 
       name: customerName || "Unknown",
       phone: customerPhone || "0000000000",
       email: customerEmail || null,
+      ...(smsOptInProvided ? {
+        sms_opt_in: smsOptIn,
+        sms_opt_in_source: "online_booking",
+        sms_opt_in_date: smsOptIn ? new Date().toISOString() : null,
+      } : {}),
     })
     .select("id")
     .single();
