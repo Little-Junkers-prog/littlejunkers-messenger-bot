@@ -42,7 +42,6 @@ function Header() {
   const [open, setOpen] = useState(false);
   const links = [
     ["Home", HOMEPAGE],
-    ["Pricing", `${HOMEPAGE}/pricing`],
     ["Service Areas", `${HOMEPAGE}/service-areas`],
     ["What Can I Put in a Dumpster", `${HOMEPAGE}/what-can-i-put-in-a-dumpster`],
     ["About Us", `${HOMEPAGE}/about-us`],
@@ -93,7 +92,7 @@ function ProductCard({ product, onSelect }) {
         <p style={{ color: C.inkMuted, fontSize: 12, margin: "0 0 3px" }}>Starting at</p>
         <p style={{ fontSize: 34, fontWeight: 900, margin: "0 0 14px" }}>{price ? money(price) : "See current rate"}</p>
         <button type="button" onClick={() => onSelect(product.size)} style={{ background: C.ink, border: 0, borderRadius: 10, color: C.cardBg, cursor: "pointer", fontSize: 15, fontWeight: 800, padding: "14px 16px", width: "100%" }}>
-          Check Availability
+          Reserve This Dumpster
         </button>
       </div>
     </article>
