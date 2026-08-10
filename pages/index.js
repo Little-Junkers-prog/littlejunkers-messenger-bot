@@ -57,7 +57,7 @@ function Header() {
           Little Junkers
         </a>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <a href={`${BOOKING_PATH}`} style={{ background: C.pink, color: C.ink, textDecoration: "none", padding: "10px 18px", borderRadius: 10, fontWeight: 800 }}>
+          <a href="/" style={{ background: C.pink, color: C.ink, textDecoration: "none", padding: "10px 18px", borderRadius: 10, fontWeight: 800 }}>
             Book Now
           </a>
           <button type="button" aria-label="Toggle navigation menu" aria-expanded={open} onClick={() => setOpen((value) => !value)} style={{ background: "transparent", border: 0, cursor: "pointer", padding: 8, display: "grid", gap: 4 }}>
