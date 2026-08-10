@@ -62,11 +62,6 @@ function applyRateLimit(req) {
 export function middleware(req) {
   const pathname = req.nextUrl.pathname;
 
-  if (pathname === "/") {
-    const url = req.nextUrl.clone();
-    url.pathname = "/rent-a-dumpster";
-    return NextResponse.redirect(url, 307);
-  }
 
   if (req.method === "OPTIONS") {
     return NextResponse.next();
@@ -112,7 +107,6 @@ export function middleware(req) {
 
 export const config = {
   matcher: [
-    "/",
     "/csr-quick-book",
     "/api/submit-lead",
     "/api/create-checkout",
