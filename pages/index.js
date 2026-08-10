@@ -42,33 +42,136 @@ function Header() {
   const [open, setOpen] = useState(false);
   const links = [
     ["Home", HOMEPAGE],
+    ["Get Exact Pricing", `${HOMEPAGE}/pricing`],
     ["Service Areas", `${HOMEPAGE}/service-areas`],
     ["What Can I Put in a Dumpster", `${HOMEPAGE}/what-can-i-put-in-a-dumpster`],
     ["About Us", `${HOMEPAGE}/about-us`],
     ["FAQ", `${HOMEPAGE}/dumpster-rental-faq`],
     ["Contact Us", `${HOMEPAGE}/contactus`],
+    ["Blog", `${HOMEPAGE}/blog`],
+    ["Shop", `${HOMEPAGE}/shop`],
   ];
 
   return (
-    <header style={{ background: C.heroBg, color: C.cardBg, position: "sticky", top: 0, zIndex: 10 }}>
-      <div style={{ maxWidth: 1120, margin: "0 auto", padding: "16px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
-        <a href={HOMEPAGE} style={{ color: C.cardBg, textDecoration: "none", fontWeight: 900, fontSize: 20 }}>
-          Little Junkers
+    <header className="bridge-header">
+      <div className="bridge-header-inner">
+        <a href={HOMEPAGE} className="bridge-logo-link" aria-label="Little Junkers home">
+          <img src="/little-junkers-logo.png" alt="Little Junkers" className="bridge-logo" />
         </a>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <a href="/" style={{ background: C.pink, color: C.ink, textDecoration: "none", padding: "10px 18px", borderRadius: 10, fontWeight: 800 }}>
-            Book Now
-          </a>
-          <button type="button" aria-label="Toggle navigation menu" aria-expanded={open} onClick={() => setOpen((value) => !value)} style={{ background: "transparent", border: 0, cursor: "pointer", padding: 8, display: "grid", gap: 4 }}>
-            <span style={{ display: "block", width: 24, height: 2, background: C.cardBg }} />
-            <span style={{ display: "block", width: 24, height: 2, background: C.cardBg }} />
-            <span style={{ display: "block", width: 24, height: 2, background: C.cardBg }} />
-          </button>
-        </div>
+        <nav className="bridge-desktop-nav" aria-label="Main navigation">
+          {links.map(([label, href]) => <a key={href} href={href} className="bridge-nav-link">{label}</a>)}
+        </nav>
+        <button type="button" className="bridge-mobile-toggle" aria-label="Toggle navigation menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+          <span />
+          <span />
+          <span />
+        </button>
       </div>
-      {open ? <nav style={{ background: C.surface, color: C.ink, padding: "20px 24px", display: "grid", gap: 14 }}>
-        {links.map(([label, href]) => <a key={href} href={href} onClick={() => setOpen(false)} style={{ color: C.ink, fontWeight: 800, textDecoration: "none" }}>{label}</a>)}
+      {open ? <nav className="bridge-mobile-nav" aria-label="Mobile navigation">
+        {links.map(([label, href]) => <a key={href} href={href} onClick={() => setOpen(false)}>{label}</a>)}
       </nav> : null}
+      <style jsx>{`
+        .bridge-header {
+          background: ${C.heroBg};
+          color: ${C.cardBg};
+          position: sticky;
+          top: 0;
+          z-index: 10;
+        }
+        .bridge-header-inner {
+          max-width: 1120px;
+          margin: 0 auto;
+          padding: 16px 24px;
+          display: flex;
+          align-items: center;
+          gap: 24px;
+        }
+        .bridge-logo-link {
+          display: inline-flex;
+          flex: 0 0 auto;
+          align-items: center;
+        }
+        .bridge-logo {
+          display: block;
+          width: 112px;
+          height: 42px;
+          object-fit: contain;
+        }
+        .bridge-desktop-nav {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          flex: 1;
+          gap: 18px;
+        }
+        .bridge-nav-link {
+          color: ${C.cardBg};
+          text-decoration: none;
+          font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          font-size: 12px;
+          font-weight: 700;
+          line-height: 1.2;
+          white-space: nowrap;
+          transition: color 160ms ease;
+        }
+        .bridge-nav-link:hover,
+        .bridge-nav-link:focus-visible {
+          color: ${C.pink};
+        }
+        .bridge-mobile-toggle,
+        .bridge-mobile-nav {
+          display: none;
+        }
+        @media (max-width: 1100px) {
+          .bridge-header-inner {
+            gap: 14px;
+            padding-left: 18px;
+            padding-right: 18px;
+          }
+          .bridge-desktop-nav {
+            gap: 11px;
+          }
+          .bridge-nav-link {
+            font-size: 11px;
+          }
+        }
+        @media (max-width: 767px) {
+          .bridge-header-inner {
+            justify-content: space-between;
+          }
+          .bridge-desktop-nav {
+            display: none;
+          }
+          .bridge-mobile-toggle {
+            background: transparent;
+            border: 0;
+            cursor: pointer;
+            display: grid;
+            gap: 4px;
+            padding: 8px;
+          }
+          .bridge-mobile-toggle span {
+            background: ${C.cardBg};
+            display: block;
+            height: 2px;
+            width: 24px;
+          }
+          .bridge-mobile-nav {
+            background: ${C.surface};
+            color: ${C.ink};
+            display: grid;
+            gap: 14px;
+            padding: 20px 24px;
+          }
+          .bridge-mobile-nav a {
+            color: ${C.ink};
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-size: 16px;
+            font-weight: 800;
+            text-decoration: none;
+          }
+        }
+      `}</style>
     </header>
   );
 }
