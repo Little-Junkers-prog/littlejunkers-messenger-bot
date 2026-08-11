@@ -66,6 +66,16 @@ function formatIncludedTons(tons) {
   return `Includes ${n} ton${n !== 1 ? "s" : ""}`;
 }
 
+function splitPayment(value) {
+  if (!value) return null;
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+    style: "currency",
+  }).format(value / 4);
+}
+
 function getAreaLabel(serviceArea, zip) {
   if (serviceArea?.areaLabel) return serviceArea.areaLabel;
   if (!zip) return "Your area";
@@ -1940,6 +1950,7 @@ export default function Funnel() {
     allSizes.forEach((sizeKey) => {
       const yards = String(extractSizeYards(sizeKey));
       const prices = (pricingConfig.pricing || [])
+        .filter((tier) => tier?.tierKey === "2day_standard")
         .map((tier) => Number(tier.prices?.[yards] || 0))
         .filter((v) => v > 0);
       if (prices.length) p[sizeKey] = Math.min(...prices);
@@ -2766,7 +2777,17 @@ export default function Funnel() {
                                         marginTop: 6,
                                       }}
                                     >
-                                      Starting at ${startingPrice}
+                                      <div>Starting at \${startingPrice}</div>
+                                      <div
+                                        style={{
+                                          color: C.inkMuted,
+                                          fontSize: 13,
+                                          fontWeight: 400,
+                                          margin: "0 0 14px",
+                                        }}
+                                      >
+                                        or 4 interest-free payments of {splitPayment(startingPrice)}
+                                      </div>
                                     </div>
                                   ) : null}
                                 </div>
