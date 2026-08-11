@@ -11,6 +11,7 @@ const C = {
   ink: "#1a1a1a",
   inkMid: "#555555",
   inkMuted: "#999999",
+  inkFaint: "#b8b0a6",
   surface: "#faf8f5",
 };
 
@@ -33,9 +34,22 @@ function money(value) {
 
 function getStartingPrice(pricing, size) {
   const prices = (pricing || [])
+    // The bridge must show the standard base rate only. Promotional tiers
+    // remain available to the booking flow but never determine this display.
+    .filter((tier) => tier?.tierKey === "2day_standard")
     .map((tier) => Number(tier?.prices?.[String(size)] || 0))
     .filter((price) => price > 0);
   return prices.length ? Math.min(...prices) : null;
+}
+
+function splitPayment(value) {
+  if (!value) return null;
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+    style: "currency",
+  }).format(value / 4);
 }
 
 function Header() {
@@ -55,19 +69,17 @@ function Header() {
   return (
     <header className="bridge-header">
       <div className="bridge-header-inner">
-        <a href={HOMEPAGE} className="bridge-logo-link" aria-label="Little Junkers home">
-          <img src="/little-junkers-logo.png" alt="Little Junkers" className="bridge-logo" />
-        </a>
-        <nav className="bridge-desktop-nav" aria-label="Main navigation">
-          {links.map(([label, href]) => <a key={href} href={href} className="bridge-nav-link">{label}</a>)}
-        </nav>
         <button type="button" className="bridge-mobile-toggle" aria-label="Toggle navigation menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
           <span />
           <span />
           <span />
         </button>
+        <a href={HOMEPAGE} className="bridge-logo-link" aria-label="Little Junkers home">
+          <img src="/little-junkers-logo.png" alt="Little Junkers" className="bridge-logo" />
+        </a>
+        <span className="bridge-header-spacer" aria-hidden="true" />
       </div>
-      {open ? <nav className="bridge-mobile-nav" aria-label="Mobile navigation">
+      {open ? <nav className="bridge-mobile-nav" aria-label="Site navigation">
         {links.map(([label, href]) => <a key={href} href={href} onClick={() => setOpen(false)}>{label}</a>)}
       </nav> : null}
       <style jsx>{`
@@ -84,92 +96,58 @@ function Header() {
           padding: 16px 24px;
           display: flex;
           align-items: center;
-          gap: 24px;
+          justify-content: space-between;
+          position: relative;
         }
         .bridge-logo-link {
           display: inline-flex;
-          flex: 0 0 auto;
           align-items: center;
+          left: 50%;
+          position: absolute;
+          transform: translateX(-50%);
         }
         .bridge-logo {
           display: block;
-          width: 112px;
-          height: 42px;
+          width: 82px;
+          height: 50px;
           object-fit: contain;
         }
-        .bridge-desktop-nav {
-          display: flex;
-          align-items: center;
-          justify-content: flex-end;
-          flex: 1;
-          gap: 18px;
+        .bridge-header-spacer {
+          display: block;
+          height: 40px;
+          width: 40px;
         }
-        .bridge-nav-link {
-          color: ${C.cardBg};
-          text-decoration: none;
-          font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-          font-size: 12px;
-          font-weight: 700;
-          line-height: 1.2;
-          white-space: nowrap;
-          transition: color 160ms ease;
+        .bridge-mobile-toggle {
+          background: transparent;
+          border: 0;
+          cursor: pointer;
+          display: grid;
+          gap: 4px;
+          padding: 8px;
         }
-        .bridge-nav-link:hover,
-        .bridge-nav-link:focus-visible {
-          color: ${C.pink};
+        .bridge-mobile-toggle span {
+          background: ${C.cardBg};
+          display: block;
+          height: 2px;
+          width: 24px;
         }
-        .bridge-mobile-toggle,
         .bridge-mobile-nav {
-          display: none;
+          background: ${C.surface};
+          color: ${C.ink};
+          display: grid;
+          gap: 14px;
+          padding: 20px 24px;
         }
-        @media (max-width: 1100px) {
-          .bridge-header-inner {
-            gap: 14px;
-            padding-left: 18px;
-            padding-right: 18px;
-          }
-          .bridge-desktop-nav {
-            gap: 11px;
-          }
-          .bridge-nav-link {
-            font-size: 11px;
-          }
+        .bridge-mobile-nav a {
+          color: ${C.ink};
+          font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          font-size: 16px;
+          font-weight: 800;
+          text-decoration: none;
         }
-        @media (max-width: 767px) {
-          .bridge-header-inner {
-            justify-content: space-between;
-          }
-          .bridge-desktop-nav {
-            display: none;
-          }
-          .bridge-mobile-toggle {
-            background: transparent;
-            border: 0;
-            cursor: pointer;
-            display: grid;
-            gap: 4px;
-            padding: 8px;
-          }
-          .bridge-mobile-toggle span {
-            background: ${C.cardBg};
-            display: block;
-            height: 2px;
-            width: 24px;
-          }
-          .bridge-mobile-nav {
-            background: ${C.surface};
-            color: ${C.ink};
-            display: grid;
-            gap: 14px;
-            padding: 20px 24px;
-          }
-          .bridge-mobile-nav a {
-            color: ${C.ink};
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            font-size: 16px;
-            font-weight: 800;
-            text-decoration: none;
-          }
+        .bridge-mobile-nav a:hover,
+        .bridge-mobile-nav a:focus-visible {
+          color: ${C.pinkText};
         }
       `}</style>
     </header>
@@ -179,9 +157,15 @@ function Header() {
 function ProductCard({ product, onSelect }) {
   const price = getStartingPrice(product.pricing, product.size);
   const tons = Number(product.meta?.includedTons || 0);
+  const imageBySize = {
+    11: "/11 -yard image.png",
+    16: "/16 -yard image.png",
+    21: "/21 -yard image.png",
+  };
   return (
     <article style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderRadius: 14, padding: 22, display: "flex", flexDirection: "column", gap: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
       {product.size === 16 ? <span style={{ alignSelf: "flex-start", background: C.pinkBar, color: C.ink, borderRadius: 999, padding: "5px 10px", fontSize: 12, fontWeight: 800 }}>Most Popular</span> : null}
+      <img src={imageBySize[product.size]} alt={`${product.size}-yard dumpster`} style={{ width: "100%", height: 180, objectFit: "contain", borderRadius: 10 }} />
       <p style={{ color: C.pinkText, fontSize: 12, fontWeight: 800, letterSpacing: "0.08em", margin: 0, textTransform: "uppercase" }}>{product.size}-yard dumpster</p>
       <h2 style={{ fontSize: 26, margin: 0 }}>{productNames[product.size]}</h2>
       <p style={{ color: C.inkMid, lineHeight: 1.5, margin: 0 }}>{product.meta?.shortDesc || product.meta?.bestUse || "A practical option for your cleanup."}</p>
@@ -191,14 +175,67 @@ function ProductCard({ product, onSelect }) {
         </span>
         {product.meta?.truckLoads ? <span style={{ background: "#fff5fb", border: `1px solid ${C.pinkBar}`, borderRadius: 999, color: C.pinkText, fontSize: 12, fontWeight: 800, padding: "6px 10px" }}>{product.meta.truckLoads}</span> : null}
       </div>
+      <ul style={{ color: C.inkMid, fontSize: 14, lineHeight: 1.6, margin: 0, paddingLeft: 20 }}>
+        {product.size === 11 ? (
+          <>
+            <li>12' L x 7.5' W x 3.5' H</li>
+            <li>Holds 4-5 pickup truck loads</li>
+            <li>Best for garage cleanouts, roofing, and dense debris</li>
+          </>
+        ) : product.size === 16 ? (
+          <>
+            <li>Holds 6-7 pickup truck loads</li>
+            <li>Best for moving, decluttering, and mixed cleanup</li>
+            <li>Driveway-safe and HOA-friendly</li>
+          </>
+        ) : (
+          <>
+            <li>Holds 8-10 pickup truck loads</li>
+            <li>Best for renovations, demo, and bulky cleanouts</li>
+            <li>Driveway-safe and HOA-friendly</li>
+          </>
+        )}
+      </ul>
       <div style={{ borderTop: `1px solid ${C.cardBorder}`, marginTop: "auto", paddingTop: 14 }}>
         <p style={{ color: C.inkMuted, fontSize: 12, margin: "0 0 3px" }}>Starting at</p>
-        <p style={{ fontSize: 34, fontWeight: 900, margin: "0 0 14px" }}>{price ? money(price) : "See current rate"}</p>
+        <p style={{ fontSize: 34, fontWeight: 900, margin: "0 0 2px" }}>{price ? money(price) : "See current rate"}</p>
+        {price ? <p style={{ color: C.inkMuted, fontSize: 13, margin: "0 0 14px" }}>or 4 interest-free payments of {splitPayment(price)}</p> : null}
         <button type="button" onClick={() => onSelect(product.size)} style={{ background: C.ink, border: 0, borderRadius: 10, color: C.cardBg, cursor: "pointer", fontSize: 15, fontWeight: 800, padding: "14px 16px", width: "100%" }}>
           Reserve This Dumpster
         </button>
       </div>
     </article>
+  );
+}
+
+function Footer() {
+  const localMarkets = ["Peachtree City", "Newnan", "Fayetteville", "Tyrone", "Senoia"];
+  return (
+    <footer style={{ background: C.heroBg, color: C.cardBg, padding: "56px 24px 24px" }}>
+      <div style={{ maxWidth: 1120, margin: "0 auto" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 36 }}>
+          <div>
+            <h2 style={{ fontSize: 22, margin: "0 0 14px" }}>Little Junkers LLC</h2>
+            <p style={{ color: C.inkFaint, lineHeight: 1.6, margin: "0 0 14px" }}>Family-owned dumpster rental with clear pricing and driveway-safe delivery throughout south Atlanta.</p>
+            <p style={{ margin: "0 0 7px" }}><a href="tel:+14705484733" style={{ color: C.cardBg }}>470-548-4733</a></p>
+            <p style={{ margin: "0 0 7px" }}><a href="mailto:info@littlejunkersllc.com" style={{ color: C.cardBg }}>info@littlejunkersllc.com</a></p>
+            <a href="https://www.google.com/search?q=Little+Junkers+LLC+Google+reviews" target="_blank" rel="noreferrer" style={{ color: C.pink }}>Leave us a Google review</a>
+          </div>
+          <div>
+            <h3 style={{ fontSize: 16, margin: "0 0 14px" }}>Local Markets</h3>
+            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 9 }}>
+              {localMarkets.map((market) => <li key={market}><a href={`${HOMEPAGE}/service-areas/${market.toLowerCase().replaceAll(" ", "-")}`} style={{ color: C.inkFaint, textDecoration: "none" }}>{market}</a></li>)}
+            </ul>
+          </div>
+          <div>
+            <h3 style={{ fontSize: 16, margin: "0 0 14px" }}>Hours & Coverage</h3>
+            <p style={{ color: C.inkFaint, lineHeight: 1.6, margin: "0 0 10px" }}>Online booking is open 24/7.<br />Local support available Monday-Saturday.<br />Serving Peachtree City and nearby south Atlanta communities.</p>
+            <a href={`${HOMEPAGE}/contactus`} style={{ background: C.pink, borderRadius: 10, color: C.ink, display: "inline-block", fontWeight: 800, padding: "12px 16px", textDecoration: "none" }}>Book Your Pink Bin</a>
+          </div>
+        </div>
+        <div style={{ borderTop: "1px solid rgba(255,255,255,0.14)", color: C.inkFaint, fontSize: 12, marginTop: 42, paddingTop: 18 }}>&copy; 2026 Little Junkers LLC. All rights reserved.</div>
+      </div>
+    </footer>
   );
 }
 
@@ -239,7 +276,7 @@ export default function Home() {
       <main>
         <section style={{ background: C.heroBg, color: C.cardBg, padding: "72px 24px 64px" }}>
           <div style={{ maxWidth: 1120, margin: "0 auto" }}>
-            <p style={{ color: C.pink, fontSize: 12, fontWeight: 800, letterSpacing: "0.12em", margin: "0 0 14px", textTransform: "uppercase" }}>Dumpster rental pricing</p>
+            <p style={{ border: `1px solid ${C.pink}`, borderRadius: 999, color: C.pink, display: "inline-block", fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", margin: "0 0 18px", padding: "8px 14px", textTransform: "uppercase" }}>LOCALLY OWNED • SERVING PEACHTREE CITY &amp; NEARBY NEIGHBORHOODS</p>
             <h1 style={{ fontSize: "clamp(38px, 7vw, 68px)", lineHeight: 1.03, margin: "0 0 20px", maxWidth: 760 }}>Transparent pricing. <span style={{ color: C.pink }}>No hidden fees.</span></h1>
             <p style={{ color: C.inkFaint, fontSize: 18, lineHeight: 1.55, margin: 0, maxWidth: 680 }}>Choose your dumpster size, then see live delivery availability and rental options before you reserve.</p>
           </div>
@@ -269,6 +306,7 @@ export default function Home() {
           </div>
         </section>
       </main>
+      <Footer />
     </div>
   );
 }
