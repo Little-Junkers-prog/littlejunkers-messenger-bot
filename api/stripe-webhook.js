@@ -11,6 +11,7 @@ import Stripe from "stripe";
 import smsModule from "../lib/sms";
 import { getSupabaseAdmin, assertServerOnly } from "../lib/supabaseAdmin";
 import { markBookingHoldConverted } from "../lib/services/availabilityService";
+import { recordStripeRevenueLedgerEntry } from "../lib/services/revenueLedgerService";
 
 const { sendSms } = smsModule;
 
@@ -291,6 +292,20 @@ async function logEvent(supabase, rentalId, customerId, session, holdId, stripeI
   });
 }
 
+async function getStripeBalanceTransactionForPaymentIntent(paymentIntentId) {
+  if (!paymentIntentId) return null;
+  const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {
+    expand: ["latest_charge.balance_transaction"],
+  });
+  const charge = paymentIntent.latest_charge;
+  if (!charge) return null;
+  const balanceTransaction = charge.balance_transaction;
+  if (!balanceTransaction) return null;
+  if (typeof balanceTransaction === "string") {
+    return stripe.balanceTransactions.retrieve(balanceTransaction);
+  }
+  return balanceTransaction;
+}
 async function sendConfirmationSms(rental, session) {
   const phone = normalizePhone(
     session.customer_details?.phone || asString(session.metadata?.customer_phone)
@@ -359,6 +374,21 @@ async function processBookingConfirmation({
   await markBookingHoldConverted({ holdId: hold.id, rentalId: confirmedRental.id, stripeSessionId: stripeId });
   await markLeadConverted(supabase, supabaseLeadId, confirmedRental.id, stripeId);
   await createPaymentRecord(supabase, confirmedRental, session, customerId, stripeId, amountTotal, currency);
+
+  const stripePaymentId = session.payment_intent || stripeId;
+  const balanceTransaction = await getStripeBalanceTransactionForPaymentIntent(stripePaymentId);
+  await recordStripeRevenueLedgerEntry(
+    {
+      stripePaymentId,
+      amount: amountTotal ? amountTotal / 100 : null,
+      paidAt: session.created ? Number(session.created) * 1000 : new Date(),
+      customerId,
+      customerName: session.metadata?.customer_name || null,
+    },
+    confirmedRental,
+    balanceTransaction
+  );
+
   await logEvent(supabase, confirmedRental.id, customerId, session, hold.id, stripeId);
   await sendConfirmationSms(confirmedRental, session);
 
@@ -408,6 +438,7 @@ export default async function handler(req, res) {
       });
     } catch (err) {
       console.error("[stripe-webhook][checkout.session.completed] Processing failed:", err);
+      return res.status(500).json({ received: false, error: "Webhook processing failed" });
     }
 
     return res.status(200).json({ received: true });
@@ -448,6 +479,7 @@ export default async function handler(req, res) {
       });
     } catch (err) {
       console.error("[stripe-webhook][payment_intent.succeeded] Processing failed:", err);
+      return res.status(500).json({ received: false, error: "Webhook processing failed" });
     }
 
     return res.status(200).json({ received: true });
