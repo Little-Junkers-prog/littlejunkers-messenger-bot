@@ -8,6 +8,7 @@ import {
   extractName,
   extractPhone,
   extractZip,
+  extractExplicitSizeYards,
   getAllUserText,
   inferProjectType,
   recommendSizeYards,
@@ -304,7 +305,10 @@ export default async function handler(req, res) {
     const email = session.email || extractEmail(allUserText);
     const name = session.name || extractName(allUserText);
     const projectType = session.projectType || inferProjectType(allUserText);
-    const recommendedSizeYards = session.sizeYards || recommendSizeYards(projectType, allUserText);
+    const recommendedSizeYards =
+      session.sizeYards ||
+      extractExplicitSizeYards(allUserText) ||
+      recommendSizeYards(projectType, allUserText);
 
     let salesContext = null;
     let availabilityContext = null;
