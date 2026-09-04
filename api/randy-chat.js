@@ -142,6 +142,11 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ reply: "Method not allowed" });
   if (!validateSiteToken(req)) return res.status(401).json({ reply: "Unauthorized" });
 
+  const { event = "" } = req.body || {};
+  if (event === "chatClosed") {
+    return res.status(200).json({ ok: true });
+  }
+
   const conversationId = getRandyConversationId(req, res);
 
   try {
