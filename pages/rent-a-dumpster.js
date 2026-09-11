@@ -1232,7 +1232,6 @@ function Step5DatePicker({
 
 
 // ── PaymentPhaseB ─────────────────────────────────────────────────────────────
- ─────────────────────────────────────────────────────────────
 // Must be rendered inside an <Elements> provider. Uses useStripe/useElements
 // hooks to call stripe.confirmPayment() on submit.
 function PaymentPhaseB({
