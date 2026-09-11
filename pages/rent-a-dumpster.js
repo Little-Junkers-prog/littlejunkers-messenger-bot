@@ -1080,6 +1080,9 @@ function Step5DatePicker({
     const selectedStart = selectedWindow?.start;
     return (
       <div style={{ background: C.white }}>
+        <div style={{ padding: "12px 14px 0" }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: C.inkFaint, letterSpacing: "0.7px", textTransform: "uppercase" }}>Choose your drop-off date</div>
+        </div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid " + C.surfaceBorder }}>
           <button onClick={() => setCalendarMonth((p) => ({ year: p.month === 0 ? p.year - 1 : p.year, month: p.month === 0 ? 11 : p.month - 1 }))} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: C.ink, padding: "0 8px" }}>‹</button>
           <span style={{ fontSize: 14, fontWeight: 800, color: C.ink, fontFamily: F }}>{monthLabel}</span>
