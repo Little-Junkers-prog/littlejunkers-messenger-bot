@@ -1216,7 +1216,7 @@ function Step5DatePicker({
       <StepHeading
         eyebrow="Almost there"
         title="When do you want your dumpster?"
-        text={"Delivery and includes " + (sizeMeta[effectiveSize]?.tons || 1) + " ton" + ((sizeMeta[effectiveSize]?.tons || 1) !== 1 ? "s" : "") + " included in all prices below."}
+        text={"Includes " + (sizeMeta[effectiveSize]?.tons || 1) + " ton" + ((sizeMeta[effectiveSize]?.tons || 1) !== 1 ? "s" : "") + " in all prices below."}
       />
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderRadius: 12, border: "1px solid " + C.surfaceBorder, background: C.surfaceBg, marginBottom: 16, fontFamily: F }}>
         <span style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>{effectiveSize}</span>
@@ -1471,6 +1471,7 @@ export default function Funnel() {
   const [exitSubmitting, setExitSubmitting] = useState(false);
   const [exitError, setExitError] = useState("");
   const [exitSubmitted, setExitSubmitted] = useState(false);
+  const [showExitToast, setShowExitToast] = useState(false);
   const [exitTriggered, setExitTriggered] = useState(false);
 
   // ─── refs ─────────────────────────────────────────────────────────────────
@@ -1766,9 +1767,8 @@ export default function Funnel() {
         throw new Error(json?.error || "Submission failed.");
       setExitSubmitted(true);
       setShowExitModal(false);
-      setTimeout(() => {
-        window.location.href = HOMEPAGE;
-      }, 1800);
+      setShowExitToast(true);
+      setTimeout(() => setShowExitToast(false), 3500);
     } catch (err) {
       setExitError("Something went wrong. Call or text us at 470-548-4733.");
     } finally {
@@ -2194,7 +2194,7 @@ export default function Funnel() {
           fontFamily: F,
         }}
       >
-        {exitSubmitted && (
+        {showExitToast && (
           <div
             style={{
               position: "fixed",
