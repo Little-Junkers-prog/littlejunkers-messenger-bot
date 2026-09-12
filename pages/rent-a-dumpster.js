@@ -1135,15 +1135,12 @@ function Step5DatePicker({
   if (!TIERS.length) return <div style={{ padding: "40px 0", textAlign: "center" }}><div style={{ fontSize: 13, color: C.inkFaint, fontFamily: F }}>Loading rental options…</div></div>;
   if (availabilityLoading) return <div style={{ padding: "40px 0", textAlign: "center" }}><div style={{ fontSize: 13, color: C.inkFaint, fontFamily: F }}>Checking availability…</div></div>;
 
-  const card1Tier = tierByKey["3day"] || tierByKey["2day_standard"];
-  const card1LowestTier = tierByKey["1day"] || card1Tier;
-  const card2Tier = tierByKey["4day"];
-  const card3Tier = tierByKey["5day"];
-  const card1Price = card1LowestTier ? calculatedPrices[card1LowestTier.key] : null;
+  const card1Tier = tierByKey["3day"];
+  const card2Tier = tierByKey["5day"];
+  const card3Tier = tierByKey["7day"];
+  const card1Price = card1Tier ? calculatedPrices[card1Tier.key] : null;
   const card2Price = card2Tier ? calculatedPrices[card2Tier.key] : null;
   const card3Price = card3Tier ? calculatedPrices[card3Tier.key] : null;
-  const card1Keys = ["1day", "2day_standard", "3day"];
-  const card3Keys = ["5day", "6day", "7day"];
   const selectedTier = tierByKey[selectedTierKey] || card2Tier || card1Tier;
   const cardStyle = (active, prominent) => ({
     width: "100%",
@@ -1161,26 +1158,7 @@ function Step5DatePicker({
     boxShadow: active ? "0 0 0 3px " + C.pinkBorder : prominent ? "0 2px 8px rgba(194,88,122,0.12)" : "0 1px 3px rgba(0,0,0,0.04)",
   });
   const revealStyle = { border: "2px solid " + C.pinkText, borderTop: "none", borderRadius: "0 0 12px 12px", overflow: "hidden", boxShadow: "0 0 0 3px " + C.pinkBorder, marginBottom: 2 };
-  const renderPicker = (keys) => (
-    <div style={{ padding: "12px 14px", background: C.white, borderBottom: "1px solid " + C.surfaceBorder }}>
-      <div style={{ fontSize: 11, fontWeight: 800, color: C.inkFaint, letterSpacing: "0.7px", textTransform: "uppercase", marginBottom: 8 }}>Choose your rental length</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-        {keys.map((key) => {
-          const tier = tierByKey[key];
-          if (!tier) return null;
-          const active = selectedTierKey === key;
-          const price = calculatedPrices[key];
-          return (
-            <button key={key} onClick={() => setSelectedTierKey(key)} style={{ padding: "10px 6px", borderRadius: 10, border: active ? "2px solid " + C.pinkText : "1px solid " + C.surfaceBorder, background: active ? C.pinkBg : C.surfaceBg, color: active ? C.pinkText : C.ink, fontFamily: F, fontWeight: 800, cursor: "pointer" }}>
-              <span style={{ display: "block", fontSize: 14 }}>{tier.duration}-day</span>
-              <span style={{ display: "block", marginTop: 2, fontSize: 11, fontWeight: 600 }}>{typeof price === "number" ? "$" + price : "—"}</span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-  const renderCard = ({ id, title, badge, tier, price, prominent, pickerKeys }) => {
+  const renderCard = ({ id, title, badge, tier, price, prominent, subtitle }) => {
     const active = activeCard === id;
     return (
       <div key={id}>
@@ -1191,12 +1169,12 @@ function Step5DatePicker({
               <span style={{ fontSize: 10, fontWeight: 800, color: C.pinkText, background: active || prominent ? C.white : C.pinkBg, border: "1px solid " + C.pinkBorder, borderRadius: 99, padding: "2px 8px", fontFamily: F }}>{badge}</span>
             </div>
             <div style={{ fontSize: 12, color: active || prominent ? C.pinkText : C.inkMuted, fontFamily: F }}>
-              {id === "short" ? "1, 2, or 3 days" : id === "base" ? "A balanced rental for most projects" : "5, 6, or 7 days"}
+              {subtitle}
             </div>
           </div>
           <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 12 }}>
             <div style={{ fontSize: prominent ? 28 : 24, fontWeight: 900, color: active || prominent ? C.pinkText : C.ink, letterSpacing: "-0.5px", fontFamily: FH }}>
-              {id === "long" || id === "short" ? "from " : ""}{typeof price === "number" ? "$" + price : "—"}
+              {typeof price === "number" ? "$" + price : "—"}
             </div>
             <div style={{ fontSize: 11, color: active || prominent ? C.pinkText : C.inkFaint, fontFamily: F, marginTop: 2 }}>
               {active ? "select a date ↓" : "tap to select"}
@@ -1205,7 +1183,6 @@ function Step5DatePicker({
         </button>
         {active && (
           <div style={revealStyle}>
-            {pickerKeys && renderPicker(pickerKeys)}
             <CalendarWidget tier={selectedTier} />
           </div>
         )}
@@ -1226,9 +1203,9 @@ function Step5DatePicker({
         </span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {renderCard({ id: "short", title: "Up to 3 days", badge: "Quick clean up", tier: card1Tier, price: card1Price, pickerKeys: card1Keys })}
-        {renderCard({ id: "base", title: "Up to 4 days", badge: "Most flexible", tier: card2Tier, price: card2Price, prominent: true })}
-        {renderCard({ id: "long", title: "Need more time?", badge: "Bigger job", tier: card3Tier, price: card3Price, pickerKeys: card3Keys })}
+        {renderCard({ id: "short", title: "3 Days", badge: "Quick clean up", tier: card1Tier, price: card1Price, subtitle: "Great for a fast cleanout" })}
+        {renderCard({ id: "base", title: "5 Days", badge: "Preferred", tier: card2Tier, price: card2Price, prominent: true, subtitle: "The right fit for most projects" })}
+        {renderCard({ id: "long", title: "7 Days", badge: "Bigger job", tier: card3Tier, price: card3Price, subtitle: "For renovations and bigger jobs" })}
       </div>
     </div>
   );
