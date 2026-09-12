@@ -1136,9 +1136,10 @@ function Step5DatePicker({
   if (availabilityLoading) return <div style={{ padding: "40px 0", textAlign: "center" }}><div style={{ fontSize: 13, color: C.inkFaint, fontFamily: F }}>Checking availability…</div></div>;
 
   const card1Tier = tierByKey["3day"] || tierByKey["2day_standard"];
+  const card1LowestTier = tierByKey["1day"] || card1Tier;
   const card2Tier = tierByKey["4day"];
   const card3Tier = tierByKey["5day"];
-  const card1Price = card1Tier ? calculatedPrices[card1Tier.key] : null;
+  const card1Price = card1LowestTier ? calculatedPrices[card1LowestTier.key] : null;
   const card2Price = card2Tier ? calculatedPrices[card2Tier.key] : null;
   const card3Price = card3Tier ? calculatedPrices[card3Tier.key] : null;
   const card1Keys = ["1day", "2day_standard", "3day"];
@@ -1195,7 +1196,7 @@ function Step5DatePicker({
           </div>
           <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 12 }}>
             <div style={{ fontSize: prominent ? 28 : 24, fontWeight: 900, color: active || prominent ? C.pinkText : C.ink, letterSpacing: "-0.5px", fontFamily: FH }}>
-              {id === "long" ? "from " : ""}{typeof price === "number" ? "$" + price : "—"}
+              {id === "long" || id === "short" ? "from " : ""}{typeof price === "number" ? "$" + price : "—"}
             </div>
             <div style={{ fontSize: 11, color: active || prominent ? C.pinkText : C.inkFaint, fontFamily: F, marginTop: 2 }}>
               {active ? "select a date ↓" : "tap to select"}
