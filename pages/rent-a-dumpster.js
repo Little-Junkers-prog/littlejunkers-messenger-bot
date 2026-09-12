@@ -1473,6 +1473,7 @@ export default function Funnel() {
   const [exitSubmitted, setExitSubmitted] = useState(false);
   const [showExitToast, setShowExitToast] = useState(false);
   const [exitTriggered, setExitTriggered] = useState(false);
+  const [exitIsDeliberate, setExitIsDeliberate] = useState(false);
 
   // ─── refs ─────────────────────────────────────────────────────────────────
   const stepRef = useRef(step);
@@ -1662,11 +1663,21 @@ export default function Funnel() {
       stepRef.current >= 2 && !exitTriggered && !exitSubmitted && !submitted,
     [exitTriggered, exitSubmitted, submitted],
   );
-  const triggerExitModal = useCallback(() => {
+  const triggerExitModal = useCallback((deliberate = false) => {
+    if (deliberate) {
+      // Deliberate exit intent (header X, back button) always gets the
+      // modal, even if a passive trigger already fired once this session —
+      // unless there's genuinely nothing left to protect.
+      if (exitSubmitted || submitted) return;
+      setExitIsDeliberate(true);
+      setShowExitModal(true);
+      return;
+    }
     if (!shouldShowExitModal()) return;
+    setExitIsDeliberate(false);
     setExitTriggered(true);
     setShowExitModal(true);
-  }, [shouldShowExitModal]);
+  }, [shouldShowExitModal, exitSubmitted, submitted]);
   const resetIdleTimer = useCallback(() => {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     if (stepRef.current >= 2)
@@ -1702,7 +1713,7 @@ export default function Funnel() {
     const handlePopState = () => {
       if (stepRef.current >= 2) {
         window.history.pushState({ funnelStep: stepRef.current }, "");
-        triggerExitModal();
+        triggerExitModal(true);
       }
     };
     window.addEventListener("popstate", handlePopState);
@@ -1723,6 +1734,10 @@ export default function Funnel() {
   const handleExitModalDismiss = () => {
     setShowExitModal(false);
     setExitError("");
+    if (exitIsDeliberate) {
+      window.location.href = HOMEPAGE;
+      return;
+    }
     resetIdleTimer();
   };
 
@@ -1767,6 +1782,10 @@ export default function Funnel() {
         throw new Error(json?.error || "Submission failed.");
       setExitSubmitted(true);
       setShowExitModal(false);
+      if (exitIsDeliberate) {
+        window.location.href = HOMEPAGE;
+        return;
+      }
       setShowExitToast(true);
       setTimeout(() => setShowExitToast(false), 3500);
     } catch (err) {
@@ -1777,13 +1796,11 @@ export default function Funnel() {
   };
 
   const handleClose = () => {
-    if (submitted) {
+    if (submitted || exitSubmitted) {
       window.location.href = HOMEPAGE;
       return;
     }
-    if (!exitSubmitted) setShowExitModal(true);
-    // If exitSubmitted is already true, do nothing — stay exactly where they are.
-    // This button must never silently navigate away from in-progress funnel state.
+    triggerExitModal(true);
   };
 
   // Select a dumpster from product cards and fetch availability
