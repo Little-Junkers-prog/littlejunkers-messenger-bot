@@ -1777,10 +1777,13 @@ export default function Funnel() {
   };
 
   const handleClose = () => {
-    if (step >= 2) {
-      if (!exitSubmitted && !submitted) setShowExitModal(true);
-      else window.location.href = HOMEPAGE;
-    } else window.location.href = HOMEPAGE;
+    if (submitted) {
+      window.location.href = HOMEPAGE;
+      return;
+    }
+    if (!exitSubmitted) setShowExitModal(true);
+    // If exitSubmitted is already true, do nothing — stay exactly where they are.
+    // This button must never silently navigate away from in-progress funnel state.
   };
 
   // Select a dumpster from product cards and fetch availability
