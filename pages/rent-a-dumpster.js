@@ -1722,8 +1722,19 @@ export default function Funnel() {
 
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden" && !checkoutStartedRef.current)
+      if (document.visibilityState === "hidden" && !checkoutStartedRef.current) {
         triggerExitModal();
+        return;
+      }
+      if (document.visibilityState === "visible") {
+        // Returning to the tab is never itself a signal of intent to leave,
+        // no matter what state existed before you left. If a modal is
+        // already showing (e.g. it was never dismissed before you switched
+        // away), force it back to passive so closing it keeps you in the
+        // funnel -- a fresh deliberate action (header X, back button) is
+        // required to make it deliberate again.
+        setExitIsDeliberate(false);
+      }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () =>
