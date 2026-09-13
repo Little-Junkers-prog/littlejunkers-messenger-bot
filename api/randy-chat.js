@@ -177,7 +177,7 @@ export default async function handler(req, res) {
     let availabilityContext = null;
     let rentalContext = null;
 
-    try { salesContext = await getSalesContext({ zip, sizeYards: recommendedSizeYards, tierKey: session.tierKey || "2day_standard" }); } catch (err) { console.warn("[randy] sales context unavailable", err.message); }
+    try { salesContext = await getSalesContext({ zip, sizeYards: recommendedSizeYards, tierKey: session.tierKey || "3day" }); } catch (err) { console.warn("[randy] sales context unavailable", err.message); }
     if (!risk.shouldRestrictActions && shouldCheckAvailability(intent, allUserText)) {
       try { availabilityContext = await getAvailabilityContext({ sizeYards: recommendedSizeYards, zip }); } catch (err) { console.warn("[randy] availability context unavailable", err.message); }
     }

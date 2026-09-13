@@ -36,7 +36,7 @@ function getStartingPrice(pricing, size) {
   const prices = (pricing || [])
     // The bridge must show the standard base rate only. Promotional tiers
     // remain available to the booking flow but never determine this display.
-    .filter((tier) => tier?.tierKey === "2day_standard")
+    .filter((tier) => tier?.tierKey === "3day")
     .map((tier) => Number(tier?.prices?.[String(size)] || 0))
     .filter((price) => price > 0);
   return prices.length ? Math.min(...prices) : null;

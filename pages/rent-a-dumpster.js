@@ -775,7 +775,7 @@ function Step5DatePicker({
     return d;
   }, [today]);
   const [activeCard, setActiveCard] = useState(null);
-  const initialTier = duration || recommendedTierKey || "4day";
+  const initialTier = duration || recommendedTierKey || "5day";
   const [selectedTierKey, setSelectedTierKey] = useState(initialTier);
   const [calendarMonth, setCalendarMonth] = useState(() => ({
     year: tomorrow.getFullYear(),
@@ -1335,7 +1335,7 @@ export default function Funnel() {
     allSizes.forEach((sizeKey) => {
       const yards = String(extractSizeYards(sizeKey));
       const prices = (pricingConfig.pricing || [])
-        .filter((tier) => tier?.tierKey === "2day_standard")
+        .filter((tier) => tier?.tierKey === "3day")
         .map((tier) => Number(tier.prices?.[yards] || 0))
         .filter((v) => v > 0);
       if (prices.length) p[sizeKey] = Math.min(...prices);
@@ -1353,7 +1353,7 @@ export default function Funnel() {
   // Economy (day-restricted) tiers are de-emphasized, never the default.
   const recommendedTierKey = useMemo(() => {
     if (!rentalOptions.length) return null;
-    const priority = ["4day", "2day_standard", "7day", "2day_montue"];
+    const priority = ["5day", "3day", "7day"];
     for (const key of priority) {
       if (rentalOptions.find((o) => o.key === key)) return key;
     }
