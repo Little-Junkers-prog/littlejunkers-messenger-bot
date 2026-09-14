@@ -8,14 +8,47 @@ import {
   resolveTierPrice,
 } from "../lib/pricingService";
 
+const ALLOWED_ORIGINS = new Set([
+  "https://book.littlejunkersllc.com",
+  "https://littlejunkersllc.com",
+  "https://www.littlejunkersllc.com",
+]);
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+function hasAllowedOrigin(req) {
+  const origin = req.headers.origin;
+  return !origin || ALLOWED_ORIGINS.has(origin);
+}
+
 function asString(value) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
 }
 
 export default async function handler(req, res) {
+  applyCors(req, res);
+
+  if (req.method === "OPTIONS") {
+    return hasAllowedOrigin(req)
+      ? res.status(200).end()
+      : res.status(403).json({ success: false, error: "Forbidden origin" });
+  }
+
   if (req.method !== "GET") {
     return res.status(405).json({ success: false, error: "Method not allowed" });
+  }
+
+  if (!hasAllowedOrigin(req)) {
+    return res.status(403).json({ success: false, error: "Forbidden origin" });
   }
 
   try {
