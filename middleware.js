@@ -5,6 +5,8 @@ const RATE_LIMITS = {
   "/api/create-checkout": { limit: 12, windowMs: 60 * 60 * 1000 },
   "/api/checkout-session": { limit: 30, windowMs: 15 * 60 * 1000 },
   "/api/availability": { limit: 60, windowMs: 15 * 60 * 1000 },
+  "/api/comparison-session": { limit: 90, windowMs: 15 * 60 * 1000 },
+  "/api/comparison-unlock": { limit: 8, windowMs: 60 * 60 * 1000 },
 };
 
 const buckets = globalThis.__ljRateLimitBuckets || new Map();
@@ -60,44 +62,27 @@ function applyRateLimit(req) {
 }
 
 export function middleware(req) {
-  const pathname = req.nextUrl.pathname;
-
-
-  if (req.method === "OPTIONS") {
-    return NextResponse.next();
-  }
+  if (req.method === "OPTIONS") return NextResponse.next();
 
   if (req.method === "POST" || req.method === "GET") {
     const result = applyRateLimit(req);
     if (result && !result.allowed) {
-      const retryAfterSeconds = Math.max(
-        1,
-        Math.ceil((result.resetAt - Date.now()) / 1000)
-      );
-
-      return new NextResponse(
-        JSON.stringify({
-          error: "Too many requests. Please try again shortly.",
-        }),
-        {
-          status: 429,
-          headers: {
-            "Content-Type": "application/json",
-            "Retry-After": String(retryAfterSeconds),
-            "X-RateLimit-Limit": String(result.limit),
-            "X-RateLimit-Remaining": "0",
-          },
-        }
-      );
+      const retryAfterSeconds = Math.max(1, Math.ceil((result.resetAt - Date.now()) / 1000));
+      return new NextResponse(JSON.stringify({ error: "Too many requests. Please try again shortly." }), {
+        status: 429,
+        headers: {
+          "Content-Type": "application/json",
+          "Retry-After": String(retryAfterSeconds),
+          "X-RateLimit-Limit": String(result.limit),
+          "X-RateLimit-Remaining": "0",
+        },
+      });
     }
 
     const response = NextResponse.next();
     if (result) {
       response.headers.set("X-RateLimit-Limit", String(result.limit));
-      response.headers.set(
-        "X-RateLimit-Remaining",
-        String(result.remaining)
-      );
+      response.headers.set("X-RateLimit-Remaining", String(result.remaining));
     }
     return response;
   }
@@ -112,5 +97,7 @@ export const config = {
     "/api/create-checkout",
     "/api/checkout-session",
     "/api/availability",
+    "/api/comparison-session",
+    "/api/comparison-unlock",
   ],
 };
