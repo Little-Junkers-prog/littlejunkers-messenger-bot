@@ -207,7 +207,7 @@ async function createConfirmedRental(supabase, hold, session, customerId, stripe
       return [b.line1, b.line2, b.city, b.state, b.postal_code].filter(Boolean).join(", ");
     })(),
     pick(hold, ["delivery_address", "address"], ""),
-    hold.metadata?.deliveryAddress,
+    hold?.metadata?.deliveryAddress,
     meta.area_label,
     "TBD"
   );
@@ -242,7 +242,7 @@ async function createConfirmedRental(supabase, hold, session, customerId, stripe
       meta.delivery_notes,
       meta.rental_option,
       meta.tier_key,
-      hold.metadata?.rentalOption
+      hold?.metadata?.rentalOption
     ) || null,
   };
 
@@ -336,30 +336,113 @@ async function processBookingConfirmation({
 
   const hold = await findBookingHold(supabase, holdId);
   if (!hold) {
-    console.error(
-      `[stripe-webhook][${eventLabel}] No booking_hold found for holdId:`, holdId,
-      "stripeId:", stripeId
+    console.warn(
+      `[stripe-webhook][${eventLabel}] No booking_hold found; attempting metadata recovery. holdId:`,
+      holdId,
+      "stripeId:",
+      stripeId
     );
-    await supabase.from("events").insert({
-      event_type: "payment_received_without_hold",
-      source: "funnel",
-      payload: {
-        booking_hold_id: holdId,
-        stripe_session_id: stripeId,
-        metadata: session.metadata,
-      },
-    });
-    return;
+
+    const meta = session.metadata || {};
+    const recoverableSize = normalizeSizeYards(meta.size_yards || meta.size_code || meta.dumpster_size);
+    const recoverableAddress = firstNonEmpty(
+      meta.delivery_address,
+      (() => {
+        const b = session.customer_details?.address;
+        if (!b) return "";
+        return [b.line1, b.line2, b.city, b.state, b.postal_code].filter(Boolean).join(", ");
+      })()
+    );
+    const recoverableDropoff =
+      parseOptionalDateOnly(meta.delivery_date) ||
+      parseOptionalDateOnly(meta.selected_window_start);
+    const recoverableReturn = parseOptionalDateOnly(meta.selected_window_end);
+
+    const missingFields = [
+      !recoverableSize ? "size_yards" : null,
+      !recoverableAddress ? "delivery_address" : null,
+      !recoverableDropoff ? "dropoff_date" : null,
+      !recoverableReturn ? "scheduled_return" : null,
+    ].filter(Boolean);
+
+    if (missingFields.length > 0) {
+      const { error: eventError } = await supabase.from("events").insert({
+        event_type: "payment_received_without_hold",
+        source: "funnel",
+        payload: {
+          booking_hold_id: holdId || null,
+          stripe_session_id: stripeId,
+          payment_intent: session.payment_intent || stripeId,
+          missing_fields: missingFields,
+          metadata: meta,
+        },
+      });
+      if (eventError) {
+        console.error(
+          `[stripe-webhook][${eventLabel}] Failed to persist payment_received_without_hold:`,
+          eventError.message
+        );
+      }
+
+      const { data: existingAction, error: actionLookupError } = await supabase
+        .from("business_action_items")
+        .select("id")
+        .eq("action_type", "stripe_payment_reconciliation")
+        .in("status", ["open", "in_progress"])
+        .contains("metadata", { stripe_payment_id: stripeId })
+        .limit(1)
+        .maybeSingle();
+
+      if (actionLookupError) {
+        console.error(
+          `[stripe-webhook][${eventLabel}] Failed to check reconciliation action item:`,
+          actionLookupError.message
+        );
+      } else if (!existingAction) {
+        const { error: actionError } = await supabase.from("business_action_items").insert({
+          action_type: "stripe_payment_reconciliation",
+          title: "Paid booking needs reconciliation",
+          description: `Stripe payment ${stripeId} succeeded, but the rental could not be created automatically because required booking data is missing.`,
+          status: "open",
+          priority: "critical",
+          assigned_type: "human",
+          recommended_action: "Open Stripe reconciliation and create or link the operational rental before dispatch planning.",
+          created_by: "stripe_webhook",
+          created_by_type: "system",
+          metadata: {
+            stripe_payment_id: stripeId,
+            booking_hold_id: holdId || null,
+            missing_fields: missingFields,
+            source: "funnel",
+          },
+        });
+        if (actionError) {
+          console.error(
+            `[stripe-webhook][${eventLabel}] Failed to create reconciliation action item:`,
+            actionError.message
+          );
+        }
+      }
+
+      return;
+    }
+
+    console.log(
+      `[stripe-webhook][${eventLabel}] Missing hold recovered entirely from Stripe metadata:`,
+      stripeId
+    );
   }
 
-  const customerId = await upsertCustomerFromSession(supabase, session, hold.customer_id);
+  const customerId = await upsertCustomerFromSession(supabase, session, hold?.customer_id || null);
   const confirmedRental = await createConfirmedRental(
     supabase, hold, session, customerId, stripeId, amountTotal
   );
-  await markBookingHoldConverted({ holdId: hold.id, rentalId: confirmedRental.id, stripeSessionId: stripeId });
+  if (hold?.id) {
+    await markBookingHoldConverted({ holdId: hold.id, rentalId: confirmedRental.id, stripeSessionId: stripeId });
+  }
   await markLeadConverted(supabase, supabaseLeadId, confirmedRental.id, stripeId);
   await createPaymentRecord(supabase, confirmedRental, session, customerId, stripeId, amountTotal, currency);
-  await logEvent(supabase, confirmedRental.id, customerId, session, hold.id, stripeId);
+  await logEvent(supabase, confirmedRental.id, customerId, session, hold?.id || holdId || null, stripeId);
   await sendConfirmationSms(confirmedRental, session);
 
   console.log(`[stripe-webhook][${eventLabel}] Rental confirmed:`, confirmedRental.id);
